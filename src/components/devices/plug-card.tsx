@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { usePowerStream } from '@/hooks/use-power-stream';
+import { usePowerStream, useOnlineStream } from '@/hooks/use-power-stream';
 import { Sparkline } from '@/components/charts/sparkline';
 import { RelayToggle } from '@/components/devices/relay-toggle';
 
@@ -34,12 +34,14 @@ function formatRelativeTime(timestamp: number): string {
 export function PlugCard({ plug }: PlugCardProps) {
   const [watts, setWatts] = useState<number | null>(null);
   const [relayOn, setRelayOn] = useState(plug.output ?? false);
+  const [isOnline, setIsOnline] = useState(plug.online);
   const [sparkData, setSparkData] = useState<Array<[number, number]>>([]);
   const lastToggleAtRef = useRef<number>(0);
 
   const onReading = useCallback(
     (reading: { apower: number; output: boolean; timestamp: number }) => {
       setWatts(reading.apower);
+      setIsOnline(true); // If we get a reading, it's online
 
       // Respect debounce: ignore SSE relay updates within 4s of a toggle
       const elapsed = Date.now() - lastToggleAtRef.current;
@@ -55,7 +57,17 @@ export function PlugCard({ plug }: PlugCardProps) {
     []
   );
 
+  const onOnline = useCallback(
+    (event: { plugId: string; online: boolean }) => {
+      if (event.plugId === plug.id) {
+        setIsOnline(event.online);
+      }
+    },
+    [plug.id]
+  );
+
   usePowerStream(plug.id, onReading);
+  useOnlineStream(onOnline);
 
   const handleRelayToggle = useCallback((newState: boolean) => {
     lastToggleAtRef.current = Date.now();
@@ -77,11 +89,11 @@ export function PlugCard({ plug }: PlugCardProps) {
         <div className="flex items-center gap-1.5">
           <span
             className={`w-2 h-2 rounded-full ${
-              plug.online ? 'bg-green-500' : 'bg-red-500'
+              isOnline ? 'bg-green-500' : 'bg-red-500'
             }`}
           />
           <span className="text-xs text-neutral-400">
-            {plug.online ? 'Online' : 'Offline'}
+            {isOnline ? 'Online' : 'Offline'}
           </span>
         </div>
       </div>
@@ -106,7 +118,7 @@ export function PlugCard({ plug }: PlugCardProps) {
           <RelayToggle
             plugId={plug.id}
             initialState={relayOn}
-            disabled={!plug.online}
+            disabled={!isOnline}
             onToggle={handleRelayToggle}
           />
         </div>
@@ -120,7 +132,7 @@ export function PlugCard({ plug }: PlugCardProps) {
       )}
 
       {/* Last Seen (only when offline) */}
-      {!plug.online && (
+      {!isOnline && (
         <div className="text-xs text-neutral-500">
           {plug.lastSeen
             ? formatRelativeTime(plug.lastSeen)

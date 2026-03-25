@@ -67,8 +67,9 @@ async function main() {
     handle(req, res);
   });
 
-  server.listen(env.PORT, () => {
-    console.log(`Charging Master ready on http://localhost:${env.PORT}`);
+  const host = '0.0.0.0';
+  server.listen(env.PORT, host, () => {
+    console.log(`Charging Master ready on http://${host}:${env.PORT}`);
   });
 
   // Graceful shutdown

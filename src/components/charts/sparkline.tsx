@@ -10,7 +10,7 @@ type SparklineProps = {
   height?: number;
 };
 
-function buildSparklineOption(): EChartsOption {
+function buildSparklineOption(data: Array<[number, number]>): EChartsOption {
   return {
     grid: { top: 0, right: 0, bottom: 0, left: 0 },
     xAxis: { type: 'time', show: false },
@@ -34,7 +34,7 @@ function buildSparklineOption(): EChartsOption {
             ],
           },
         },
-        data: [],
+        data,
       },
     ],
     animation: false,
@@ -42,19 +42,10 @@ function buildSparklineOption(): EChartsOption {
 }
 
 export function Sparkline({ data, width = 120, height = 40 }: SparklineProps) {
-  const chartRef = useRef<ReactECharts>(null);
-
-  useEffect(() => {
-    const chart = chartRef.current?.getEchartsInstance();
-    if (chart) {
-      chart.setOption({ series: [{ data }] });
-    }
-  }, [data]);
-
   return (
     <ReactECharts
-      ref={chartRef}
-      option={buildSparklineOption()}
+      option={buildSparklineOption(data)}
+      notMerge={true}
       style={{ width: `${width}px`, height: `${height}px` }}
       opts={{ renderer: 'canvas' }}
     />

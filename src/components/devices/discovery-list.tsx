@@ -89,38 +89,41 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     );
   }
 
+  const unregistered = devices.filter((d) => !registeredIds.includes(d.deviceId));
+
+  if (unregistered.length === 0) {
+    return (
+      <div className="text-sm text-neutral-500">
+        Keine neuen Geraete gefunden.
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2">
-      {devices.map((device) => {
-        const isRegistered = registeredIds.includes(device.deviceId);
-        return (
-          <div
-            key={device.deviceId}
-            className="bg-neutral-800 rounded-md p-3 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  device.online ? 'bg-green-500' : 'bg-red-500'
-                }`}
-              />
-              <span className="text-sm text-neutral-100 font-mono">
-                {device.deviceId}
-              </span>
-            </div>
-            {isRegistered ? (
-              <span className="text-xs text-neutral-500">Bereits hinzugefuegt</span>
-            ) : (
-              <button
-                onClick={() => onAddDevice(device.deviceId)}
-                className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
-              >
-                Hinzufuegen
-              </button>
-            )}
+      {unregistered.map((device) => (
+        <div
+          key={device.deviceId}
+          className="bg-neutral-800 rounded-md p-3 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                device.online ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            />
+            <span className="text-sm text-neutral-100 font-mono">
+              {device.deviceId}
+            </span>
           </div>
-        );
-      })}
+          <button
+            onClick={() => onAddDevice(device.deviceId)}
+            className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
+          >
+            Hinzufuegen
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { usePowerStream } from '@/hooks/use-power-stream';
@@ -21,7 +21,7 @@ const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
   { key: '1h', label: '1h' },
 ];
 
-function buildChartOption(): EChartsOption {
+function buildChartOption(data: Array<[number, number]>): EChartsOption {
   return {
     backgroundColor: 'transparent',
     tooltip: {
@@ -74,7 +74,7 @@ function buildChartOption(): EChartsOption {
           },
         },
         lineStyle: { color: '#3b82f6', width: 2 },
-        data: [],
+        data,
       },
     ],
     animation: true,
@@ -85,9 +85,9 @@ function buildChartOption(): EChartsOption {
 export function PowerChart({ plugId, initialWindow, initialData, onWindowChange, height }: PowerChartProps) {
   const [windowKey, setWindowKey] = useState<WindowKey>(initialWindow ?? '15m');
   const { push, clear } = useSlidingWindow(windowKey);
-  const chartRef = useRef<ReactECharts>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [chartData, setChartData] = useState<Array<[number, number]>>([]);
   const initialDataLoadedRef = useRef(false);
 
   // Load initial historical data into sliding window once
@@ -98,20 +98,14 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
       for (const [ts, val] of initialData) {
         latestData = push(ts, val);
       }
-      const chart = chartRef.current?.getEchartsInstance();
-      if (chart) {
-        chart.setOption({ series: [{ data: latestData }] });
-      }
+      setChartData(latestData);
     }
   }, [initialData, push]);
 
   const onReading = useCallback(
     (reading: { apower: number; timestamp: number }) => {
       const data = push(reading.timestamp, reading.apower);
-      const chart = chartRef.current?.getEchartsInstance();
-      if (chart) {
-        chart.setOption({ series: [{ data }] });
-      }
+      setChartData(data);
     },
     [push]
   );
@@ -177,8 +171,8 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
 
       {/* Chart */}
       <ReactECharts
-        ref={chartRef}
-        option={buildChartOption()}
+        option={buildChartOption(chartData)}
+        notMerge={true}
         style={{ height: isFullscreen ? 'calc(100vh - 80px)' : (height ?? '300px'), width: '100%' }}
         opts={{ renderer: 'canvas' }}
       />

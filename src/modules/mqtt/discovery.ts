@@ -1,6 +1,6 @@
 export const DISCOVERY_TOPICS = [
-  'shellyplugsg3-+/online',
-  'shellyplugsg3-+/status/switch:0',
+  '+/online',
+  '+/status/switch:0',
 ];
 
 export type DiscoveredDevice = {

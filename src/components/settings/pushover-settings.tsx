@@ -6,15 +6,12 @@ type PushoverSettingsProps = {
   initialSettings: Record<string, string>;
 };
 
-function useAutoSave(key: string, value: string, skipInitial: boolean) {
-  const isInitialMount = useRef(true);
+function useAutoSave(key: string, value: string, initialValue: string) {
+  const lastSavedValue = useRef(initialValue);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      if (skipInitial) return;
-    }
+    if (value === lastSavedValue.current) return;
 
     setSaveStatus('saving');
     const timer = setTimeout(() => {
@@ -23,6 +20,7 @@ function useAutoSave(key: string, value: string, skipInitial: boolean) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value }),
       }).then(() => {
+        lastSavedValue.current = value;
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       }).catch(() => {
@@ -31,7 +29,7 @@ function useAutoSave(key: string, value: string, skipInitial: boolean) {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [key, value, skipInitial]);
+  }, [key, value]);
 
   return saveStatus;
 }
@@ -45,8 +43,8 @@ export function PushoverSettings({ initialSettings }: PushoverSettingsProps) {
   const [apiToken, setApiToken] = useState(initialSettings['pushover.apiToken'] ?? '');
   const [showToken, setShowToken] = useState(false);
 
-  const userKeyStatus = useAutoSave('pushover.userKey', userKey, true);
-  const apiTokenStatus = useAutoSave('pushover.apiToken', apiToken, true);
+  const userKeyStatus = useAutoSave('pushover.userKey', userKey, initialSettings['pushover.userKey'] ?? '');
+  const apiTokenStatus = useAutoSave('pushover.apiToken', apiToken, initialSettings['pushover.apiToken'] ?? '');
 
   const anySaving = [userKeyStatus, apiTokenStatus].some((s) => s === 'saving');
   const anySaved = [userKeyStatus, apiTokenStatus].some((s) => s === 'saved');

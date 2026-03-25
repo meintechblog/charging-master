@@ -1,4 +1,3 @@
-import 'server-only';
 import mqtt, { type MqttClient, type IClientOptions } from 'mqtt';
 import type { EventBus, PowerReading } from '../events/event-bus';
 import { parseShellyStatus } from './shelly-parser';
@@ -94,6 +93,13 @@ export class MqttService {
     if (topic.endsWith('/online')) {
       const online = payload === 'true';
       this.eventBus.emitPlugOnline(deviceId, online);
+      // Update plug online status in DB
+      try {
+        db.update(plugs)
+          .set({ online, lastSeen: Date.now(), updatedAt: Date.now() })
+          .where(eq(plugs.id, deviceId))
+          .run();
+      } catch { /* plug may not exist in DB yet */ }
       return;
     }
 
@@ -111,6 +117,13 @@ export class MqttService {
         };
         this.eventBus.emitPowerReading(reading);
         this.persistIfDue(reading);
+        // Update plug lastSeen + online in DB
+        try {
+          db.update(plugs)
+            .set({ online: true, lastSeen: Date.now(), updatedAt: Date.now() })
+            .where(eq(plugs.id, deviceId))
+            .run();
+        } catch { /* plug may not exist */ }
       }
     }
   }

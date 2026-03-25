@@ -6,15 +6,13 @@ type MqttSettingsProps = {
   initialSettings: Record<string, string>;
 };
 
-function useAutoSave(key: string, value: string, skipInitial: boolean) {
-  const isInitialMount = useRef(true);
+function useAutoSave(key: string, value: string, initialValue: string) {
+  const lastSavedValue = useRef(initialValue);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      if (skipInitial) return;
-    }
+    // Only save if value actually changed from what we last saved/loaded
+    if (value === lastSavedValue.current) return;
 
     setSaveStatus('saving');
     const timer = setTimeout(() => {
@@ -23,6 +21,7 @@ function useAutoSave(key: string, value: string, skipInitial: boolean) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value }),
       }).then(() => {
+        lastSavedValue.current = value;
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       }).catch(() => {
@@ -31,7 +30,7 @@ function useAutoSave(key: string, value: string, skipInitial: boolean) {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [key, value, skipInitial]);
+  }, [key, value]);
 
   return saveStatus;
 }
@@ -48,10 +47,10 @@ export function MqttSettings({ initialSettings }: MqttSettingsProps) {
 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
 
-  const hostStatus = useAutoSave('mqtt.host', host, true);
-  const portStatus = useAutoSave('mqtt.port', port, true);
-  const usernameStatus = useAutoSave('mqtt.username', username, true);
-  const passwordStatus = useAutoSave('mqtt.password', password, true);
+  const hostStatus = useAutoSave('mqtt.host', host, initialSettings['mqtt.host'] ?? '');
+  const portStatus = useAutoSave('mqtt.port', port, initialSettings['mqtt.port'] ?? '1883');
+  const usernameStatus = useAutoSave('mqtt.username', username, initialSettings['mqtt.username'] ?? '');
+  const passwordStatus = useAutoSave('mqtt.password', password, initialSettings['mqtt.password'] ?? '');
 
   const anySaving = [hostStatus, portStatus, usernameStatus, passwordStatus].some(
     (s) => s === 'saving',
