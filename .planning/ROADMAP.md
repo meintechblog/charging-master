@@ -44,8 +44,12 @@ Plans:
   2. Dashboard shows all connected Shelly Plugs with current wattage and relay state at a glance
   3. User can toggle any Shelly relay on/off from the dashboard and see the state change reflected immediately
   4. Chart runs for hours without degrading browser performance (sliding window prevents memory leaks)
-**Plans**: TBD
-**UI hint**: yes
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — SSE endpoint, power stream hook, sliding window hook, MQTT publishCommand, relay API route
+- [ ] 02-02-PLAN.md — ECharts power chart, sparkline, relay toggle, enhanced plug cards with live data
+- [ ] 02-03-PLAN.md — Plug detail page with full interactive chart and historical data loading
 
 ### Phase 3: Charge Intelligence
 **Goal**: Users can teach the app their devices and have charging automatically stop at the desired SOC level
@@ -78,7 +82,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planning complete | - |
-| 2. Real-Time Visualization | 0/? | Not started | - |
+| 1. Foundation | 3/3 | Planning complete | - |
+| 2. Real-Time Visualization | 0/3 | Planning complete | - |
 | 3. Charge Intelligence | 0/? | Not started | - |
 | 4. Notifications & History | 0/? | Not started | - |
