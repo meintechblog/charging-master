@@ -61,8 +61,14 @@ Plans:
   3. User can see current estimated SOC and the live curve overlaid on the reference curve
   4. Charging stops automatically when the target SOC is reached, with HTTP API fallback if MQTT fails
   5. User can manually override the detected profile and adjust target SOC at any time
-**Plans**: TBD
-**UI hint**: yes
+**Plans:** 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — DB schema extension (6 tables), shared types, core algorithms (DTW, SOC estimator, state machine, relay controller)
+- [ ] 03-02-PLAN.md — ChargeMonitor singleton, curve matcher, profile CRUD API, SSE charge state events
+- [ ] 03-03-PLAN.md — Learn mode API routes (start/stop/save/status), charge session management API
+- [ ] 03-04-PLAN.md — Profile UI pages, learn mode wizard, SOC buttons, PowerChart reference overlay, charge stream hook
+- [ ] 03-05-PLAN.md — Active charging UI (detection banner, SOC countdown, unknown device dialog, dashboard/detail wiring)
 
 ### Phase 4: Notifications & History
 **Goal**: Users are notified about charge events and can review past charging sessions
@@ -84,5 +90,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Planning complete | - |
 | 2. Real-Time Visualization | 0/3 | Planning complete | - |
-| 3. Charge Intelligence | 0/? | Not started | - |
+| 3. Charge Intelligence | 0/5 | Planning complete | - |
 | 4. Notifications & History | 0/? | Not started | - |
