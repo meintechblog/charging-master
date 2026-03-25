@@ -1,0 +1,146 @@
+# Requirements: Charging-Master
+
+**Defined:** 2026-03-25
+**Core Value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt — kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
+
+## v1 Requirements
+
+Requirements for initial release. Each maps to roadmap phases.
+
+### Shelly Integration
+
+- [ ] **SHLY-01**: User can add a Shelly S3 Plug by entering its MQTT topic prefix
+- [ ] **SHLY-02**: App connects to configurable MQTT broker (host, port, optional credentials)
+- [ ] **SHLY-03**: App receives real-time power data (watts) from Shelly via MQTT
+- [ ] **SHLY-04**: User can manually toggle Shelly relay on/off from the UI
+- [ ] **SHLY-05**: MQTT connection auto-reconnects on disconnect with watchdog
+- [ ] **SHLY-06**: App supports multiple Shelly Plugs simultaneously
+
+### Real-Time Visualization
+
+- [ ] **VIZL-01**: User sees live power consumption chart updating in real-time (ECharts + SSE)
+- [ ] **VIZL-02**: Chart uses sliding window to prevent memory leaks on long sessions
+- [ ] **VIZL-03**: Current charge curve overlaid on reference curve in same chart
+- [ ] **VIZL-04**: Dashboard shows all active Shelly Plugs with current power and status
+
+### Device Profiles
+
+- [ ] **PROF-01**: User can create a new device profile (name, description)
+- [ ] **PROF-02**: User can start "learn mode" to record a full reference charge cycle
+- [ ] **PROF-03**: Reference charge curve is stored with timestamped power data points
+- [ ] **PROF-04**: App automatically detects charge-complete (power drops to ~0W)
+- [ ] **PROF-05**: App derives SOC boundaries (10% steps) from reference curve (energy-based)
+- [ ] **PROF-06**: User can set target SOC per device profile (e.g., 80%)
+- [ ] **PROF-07**: User can view and manage all device profiles (list, edit, delete)
+
+### Charge Intelligence
+
+- [ ] **CHRG-01**: App auto-detects which device is charging via curve matching (first 1-2 min)
+- [ ] **CHRG-02**: User can manually override the detected profile at any time
+- [ ] **CHRG-03**: App estimates current SOC based on position on reference curve
+- [ ] **CHRG-04**: App handles partial charges (device not at 0% when plugged in)
+- [ ] **CHRG-05**: App automatically stops charging at target SOC by switching Shelly relay off
+- [ ] **CHRG-06**: Auto-stop uses HTTP API fallback if MQTT switch command fails
+- [ ] **CHRG-07**: Relay switching includes hysteresis to prevent rapid on/off cycling
+
+### Notifications
+
+- [ ] **NOTF-01**: User can configure Pushover credentials (user key, API token)
+- [ ] **NOTF-02**: Notification sent when charging starts and device is recognized
+- [ ] **NOTF-03**: Notification sent when target SOC reached and charging stopped
+- [ ] **NOTF-04**: Notification sent when charging aborted or error occurs
+
+### Session History
+
+- [ ] **HIST-01**: Each charge session is logged (device, start, end, energy consumed, final SOC)
+- [ ] **HIST-02**: User can view charge history per device with session details
+- [ ] **HIST-03**: User can view past charge curves from session history
+
+### Settings
+
+- [ ] **SETT-01**: MQTT broker settings configurable (host, port, credentials)
+- [ ] **SETT-02**: Pushover notification settings configurable
+- [ ] **SETT-03**: All settings persisted in database
+
+## v2 Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Extended Plug Support
+
+- **EXT-01**: Support for Tasmota-based smart plugs
+- **EXT-02**: Support for TP-Link / other MQTT-compatible plugs
+- **EXT-03**: Auto-discovery of Shelly plugs on the network
+
+### Analytics
+
+- **ANLT-01**: Energy cost tracking with configurable tariff rates
+- **ANLT-02**: Weekly/monthly energy consumption reports
+- **ANLT-03**: Battery health trend analysis over time
+
+### Scheduling
+
+- **SCHD-01**: Schedule charging windows (e.g., charge between 2-6am)
+- **SCHD-02**: Delay charging start until off-peak hours
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Multi-user / Authentication | Single-user app on local LAN, no auth needed |
+| Cloud sync / Remote access | Local-only deployment on LXC |
+| Mobile native app | Responsive web app sufficient |
+| DC-side measurement | Only AC power available via Shelly |
+| ML-based SOC prediction | Overengineered for v1, simple curve mapping works |
+| Automatic Shelly firmware updates | Risky, could break MQTT integration |
+| Non-Shelly plugs in v1 | Fragments integration, abstract interface for v2 |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| SHLY-01 | TBD | Pending |
+| SHLY-02 | TBD | Pending |
+| SHLY-03 | TBD | Pending |
+| SHLY-04 | TBD | Pending |
+| SHLY-05 | TBD | Pending |
+| SHLY-06 | TBD | Pending |
+| VIZL-01 | TBD | Pending |
+| VIZL-02 | TBD | Pending |
+| VIZL-03 | TBD | Pending |
+| VIZL-04 | TBD | Pending |
+| PROF-01 | TBD | Pending |
+| PROF-02 | TBD | Pending |
+| PROF-03 | TBD | Pending |
+| PROF-04 | TBD | Pending |
+| PROF-05 | TBD | Pending |
+| PROF-06 | TBD | Pending |
+| PROF-07 | TBD | Pending |
+| CHRG-01 | TBD | Pending |
+| CHRG-02 | TBD | Pending |
+| CHRG-03 | TBD | Pending |
+| CHRG-04 | TBD | Pending |
+| CHRG-05 | TBD | Pending |
+| CHRG-06 | TBD | Pending |
+| CHRG-07 | TBD | Pending |
+| NOTF-01 | TBD | Pending |
+| NOTF-02 | TBD | Pending |
+| NOTF-03 | TBD | Pending |
+| NOTF-04 | TBD | Pending |
+| HIST-01 | TBD | Pending |
+| HIST-02 | TBD | Pending |
+| HIST-03 | TBD | Pending |
+| SETT-01 | TBD | Pending |
+| SETT-02 | TBD | Pending |
+| SETT-03 | TBD | Pending |
+
+**Coverage:**
+- v1 requirements: 33 total
+- Mapped to phases: 0
+- Unmapped: 33
+
+---
+*Requirements defined: 2026-03-25*
+*Last updated: 2026-03-25 after initial definition*
