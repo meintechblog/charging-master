@@ -28,7 +28,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. App maintains a persistent MQTT connection that auto-reconnects after broker restarts
   3. Power readings from connected Shelly Plugs are stored in the database continuously
   4. User can configure MQTT broker and Pushover settings through a settings page, and settings persist across app restarts
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Project scaffolding, database schema, MQTT service, EventBus, custom server
+- [ ] 01-02-PLAN.md — Settings page with MQTT broker config, Pushover credentials, auto-save, connection test
+- [ ] 01-03-PLAN.md — App shell sidebar, dashboard plug cards, device management with MQTT auto-discovery
 
 ### Phase 2: Real-Time Visualization
 **Goal**: Users can see live power consumption and manually control their Shelly Plugs from a dashboard
@@ -73,7 +78,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 0/3 | Planning complete | - |
 | 2. Real-Time Visualization | 0/? | Not started | - |
 | 3. Charge Intelligence | 0/? | Not started | - |
 | 4. Notifications & History | 0/? | Not started | - |
