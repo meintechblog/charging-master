@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md — Project scaffolding, database schema, MQTT service, EventBus, custom server
 - [x] 01-02-PLAN.md — Settings page with MQTT broker config, Pushover credentials, auto-save, connection test
-- [ ] 01-03-PLAN.md — App shell sidebar, dashboard plug cards, device management with MQTT auto-discovery
+- [x] 01-03-PLAN.md — App shell sidebar, dashboard plug cards, device management with MQTT auto-discovery
 
 ### Phase 2: Real-Time Visualization
 **Goal**: Users can see live power consumption and manually control their Shelly Plugs from a dashboard

@@ -9,7 +9,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Shelly Integration
 
-- [ ] **SHLY-01**: User can add a Shelly S3 Plug by entering its MQTT topic prefix
+- [x] **SHLY-01**: User can add a Shelly S3 Plug by entering its MQTT topic prefix
 - [x] **SHLY-02**: App connects to configurable MQTT broker (host, port, optional credentials)
 - [x] **SHLY-03**: App receives real-time power data (watts) from Shelly via MQTT
 - [ ] **SHLY-04**: User can manually toggle Shelly relay on/off from the UI
@@ -101,7 +101,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHLY-01 | Phase 1 | Pending |
+| SHLY-01 | Phase 1 | Complete |
 | SHLY-02 | Phase 1 | Complete |
 | SHLY-03 | Phase 1 | Complete |
 | SHLY-04 | Phase 2 | Pending |
