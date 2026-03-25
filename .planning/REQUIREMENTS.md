@@ -58,8 +58,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Settings
 
-- [ ] **SETT-01**: MQTT broker settings configurable (host, port, credentials)
-- [ ] **SETT-02**: Pushover notification settings configurable
+- [x] **SETT-01**: MQTT broker settings configurable (host, port, credentials)
+- [x] **SETT-02**: Pushover notification settings configurable
 - [x] **SETT-03**: All settings persisted in database
 
 ## v2 Requirements
@@ -132,8 +132,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HIST-01 | Phase 4 | Pending |
 | HIST-02 | Phase 4 | Pending |
 | HIST-03 | Phase 4 | Pending |
-| SETT-01 | Phase 1 | Pending |
-| SETT-02 | Phase 1 | Pending |
+| SETT-01 | Phase 1 | Complete |
+| SETT-02 | Phase 1 | Complete |
 | SETT-03 | Phase 1 | Complete |
 
 **Coverage:**
