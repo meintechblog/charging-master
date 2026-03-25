@@ -12,13 +12,16 @@ Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt — kein manuelle
 
 ### Validated
 
-(None yet — ship to validate)
+- Shelly S3 Plug Integration via MQTT (Leistungsdaten lesen) — Phase 1
+- Mehrere Shelly Plugs parallel unterstuetzen — Phase 1
+- MQTT-Broker konfigurierbar (Host, Port, optional Credentials) — Phase 1
+- Dashboard mit Uebersicht aller aktiven Ladevorgaenge (Plug Cards) — Phase 1
 
 ### Active
 
-- [ ] Shelly S3 Plug Integration via MQTT (Leistungsdaten lesen, Switch steuern)
-- [ ] Geraeteprofil anlernen: Kompletten Ladezyklus aufzeichnen und als Referenz-Ladekurve speichern
 - [ ] Ladekurve grafisch darstellen (Echtzeit + Referenz-Overlay)
+- [ ] Shelly Relay manuell steuern (Switch ein/aus)
+- [ ] Geraeteprofil anlernen: Kompletten Ladezyklus aufzeichnen und als Referenz-Ladekurve speichern
 - [ ] SOC-Grenzen automatisch aus Referenz-Ladekurve ableiten (10%-Schritte)
 - [ ] Automatische Geraeteerkennung via Kurven-Matching (erste 1-2 Min des Ladevorgangs)
 - [ ] Manuelles Uebersteuern des erkannten Profils jederzeit moeglich
@@ -26,9 +29,6 @@ Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt — kein manuelle
 - [ ] Automatischer Ladestopp bei Erreichen des Ziel-SOC (Shelly Switch aus)
 - [ ] Erkennung Ladevorgang-Ende (Leistung sinkt auf ~0W)
 - [ ] Pushover-Benachrichtigungen (Ladestart, Geraeteerkennung, Ladestopp, Abbruch)
-- [ ] Mehrere Shelly Plugs parallel unterstuetzen
-- [ ] MQTT-Broker konfigurierbar (Host, Port, optional Credentials)
-- [ ] Dashboard mit Uebersicht aller aktiven Ladevorgaenge
 - [ ] Ladehistorie pro Geraet
 
 ### Out of Scope
@@ -109,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-25 after initialization*
+*Last updated: 2026-03-25 after Phase 1 completion*
