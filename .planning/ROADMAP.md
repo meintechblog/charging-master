@@ -49,7 +49,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — SSE endpoint, power stream hook, sliding window hook, MQTT publishCommand, relay API route
 - [x] 02-02-PLAN.md — ECharts power chart, sparkline, relay toggle, enhanced plug cards with live data
-- [ ] 02-03-PLAN.md — Plug detail page with full interactive chart and historical data loading
+- [x] 02-03-PLAN.md — Plug detail page with full interactive chart and historical data loading
 
 ### Phase 3: Charge Intelligence
 **Goal**: Users can teach the app their devices and have charging automatically stop at the desired SOC level
