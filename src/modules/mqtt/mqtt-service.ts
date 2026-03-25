@@ -189,6 +189,11 @@ export class MqttService {
     }
   }
 
+  publishCommand(topicPrefix: string, command: 'on' | 'off' | 'toggle'): void {
+    if (!this.client) throw new Error('MQTT not connected');
+    this.client.publish(`${topicPrefix}/command/switch:0`, command);
+  }
+
   isConnected(): boolean {
     return this.client?.connected ?? false;
   }
