@@ -101,46 +101,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHLY-01 | TBD | Pending |
-| SHLY-02 | TBD | Pending |
-| SHLY-03 | TBD | Pending |
-| SHLY-04 | TBD | Pending |
-| SHLY-05 | TBD | Pending |
-| SHLY-06 | TBD | Pending |
-| VIZL-01 | TBD | Pending |
-| VIZL-02 | TBD | Pending |
-| VIZL-03 | TBD | Pending |
-| VIZL-04 | TBD | Pending |
-| PROF-01 | TBD | Pending |
-| PROF-02 | TBD | Pending |
-| PROF-03 | TBD | Pending |
-| PROF-04 | TBD | Pending |
-| PROF-05 | TBD | Pending |
-| PROF-06 | TBD | Pending |
-| PROF-07 | TBD | Pending |
-| CHRG-01 | TBD | Pending |
-| CHRG-02 | TBD | Pending |
-| CHRG-03 | TBD | Pending |
-| CHRG-04 | TBD | Pending |
-| CHRG-05 | TBD | Pending |
-| CHRG-06 | TBD | Pending |
-| CHRG-07 | TBD | Pending |
-| NOTF-01 | TBD | Pending |
-| NOTF-02 | TBD | Pending |
-| NOTF-03 | TBD | Pending |
-| NOTF-04 | TBD | Pending |
-| HIST-01 | TBD | Pending |
-| HIST-02 | TBD | Pending |
-| HIST-03 | TBD | Pending |
-| SETT-01 | TBD | Pending |
-| SETT-02 | TBD | Pending |
-| SETT-03 | TBD | Pending |
+| SHLY-01 | Phase 1 | Pending |
+| SHLY-02 | Phase 1 | Pending |
+| SHLY-03 | Phase 1 | Pending |
+| SHLY-04 | Phase 2 | Pending |
+| SHLY-05 | Phase 1 | Pending |
+| SHLY-06 | Phase 1 | Pending |
+| VIZL-01 | Phase 2 | Pending |
+| VIZL-02 | Phase 2 | Pending |
+| VIZL-03 | Phase 3 | Pending |
+| VIZL-04 | Phase 2 | Pending |
+| PROF-01 | Phase 3 | Pending |
+| PROF-02 | Phase 3 | Pending |
+| PROF-03 | Phase 3 | Pending |
+| PROF-04 | Phase 3 | Pending |
+| PROF-05 | Phase 3 | Pending |
+| PROF-06 | Phase 3 | Pending |
+| PROF-07 | Phase 3 | Pending |
+| CHRG-01 | Phase 3 | Pending |
+| CHRG-02 | Phase 3 | Pending |
+| CHRG-03 | Phase 3 | Pending |
+| CHRG-04 | Phase 3 | Pending |
+| CHRG-05 | Phase 3 | Pending |
+| CHRG-06 | Phase 3 | Pending |
+| CHRG-07 | Phase 3 | Pending |
+| NOTF-01 | Phase 4 | Pending |
+| NOTF-02 | Phase 4 | Pending |
+| NOTF-03 | Phase 4 | Pending |
+| NOTF-04 | Phase 4 | Pending |
+| HIST-01 | Phase 4 | Pending |
+| HIST-02 | Phase 4 | Pending |
+| HIST-03 | Phase 4 | Pending |
+| SETT-01 | Phase 1 | Pending |
+| SETT-02 | Phase 1 | Pending |
+| SETT-03 | Phase 1 | Pending |
 
 **Coverage:**
-- v1 requirements: 33 total
-- Mapped to phases: 0
-- Unmapped: 33
+- v1 requirements: 34 total
+- Mapped to phases: 34
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after initial definition*
+*Last updated: 2026-03-25 after roadmap creation*
