@@ -10,11 +10,11 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Shelly Integration
 
 - [ ] **SHLY-01**: User can add a Shelly S3 Plug by entering its MQTT topic prefix
-- [ ] **SHLY-02**: App connects to configurable MQTT broker (host, port, optional credentials)
-- [ ] **SHLY-03**: App receives real-time power data (watts) from Shelly via MQTT
+- [x] **SHLY-02**: App connects to configurable MQTT broker (host, port, optional credentials)
+- [x] **SHLY-03**: App receives real-time power data (watts) from Shelly via MQTT
 - [ ] **SHLY-04**: User can manually toggle Shelly relay on/off from the UI
-- [ ] **SHLY-05**: MQTT connection auto-reconnects on disconnect with watchdog
-- [ ] **SHLY-06**: App supports multiple Shelly Plugs simultaneously
+- [x] **SHLY-05**: MQTT connection auto-reconnects on disconnect with watchdog
+- [x] **SHLY-06**: App supports multiple Shelly Plugs simultaneously
 
 ### Real-Time Visualization
 
@@ -60,7 +60,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **SETT-01**: MQTT broker settings configurable (host, port, credentials)
 - [ ] **SETT-02**: Pushover notification settings configurable
-- [ ] **SETT-03**: All settings persisted in database
+- [x] **SETT-03**: All settings persisted in database
 
 ## v2 Requirements
 
@@ -102,11 +102,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SHLY-01 | Phase 1 | Pending |
-| SHLY-02 | Phase 1 | Pending |
-| SHLY-03 | Phase 1 | Pending |
+| SHLY-02 | Phase 1 | Complete |
+| SHLY-03 | Phase 1 | Complete |
 | SHLY-04 | Phase 2 | Pending |
-| SHLY-05 | Phase 1 | Pending |
-| SHLY-06 | Phase 1 | Pending |
+| SHLY-05 | Phase 1 | Complete |
+| SHLY-06 | Phase 1 | Complete |
 | VIZL-01 | Phase 2 | Pending |
 | VIZL-02 | Phase 2 | Pending |
 | VIZL-03 | Phase 3 | Pending |
@@ -134,7 +134,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HIST-03 | Phase 4 | Pending |
 | SETT-01 | Phase 1 | Pending |
 | SETT-02 | Phase 1 | Pending |
-| SETT-03 | Phase 1 | Pending |
+| SETT-03 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 34 total
