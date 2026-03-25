@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -10,8 +11,36 @@ const NAV_ITEMS = [
   { href: '/history', label: 'Verlauf', disabled: true },
 ];
 
-export function Sidebar({ mqttConnected = false }: { mqttConnected?: boolean }) {
+function useMqttStatus() {
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function check() {
+      try {
+        const res = await fetch('/api/mqtt/status');
+        if (!active) return;
+        if (res.ok) {
+          const data = await res.json();
+          setConnected(data.connected);
+        }
+      } catch {
+        if (active) setConnected(false);
+      }
+    }
+
+    check();
+    const interval = setInterval(check, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  return connected;
+}
+
+export function Sidebar() {
   const pathname = usePathname();
+  const mqttConnected = useMqttStatus();
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/';
