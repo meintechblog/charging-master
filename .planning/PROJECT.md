@@ -58,6 +58,13 @@ Der Akku ist nicht immer bei 0% wenn er angeschlossen wird. Bei Wiederkehrenden 
 
 Bestehender MQTT-Broker auf mqtt-master.local (ohne Authentifizierung). Shelly S3 Plug publisht Leistungsdaten auf MQTT-Topics. Die App subscribed und steuert den Switch per MQTT-Publish.
 
+### Shelly S3 Plug
+
+- **IP-Adresse**: 192.168.3.167
+- **Web-UI**: http://192.168.3.167
+- **HTTP API**: http://192.168.3.167/rpc/Switch.Set, /rpc/Shelly.GetStatus, etc.
+- **MQTT Topics**: Muessen noch ermittelt werden (abhaengig von Device-ID/Konfiguration)
+
 ### Deployment-Ziel
 
 Frischer Debian LXC Container unter charging-master.local. Zugang: `ssh root@charging-master.local`. Node.js und alles weitere muss installiert werden.
