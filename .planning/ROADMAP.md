@@ -47,7 +47,7 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — SSE endpoint, power stream hook, sliding window hook, MQTT publishCommand, relay API route
+- [x] 02-01-PLAN.md — SSE endpoint, power stream hook, sliding window hook, MQTT publishCommand, relay API route
 - [ ] 02-02-PLAN.md — ECharts power chart, sparkline, relay toggle, enhanced plug cards with live data
 - [ ] 02-03-PLAN.md — Plug detail page with full interactive chart and historical data loading
 

@@ -12,14 +12,14 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SHLY-01**: User can add a Shelly S3 Plug by entering its MQTT topic prefix
 - [x] **SHLY-02**: App connects to configurable MQTT broker (host, port, optional credentials)
 - [x] **SHLY-03**: App receives real-time power data (watts) from Shelly via MQTT
-- [ ] **SHLY-04**: User can manually toggle Shelly relay on/off from the UI
+- [x] **SHLY-04**: User can manually toggle Shelly relay on/off from the UI
 - [x] **SHLY-05**: MQTT connection auto-reconnects on disconnect with watchdog
 - [x] **SHLY-06**: App supports multiple Shelly Plugs simultaneously
 
 ### Real-Time Visualization
 
-- [ ] **VIZL-01**: User sees live power consumption chart updating in real-time (ECharts + SSE)
-- [ ] **VIZL-02**: Chart uses sliding window to prevent memory leaks on long sessions
+- [x] **VIZL-01**: User sees live power consumption chart updating in real-time (ECharts + SSE)
+- [x] **VIZL-02**: Chart uses sliding window to prevent memory leaks on long sessions
 - [ ] **VIZL-03**: Current charge curve overlaid on reference curve in same chart
 - [ ] **VIZL-04**: Dashboard shows all active Shelly Plugs with current power and status
 
@@ -104,11 +104,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SHLY-01 | Phase 1 | Complete |
 | SHLY-02 | Phase 1 | Complete |
 | SHLY-03 | Phase 1 | Complete |
-| SHLY-04 | Phase 2 | Pending |
+| SHLY-04 | Phase 2 | Complete |
 | SHLY-05 | Phase 1 | Complete |
 | SHLY-06 | Phase 1 | Complete |
-| VIZL-01 | Phase 2 | Pending |
-| VIZL-02 | Phase 2 | Pending |
+| VIZL-01 | Phase 2 | Complete |
+| VIZL-02 | Phase 2 | Complete |
 | VIZL-03 | Phase 3 | Pending |
 | VIZL-04 | Phase 2 | Pending |
 | PROF-01 | Phase 3 | Pending |
