@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { usePowerStream } from '@/hooks/use-power-stream';
@@ -9,6 +9,9 @@ import { useSlidingWindow, type WindowKey } from '@/hooks/use-sliding-window';
 type PowerChartProps = {
   plugId: string;
   initialWindow?: WindowKey;
+  initialData?: Array<[number, number]>;
+  onWindowChange?: (key: WindowKey) => void;
+  height?: string;
 };
 
 const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
@@ -79,12 +82,28 @@ function buildChartOption(): EChartsOption {
   };
 }
 
-export function PowerChart({ plugId, initialWindow }: PowerChartProps) {
+export function PowerChart({ plugId, initialWindow, initialData, onWindowChange, height }: PowerChartProps) {
   const [windowKey, setWindowKey] = useState<WindowKey>(initialWindow ?? '15m');
   const { push, clear } = useSlidingWindow(windowKey);
   const chartRef = useRef<ReactECharts>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const initialDataLoadedRef = useRef(false);
+
+  // Load initial historical data into sliding window once
+  useEffect(() => {
+    if (initialData && initialData.length > 0 && !initialDataLoadedRef.current) {
+      initialDataLoadedRef.current = true;
+      let latestData: Array<[number, number]> = [];
+      for (const [ts, val] of initialData) {
+        latestData = push(ts, val);
+      }
+      const chart = chartRef.current?.getEchartsInstance();
+      if (chart) {
+        chart.setOption({ series: [{ data: latestData }] });
+      }
+    }
+  }, [initialData, push]);
 
   const onReading = useCallback(
     (reading: { apower: number; timestamp: number }) => {
@@ -103,8 +122,10 @@ export function PowerChart({ plugId, initialWindow }: PowerChartProps) {
     (key: WindowKey) => {
       setWindowKey(key);
       clear();
+      initialDataLoadedRef.current = false;
+      onWindowChange?.(key);
     },
-    [clear]
+    [clear, onWindowChange]
   );
 
   const toggleFullscreen = useCallback(() => {
@@ -158,7 +179,7 @@ export function PowerChart({ plugId, initialWindow }: PowerChartProps) {
       <ReactECharts
         ref={chartRef}
         option={buildChartOption()}
-        style={{ height: isFullscreen ? 'calc(100vh - 80px)' : '300px', width: '100%' }}
+        style={{ height: isFullscreen ? 'calc(100vh - 80px)' : (height ?? '300px'), width: '100%' }}
         opts={{ renderer: 'canvas' }}
       />
     </div>
