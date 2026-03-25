@@ -21,7 +21,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **VIZL-01**: User sees live power consumption chart updating in real-time (ECharts + SSE)
 - [x] **VIZL-02**: Chart uses sliding window to prevent memory leaks on long sessions
 - [ ] **VIZL-03**: Current charge curve overlaid on reference curve in same chart
-- [ ] **VIZL-04**: Dashboard shows all active Shelly Plugs with current power and status
+- [x] **VIZL-04**: Dashboard shows all active Shelly Plugs with current power and status
 
 ### Device Profiles
 
@@ -110,7 +110,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIZL-01 | Phase 2 | Complete |
 | VIZL-02 | Phase 2 | Complete |
 | VIZL-03 | Phase 3 | Pending |
-| VIZL-04 | Phase 2 | Pending |
+| VIZL-04 | Phase 2 | Complete |
 | PROF-01 | Phase 3 | Pending |
 | PROF-02 | Phase 3 | Pending |
 | PROF-03 | Phase 3 | Pending |
