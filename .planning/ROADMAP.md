@@ -64,7 +64,7 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — DB schema extension (6 tables), shared types, core algorithms (DTW, SOC estimator, state machine, relay controller)
+- [x] 03-01-PLAN.md — DB schema extension (6 tables), shared types, core algorithms (DTW, SOC estimator, state machine, relay controller)
 - [ ] 03-02-PLAN.md — ChargeMonitor singleton, curve matcher, profile CRUD API, SSE charge state events
 - [ ] 03-03-PLAN.md — Learn mode API routes (start/stop/save/status), charge session management API
 - [ ] 03-04-PLAN.md — Profile UI pages, learn mode wizard, SOC buttons, PowerChart reference overlay, charge stream hook
