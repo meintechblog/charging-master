@@ -12,6 +12,7 @@ type PowerChartProps = {
   initialData?: Array<[number, number]>;
   onWindowChange?: (key: WindowKey) => void;
   height?: string;
+  referenceData?: Array<[number, number]>;
 };
 
 const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
@@ -21,17 +22,63 @@ const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
   { key: '1h', label: '1h' },
 ];
 
-function buildChartOption(data: Array<[number, number]>): EChartsOption {
+function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[number, number]>): EChartsOption {
+  const hasReference = referenceData && referenceData.length > 0;
+
+  const series: EChartsOption['series'] = [
+    {
+      name: hasReference ? 'Aktuell' : undefined,
+      type: 'line',
+      smooth: true,
+      showSymbol: false,
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(59,130,246,0.5)' },
+            { offset: 1, color: 'rgba(59,130,246,0.0)' },
+          ],
+        },
+      },
+      lineStyle: { color: '#3b82f6', width: 2 },
+      data,
+    },
+  ];
+
+  if (hasReference) {
+    series.push({
+      name: 'Referenz',
+      type: 'line',
+      smooth: true,
+      showSymbol: false,
+      lineStyle: { color: '#6b7280', width: 1.5, type: 'dashed' },
+      areaStyle: undefined,
+      data: referenceData,
+      z: 0,
+    });
+  }
+
   return {
     backgroundColor: 'transparent',
+    ...(hasReference
+      ? { legend: { data: ['Aktuell', 'Referenz'], textStyle: { color: '#a3a3a3' } } }
+      : {}),
     tooltip: {
       trigger: 'axis',
       formatter: (params: unknown) => {
-        const p = (params as Array<{ value: [number, number] }>)[0];
-        if (!p) return '';
-        const date = new Date(p.value[0]);
+        const items = params as Array<{ seriesName?: string; value: [number, number] }>;
+        if (!items || items.length === 0) return '';
+        const date = new Date(items[0].value[0]);
         const time = date.toLocaleTimeString('de-DE');
-        return `${time}<br/>${p.value[1].toFixed(1)} W`;
+        const lines = items.map((item) => {
+          const label = item.seriesName ? `${item.seriesName}: ` : '';
+          return `${label}${item.value[1].toFixed(1)} W`;
+        });
+        return `${time}<br/>${lines.join('<br/>')}`;
       },
     },
     xAxis: {
@@ -55,34 +102,13 @@ function buildChartOption(data: Array<[number, number]>): EChartsOption {
         fillerColor: 'rgba(59,130,246,0.15)',
       },
     ],
-    series: [
-      {
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(59,130,246,0.5)' },
-              { offset: 1, color: 'rgba(59,130,246,0.0)' },
-            ],
-          },
-        },
-        lineStyle: { color: '#3b82f6', width: 2 },
-        data,
-      },
-    ],
+    series,
     animation: true,
     animationDuration: 300,
   };
 }
 
-export function PowerChart({ plugId, initialWindow, initialData, onWindowChange, height }: PowerChartProps) {
+export function PowerChart({ plugId, initialWindow, initialData, onWindowChange, height, referenceData }: PowerChartProps) {
   const [windowKey, setWindowKey] = useState<WindowKey>(initialWindow ?? '15m');
   const { push, clear } = useSlidingWindow(windowKey);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -171,7 +197,7 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
 
       {/* Chart */}
       <ReactECharts
-        option={buildChartOption(chartData)}
+        option={buildChartOption(chartData, referenceData)}
         notMerge={true}
         style={{ height: isFullscreen ? 'calc(100vh - 80px)' : (height ?? '300px'), width: '100%' }}
         opts={{ renderer: 'canvas' }}
