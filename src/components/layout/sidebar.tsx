@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard' },
   { href: '/devices', label: 'Geraete' },
+  { href: '/profiles', label: 'Profile' },
   { href: '/settings', label: 'Einstellungen' },
   { href: '/history', label: 'Verlauf', disabled: true },
 ];
