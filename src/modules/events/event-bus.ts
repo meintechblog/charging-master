@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import type { ChargeStateEvent } from '@/modules/charging/types';
 
 export interface PowerReading {
   plugId: string;
@@ -28,5 +29,10 @@ export class EventBus extends EventEmitter {
 
   emitDiscoveredDevice(deviceId: string) {
     this.emit('discovery:device', deviceId);
+  }
+
+  emitChargeState(event: ChargeStateEvent) {
+    this.emit(`charge:${event.plugId}`, event);
+    this.emit('charge:*', event);
   }
 }

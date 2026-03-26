@@ -207,6 +207,20 @@ export class MqttService {
     this.client.publish(`${topicPrefix}/command/switch:0`, command);
   }
 
+  /**
+   * Request current status from a Shelly device via MQTT RPC.
+   * Used during LEARNING and CHARGING states for active polling (Pitfall 2: sparse Shelly updates).
+   */
+  requestStatus(topicPrefix: string): void {
+    if (!this.client) return;
+    this.client.publish(`${topicPrefix}/rpc`, JSON.stringify({
+      id: Date.now(),
+      src: 'charging-master',
+      method: 'Switch.GetStatus',
+      params: { id: 0 },
+    }));
+  }
+
   isConnected(): boolean {
     return this.client?.connected ?? false;
   }

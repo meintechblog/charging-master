@@ -2,6 +2,7 @@ import { createServer } from 'http';
 import next from 'next';
 import { MqttService } from './src/modules/mqtt/mqtt-service';
 import { EventBus, type PlugOnlineEvent } from './src/modules/events/event-bus';
+import { ChargeMonitor } from './src/modules/charging/charge-monitor';
 import type { DiscoveredDevice } from './src/modules/mqtt/discovery';
 import { db } from './src/db/client';
 import { config } from './src/db/schema';
@@ -41,9 +42,14 @@ async function main() {
     console.log('No MQTT broker configured. Set mqtt.host in settings to connect.');
   }
 
+  // Initialize ChargeMonitor singleton
+  const chargeMonitor = new ChargeMonitor(eventBus, mqttService);
+  chargeMonitor.start();
+
   // Expose globals for route handlers
   globalThis.__eventBus = eventBus;
   globalThis.__mqttService = mqttService;
+  globalThis.__chargeMonitor = chargeMonitor;
 
   // Initialize discovered devices tracking
   globalThis.__discoveredDevices = new Map<string, DiscoveredDevice>();
@@ -75,6 +81,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log('Shutting down...');
+    chargeMonitor.stop();
     await mqttService.disconnect();
     server.close(() => {
       process.exit(0);
