@@ -25,13 +25,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Device Profiles
 
-- [ ] **PROF-01**: User can create a new device profile (name, description)
+- [x] **PROF-01**: User can create a new device profile (name, description)
 - [x] **PROF-02**: User can start "learn mode" to record a full reference charge cycle
 - [x] **PROF-03**: Reference charge curve is stored with timestamped power data points
-- [ ] **PROF-04**: App automatically detects charge-complete (power drops to ~0W)
+- [x] **PROF-04**: App automatically detects charge-complete (power drops to ~0W)
 - [x] **PROF-05**: App derives SOC boundaries (10% steps) from reference curve (energy-based)
-- [ ] **PROF-06**: User can set target SOC per device profile (e.g., 80%)
-- [ ] **PROF-07**: User can view and manage all device profiles (list, edit, delete)
+- [x] **PROF-06**: User can set target SOC per device profile (e.g., 80%)
+- [x] **PROF-07**: User can view and manage all device profiles (list, edit, delete)
 
 ### Charge Intelligence
 
@@ -111,13 +111,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIZL-02 | Phase 2 | Complete |
 | VIZL-03 | Phase 3 | Pending |
 | VIZL-04 | Phase 2 | Complete |
-| PROF-01 | Phase 3 | Pending |
+| PROF-01 | Phase 3 | Complete |
 | PROF-02 | Phase 3 | Complete |
 | PROF-03 | Phase 3 | Complete |
-| PROF-04 | Phase 3 | Pending |
+| PROF-04 | Phase 3 | Complete |
 | PROF-05 | Phase 3 | Complete |
-| PROF-06 | Phase 3 | Pending |
-| PROF-07 | Phase 3 | Pending |
+| PROF-06 | Phase 3 | Complete |
+| PROF-07 | Phase 3 | Complete |
 | CHRG-01 | Phase 3 | Complete |
 | CHRG-02 | Phase 3 | Complete |
 | CHRG-03 | Phase 3 | Complete |
