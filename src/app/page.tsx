@@ -2,6 +2,7 @@ import { db } from '@/db/client';
 import { plugs, powerReadings } from '@/db/schema';
 import { desc, eq } from 'drizzle-orm';
 import { PlugCard } from '@/components/devices/plug-card';
+import { DashboardChargeBanners } from '@/components/charging/dashboard-charge-banners';
 import Link from 'next/link';
 
 export default async function HomePage() {
@@ -38,11 +39,16 @@ export default async function HomePage() {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {plugsWithOutput.map((plug) => (
-            <PlugCard key={plug.id} plug={plug} />
-          ))}
-        </div>
+        <>
+          {/* Charge banners for all plugs (self-manage via SSE) */}
+          <DashboardChargeBanners plugIds={plugsWithOutput.map((p) => p.id)} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {plugsWithOutput.map((plug) => (
+              <PlugCard key={plug.id} plug={plug} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

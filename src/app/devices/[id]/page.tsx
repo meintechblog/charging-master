@@ -4,6 +4,7 @@ import { db } from '@/db/client';
 import { plugs, powerReadings } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { PlugDetailChart } from './plug-detail-chart';
+import { PlugChargeBanner } from './plug-charge-banner';
 
 export default async function PlugDetailPage({
   params,
@@ -62,6 +63,9 @@ export default async function PlugDetailPage({
         />
       </div>
 
+      {/* Charge Banner */}
+      <PlugChargeBanner plugId={id} />
+
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-4">
@@ -93,9 +97,9 @@ export default async function PlugDetailPage({
         </div>
       </div>
 
-      {/* Chart section */}
+      {/* Chart section with reference curve overlay support */}
       <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
-        <PlugDetailChart plugId={id} />
+        <PlugDetailChart plugId={id} enableReferenceCurve />
       </div>
     </div>
   );

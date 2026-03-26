@@ -2,16 +2,26 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PowerChart } from '@/components/charts/power-chart';
+import { useChargeStream } from '@/hooks/use-charge-stream';
 import type { WindowKey } from '@/hooks/use-sliding-window';
+import type { ChargeStateEvent } from '@/modules/charging/types';
+
+type CurvePoint = {
+  offsetSeconds: number;
+  apower: number;
+};
 
 type PlugDetailChartProps = {
   plugId: string;
+  enableReferenceCurve?: boolean;
 };
 
-export function PlugDetailChart({ plugId }: PlugDetailChartProps) {
+export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChartProps) {
   const [initialData, setInitialData] = useState<Array<[number, number]> | null>(null);
   const [windowKey, setWindowKey] = useState<WindowKey>('15m');
+  const [referenceData, setReferenceData] = useState<Array<[number, number]> | undefined>(undefined);
   const fetchedRef = useRef<string | null>(null);
+  const sessionRef = useRef<{ profileId?: number; startedAt?: number } | null>(null);
 
   const fetchHistory = useCallback(async (pId: string, wk: WindowKey) => {
     try {
@@ -34,6 +44,56 @@ export function PlugDetailChart({ plugId }: PlugDetailChartProps) {
     setInitialData(null);
     fetchHistory(plugId, windowKey);
   }, [plugId, windowKey, fetchHistory]);
+
+  // Reference curve: fetch and align when charge session is active
+  const fetchCurve = useCallback(async (profileId: number, sessionStartedAt: number) => {
+    try {
+      const res = await fetch(`/api/profiles/${profileId}/curve`);
+      if (!res.ok) {
+        setReferenceData(undefined);
+        return;
+      }
+      const curvePoints: CurvePoint[] = await res.json();
+      // Align curve timestamps to session start time
+      const aligned: Array<[number, number]> = curvePoints.map((pt) => [
+        sessionStartedAt + pt.offsetSeconds * 1000,
+        pt.apower,
+      ]);
+      setReferenceData(aligned);
+    } catch {
+      setReferenceData(undefined);
+    }
+  }, []);
+
+  const onChargeEvent = useCallback(
+    (event: ChargeStateEvent) => {
+      if (!enableReferenceCurve) return;
+
+      const isActive = event.state === 'matched' || event.state === 'charging' || event.state === 'countdown';
+
+      if (isActive && event.profileId && event.sessionId) {
+        // Only fetch curve if profile changed
+        if (sessionRef.current?.profileId !== event.profileId) {
+          // Fetch active session to get startedAt
+          fetch(`/api/charging/sessions/${event.sessionId}`)
+            .then((res) => res.json())
+            .then((data: { session?: { startedAt: number } }) => {
+              const startedAt = data.session?.startedAt ?? Date.now();
+              sessionRef.current = { profileId: event.profileId, startedAt };
+              fetchCurve(event.profileId!, startedAt);
+            })
+            .catch(() => {});
+        }
+      } else if (event.state === 'complete' || event.state === 'idle' || event.state === 'aborted') {
+        // Clear reference data when session ends
+        setReferenceData(undefined);
+        sessionRef.current = null;
+      }
+    },
+    [enableReferenceCurve, fetchCurve]
+  );
+
+  useChargeStream(plugId, onChargeEvent);
 
   if (initialData === null) {
     return (
@@ -62,6 +122,7 @@ export function PlugDetailChart({ plugId }: PlugDetailChartProps) {
       initialData={initialData}
       onWindowChange={setWindowKey}
       height="400px"
+      referenceData={referenceData}
     />
   );
 }
