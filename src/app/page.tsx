@@ -5,6 +5,8 @@ import { PlugCard } from '@/components/devices/plug-card';
 import { DashboardChargeBanners } from '@/components/charging/dashboard-charge-banners';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export default async function HomePage() {
   const allPlugs = db.select().from(plugs).all();
 

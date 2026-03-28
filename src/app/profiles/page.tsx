@@ -3,6 +3,8 @@ import { deviceProfiles, referenceCurves } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ProfilesPage() {
   const profiles = db.select().from(deviceProfiles).all();
 

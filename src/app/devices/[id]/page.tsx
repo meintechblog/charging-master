@@ -6,6 +6,8 @@ import { eq, desc } from 'drizzle-orm';
 import { PlugDetailChart } from './plug-detail-chart';
 import { PlugChargeBanner } from './plug-charge-banner';
 
+export const dynamic = 'force-dynamic';
+
 export default async function PlugDetailPage({
   params,
 }: {

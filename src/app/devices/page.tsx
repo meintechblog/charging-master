@@ -2,6 +2,8 @@ import { db } from '@/db/client';
 import { plugs } from '@/db/schema';
 import { DeviceManager } from './device-manager';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DevicesPage() {
   const registeredPlugs = db.select().from(plugs).all();
 

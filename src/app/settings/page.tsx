@@ -4,6 +4,8 @@ import { SettingsSection } from '@/components/settings/settings-section';
 import { MqttSettings } from '@/components/settings/mqtt-settings';
 import { PushoverSettings } from '@/components/settings/pushover-settings';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SettingsPage() {
   const rows = db.select().from(config).all();
   const settings: Record<string, string> = Object.fromEntries(
