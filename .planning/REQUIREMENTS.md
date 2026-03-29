@@ -53,7 +53,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Session History
 
 - [ ] **HIST-01**: Each charge session is logged (device, start, end, energy consumed, final SOC)
-- [ ] **HIST-02**: User can view charge history per device with session details
+- [x] **HIST-02**: User can view charge history per device with session details
 - [ ] **HIST-03**: User can view past charge curves from session history
 
 ### Settings
@@ -130,7 +130,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOTF-03 | Phase 4 | Pending |
 | NOTF-04 | Phase 4 | Pending |
 | HIST-01 | Phase 4 | Pending |
-| HIST-02 | Phase 4 | Pending |
+| HIST-02 | Phase 4 | Complete |
 | HIST-03 | Phase 4 | Pending |
 | SETT-01 | Phase 1 | Complete |
 | SETT-02 | Phase 1 | Complete |
