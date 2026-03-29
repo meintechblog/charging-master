@@ -112,6 +112,10 @@ export async function PUT(
   if (typeof body.purchaseDate === 'string') updates.purchaseDate = body.purchaseDate;
   if (typeof body.estimatedCycles === 'number') updates.estimatedCycles = body.estimatedCycles;
   if (body.targetSoc !== undefined) updates.targetSoc = Number(body.targetSoc);
+  if (typeof body.manufacturer === 'string') updates.manufacturer = body.manufacturer;
+  if (typeof body.articleNumber === 'string') updates.articleNumber = body.articleNumber;
+  if (typeof body.gtin === 'string') updates.gtin = body.gtin;
+  if (body.weightGrams !== undefined) updates.weightGrams = body.weightGrams === null ? null : Number(body.weightGrams);
   if (typeof body.productUrl === 'string') updates.productUrl = body.productUrl;
   if (typeof body.documentUrl === 'string') updates.documentUrl = body.documentUrl;
 

@@ -5,7 +5,11 @@ import { useState } from 'react';
 export type ProfileFormValues = {
   name: string;
   description: string;
+  manufacturer: string;
   modelName: string;
+  articleNumber: string;
+  gtin: string;
+  weightGrams: number | null;
   purchaseDate: string;
   estimatedCycles: number | null;
   productUrl: string;
@@ -33,7 +37,13 @@ export function ProfileForm({
 }: ProfileFormProps) {
   const [name, setName] = useState(initialValues?.name ?? '');
   const [description, setDescription] = useState(initialValues?.description ?? '');
+  const [manufacturer, setManufacturer] = useState(initialValues?.manufacturer ?? '');
   const [modelName, setModelName] = useState(initialValues?.modelName ?? '');
+  const [articleNumber, setArticleNumber] = useState(initialValues?.articleNumber ?? '');
+  const [gtin, setGtin] = useState(initialValues?.gtin ?? '');
+  const [weightGrams, setWeightGrams] = useState<string>(
+    initialValues?.weightGrams != null ? String(initialValues.weightGrams) : ''
+  );
   const [purchaseDate, setPurchaseDate] = useState(initialValues?.purchaseDate ?? '');
   const [estimatedCycles, setEstimatedCycles] = useState<string>(
     initialValues?.estimatedCycles != null ? String(initialValues.estimatedCycles) : ''
@@ -51,7 +61,11 @@ export function ProfileForm({
     onSubmit({
       name: name.trim(),
       description: description.trim(),
+      manufacturer: manufacturer.trim(),
       modelName: modelName.trim(),
+      articleNumber: articleNumber.trim(),
+      gtin: gtin.trim(),
+      weightGrams: weightGrams ? parseInt(weightGrams, 10) : null,
       purchaseDate,
       estimatedCycles: estimatedCycles ? parseInt(estimatedCycles, 10) : null,
       productUrl: productUrl.trim(),
@@ -88,13 +102,63 @@ export function ProfileForm({
       </div>
 
       <div>
+        <label className={LABEL_CLASS}>Hersteller</label>
+        <input
+          type="text"
+          value={manufacturer}
+          onChange={(e) => setManufacturer(e.target.value)}
+          className={INPUT_CLASS}
+          placeholder="z.B. Bosch"
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
         <label className={LABEL_CLASS}>Modellbezeichnung</label>
         <input
           type="text"
           value={modelName}
           onChange={(e) => setModelName(e.target.value)}
           className={INPUT_CLASS}
-          placeholder="z.B. Bosch PowerTube 625"
+          placeholder="z.B. PowerTube 625"
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className={LABEL_CLASS}>Artikelnummer</label>
+          <input
+            type="text"
+            value={articleNumber}
+            onChange={(e) => setArticleNumber(e.target.value)}
+            className={INPUT_CLASS}
+            placeholder="z.B. 0 275 007 556"
+            disabled={disabled}
+          />
+        </div>
+        <div>
+          <label className={LABEL_CLASS}>GTIN / EAN</label>
+          <input
+            type="text"
+            value={gtin}
+            onChange={(e) => setGtin(e.target.value)}
+            className={INPUT_CLASS}
+            placeholder="z.B. 4059952527659"
+            disabled={disabled}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Gewicht (Gramm)</label>
+        <input
+          type="number"
+          value={weightGrams}
+          onChange={(e) => setWeightGrams(e.target.value)}
+          className={INPUT_CLASS}
+          placeholder="z.B. 3700"
+          min={0}
           disabled={disabled}
         />
       </div>
