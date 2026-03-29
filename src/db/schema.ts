@@ -115,3 +115,10 @@ export const sessionReadings = sqliteTable('session_readings', {
   current: real('current'),
   timestamp: integer('timestamp').notNull(),
 });
+
+export const sessionEvents = sqliteTable('session_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sessionId: integer('session_id').notNull().references(() => chargeSessions.id, { onDelete: 'cascade' }),
+  state: text('state').notNull(),
+  timestamp: integer('timestamp').notNull(),
+});
