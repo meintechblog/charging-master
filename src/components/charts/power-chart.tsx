@@ -23,7 +23,7 @@ const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
   { key: 'max', label: 'Max' },
 ];
 
-function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[number, number]>): EChartsOption {
+function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[number, number]>, yAxisAutoScale = false): EChartsOption {
   const hasReference = referenceData && referenceData.length > 0;
 
   const series: EChartsOption['series'] = [
@@ -90,6 +90,8 @@ function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[
     yAxis: {
       type: 'value',
       name: 'Watt',
+      min: yAxisAutoScale ? undefined : 0,
+      scale: yAxisAutoScale,
       splitLine: { lineStyle: { color: '#262626' } },
       axisLabel: { color: '#737373' },
     },
@@ -99,8 +101,21 @@ function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[
         type: 'slider',
         xAxisIndex: 0,
         bottom: 10,
+        height: 40,
         borderColor: '#404040',
-        fillerColor: 'rgba(59,130,246,0.15)',
+        fillerColor: 'rgba(59,130,246,0.2)',
+        backgroundColor: '#1a1a1a',
+        dataBackground: {
+          lineStyle: { color: '#3b82f6', width: 1 },
+          areaStyle: { color: 'rgba(59,130,246,0.15)' },
+        },
+        selectedDataBackground: {
+          lineStyle: { color: '#3b82f6', width: 1.5 },
+          areaStyle: { color: 'rgba(59,130,246,0.3)' },
+        },
+        handleStyle: { color: '#3b82f6', borderColor: '#3b82f6' },
+        textStyle: { color: '#737373' },
+        moveHandleStyle: { color: '#3b82f6' },
       },
     ],
     series,
@@ -115,6 +130,7 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chartData, setChartData] = useState<Array<[number, number]>>([]);
+  const [yAutoScale, setYAutoScale] = useState(false);
   const initialDataLoadedRef = useRef(false);
 
   // Load initial historical data into sliding window once
@@ -179,6 +195,18 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setYAutoScale(!yAutoScale)}
+            className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+              yAutoScale
+                ? 'bg-blue-500/20 text-blue-400 border-blue-500/50'
+                : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:border-neutral-600'
+            }`}
+            title={yAutoScale ? 'Y-Achse ab 0' : 'Y-Achse Auto-Scale'}
+          >
+            {yAutoScale ? 'Auto-Y' : '0-Y'}
+          </button>
         <button
           onClick={toggleFullscreen}
           className="p-1.5 rounded text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
@@ -194,11 +222,12 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
             </svg>
           )}
         </button>
+        </div>
       </div>
 
       {/* Chart */}
       <ReactECharts
-        option={buildChartOption(chartData, referenceData)}
+        option={buildChartOption(chartData, referenceData, yAutoScale)}
         notMerge={true}
         style={{ height: isFullscreen ? 'calc(100vh - 80px)' : (height ?? '300px'), width: '100%' }}
         opts={{ renderer: 'canvas' }}
