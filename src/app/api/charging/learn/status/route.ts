@@ -24,7 +24,7 @@ export async function GET() {
 
     if (monitor) {
       // Access internal learning trackers
-      const monitorAny = monitor as Record<string, unknown>;
+      const monitorAny = monitor as unknown as Record<string, unknown>;
       const learnLastPower = monitorAny.learnLastPower as Map<string, number> | undefined;
       const learnReadingCount = monitorAny.learnReadingCount as Map<string, number> | undefined;
       const learnCumulativeWh = monitorAny.learnCumulativeWh as Map<string, number> | undefined;

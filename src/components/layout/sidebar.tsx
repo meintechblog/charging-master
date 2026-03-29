@@ -39,9 +39,37 @@ function useMqttStatus() {
   return connected;
 }
 
+function useActiveLearnCount() {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function check() {
+      try {
+        const res = await fetch('/api/charging/learn/status');
+        if (!active) return;
+        if (res.ok) {
+          const sessions = await res.json();
+          setCount(Array.isArray(sessions) ? sessions.filter((s: { state: string }) => s.state === 'learning').length : 0);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    check();
+    const interval = setInterval(check, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  return count;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const mqttConnected = useMqttStatus();
+  const activeLearnCount = useActiveLearnCount();
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/';
@@ -82,6 +110,20 @@ export function Sidebar() {
           );
         })}
       </div>
+
+      {/* Active learning sessions indicator */}
+      {activeLearnCount > 0 && (
+        <Link
+          href="/profiles/learn"
+          className="flex items-center gap-2 px-3 py-2 mb-2 rounded-md bg-green-500/10 border border-green-500/20 text-xs text-green-300 hover:bg-green-500/20 transition-colors"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          </span>
+          {activeLearnCount} Lernvorgang{activeLearnCount !== 1 ? 'e' : ''} aktiv
+        </Link>
+      )}
 
       <div className="flex items-center gap-2 px-3 py-2 text-xs text-neutral-400">
         <span

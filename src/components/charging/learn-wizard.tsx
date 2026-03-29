@@ -47,6 +47,8 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
+  const [activeSessions, setActiveSessions] = useState<LearnStatus[]>([]);
+
   // On mount, check for active learning sessions (D-28: browser-close resilience)
   useEffect(() => {
     async function checkActive() {
@@ -54,18 +56,23 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
         const res = await fetch('/api/charging/learn/status');
         if (res.ok) {
           const sessions: LearnStatus[] = await res.json();
-          const active = sessions.find(
-            (s) => s.state === 'learning' || s.state === 'learn_complete'
-          );
-          if (active) {
-            setCreatedProfileId(active.profileId);
-            setSelectedPlugId(active.plugId);
-            setSessionId(active.sessionId);
-            setLearnStatus(active);
-            startTimeRef.current = active.startedAt;
-            setStep(4);
-            if (active.state === 'learn_complete') {
-              setShowComplete(true);
+          setActiveSessions(sessions);
+
+          // Only auto-resume if initialPlugId matches an active session
+          if (initialPlugId) {
+            const mySession = sessions.find(
+              (s) => s.plugId === initialPlugId && (s.state === 'learning' || s.state === 'learn_complete')
+            );
+            if (mySession) {
+              setCreatedProfileId(mySession.profileId);
+              setSelectedPlugId(mySession.plugId);
+              setSessionId(mySession.sessionId);
+              setLearnStatus(mySession);
+              startTimeRef.current = mySession.startedAt;
+              setStep(4);
+              if (mySession.state === 'learn_complete') {
+                setShowComplete(true);
+              }
             }
           }
         }
@@ -74,7 +81,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
       }
     }
     checkActive();
-  }, []);
+  }, [initialPlugId]);
 
   // Load plugs for step 2
   useEffect(() => {
@@ -249,6 +256,30 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
         <span className="ml-2 text-xs text-neutral-500">Schritt {step} von 4</span>
       </div>
 
+      {/* Active learning sessions banner */}
+      {activeSessions.length > 0 && step < 4 && (
+        <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded">
+          <div className="text-sm font-medium text-blue-300 mb-2">
+            {activeSessions.length} aktive{activeSessions.length === 1 ? 'r' : ''} Lernvorgang{activeSessions.length !== 1 ? 'e' : ''}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeSessions.map((s) => (
+              <a
+                key={s.sessionId}
+                href={`/profiles/learn?plugId=${s.plugId}`}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/20 rounded text-xs text-blue-300 hover:bg-blue-500/30 transition-colors"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                </span>
+                {s.plugId.replace('shellyplugsg3-', '')} — {formatEnergy(s.cumulativeWh)} — {formatDuration(s.durationMs)}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-300">
           {error}
@@ -274,13 +305,20 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
           <h2 className="text-lg font-semibold text-neutral-100 mb-4">
             Shelly Plug auswaehlen
           </h2>
-          {plugs.length === 0 ? (
+          {(() => {
+            const busyPlugIds = new Set(activeSessions.map((s) => s.plugId));
+            const availablePlugs = plugs.filter((p) => !busyPlugIds.has(p.id));
+            return availablePlugs.length === 0 && plugs.length > 0 ? (
+              <p className="text-neutral-400 text-sm">
+                Alle Plugs haben bereits aktive Lernvorgaenge. Warte bis einer abgeschlossen ist oder nutze einen weiteren Plug.
+              </p>
+            ) : availablePlugs.length === 0 ? (
             <p className="text-neutral-400 text-sm">
               Keine Shelly Plugs registriert. Registriere zuerst einen Plug unter Geraete.
             </p>
           ) : (
             <div className="grid gap-2">
-              {plugs.map((plug) => (
+              {availablePlugs.map((plug) => (
                 <button
                   key={plug.id}
                   onClick={() => setSelectedPlugId(plug.id)}
@@ -299,7 +337,8 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
                 </button>
               ))}
             </div>
-          )}
+          );
+          })()}
 
           <div className="flex gap-2 mt-4">
             <button
