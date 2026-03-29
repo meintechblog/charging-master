@@ -1,12 +1,12 @@
 import { db } from '@/db/client';
 import {
   chargeSessions,
-  sessionReadings,
+  powerReadings,
   referenceCurves,
   referenceCurvePoints,
   socBoundaries,
 } from '@/db/schema';
-import { eq, and, inArray, asc } from 'drizzle-orm';
+import { eq, and, gte, inArray, asc } from 'drizzle-orm';
 import { computeSocBoundaries } from '@/modules/charging/soc-estimator';
 
 export const runtime = 'nodejs';
@@ -57,39 +57,43 @@ export async function POST(request: Request) {
       .where(eq(chargeSessions.id, session.id))
       .run();
 
-    db.delete(sessionReadings)
-      .where(eq(sessionReadings.sessionId, session.id))
-      .run();
-
     return Response.json({ ok: true, action: 'discarded' });
   }
 
   // action === 'save'
-  // 1. Fetch all readings ordered by offsetMs
+  // 1. Fetch all power_readings since session start for this plug
   const readings = db
     .select()
-    .from(sessionReadings)
-    .where(eq(sessionReadings.sessionId, session.id))
-    .orderBy(asc(sessionReadings.offsetMs))
+    .from(powerReadings)
+    .where(
+      and(
+        eq(powerReadings.plugId, session.plugId),
+        gte(powerReadings.timestamp, session.startedAt)
+      )
+    )
+    .orderBy(asc(powerReadings.timestamp))
     .all();
 
   if (readings.length === 0) {
     return Response.json({ error: 'no_readings_recorded' }, { status: 400 });
   }
 
-  // 2. Downsample to 1 reading per second (last reading in each second bucket)
+  const sessionStart = session.startedAt;
+
+  // 2. Downsample to 1 reading per second (offset from session start)
   const bucketMap = new Map<number, typeof readings[number]>();
   for (const r of readings) {
-    const bucket = Math.floor(r.offsetMs / 1000);
-    bucketMap.set(bucket, r); // last one wins
+    const offsetMs = r.timestamp - sessionStart;
+    const bucket = Math.floor(offsetMs / 1000);
+    bucketMap.set(bucket, r);
   }
   const downsampled = Array.from(bucketMap.entries())
     .sort(([a], [b]) => a - b)
     .map(([bucket, r]) => ({
       offsetSeconds: bucket,
       apower: r.apower,
-      voltage: r.voltage,
-      current: r.current,
+      voltage: r.voltage ?? null,
+      current: r.current ?? null,
     }));
 
   // 3. Compute cumulative Wh
