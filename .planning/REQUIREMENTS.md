@@ -45,14 +45,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Notifications
 
-- [ ] **NOTF-01**: User can configure Pushover credentials (user key, API token)
-- [ ] **NOTF-02**: Notification sent when charging starts and device is recognized
-- [ ] **NOTF-03**: Notification sent when target SOC reached and charging stopped
-- [ ] **NOTF-04**: Notification sent when charging aborted or error occurs
+- [x] **NOTF-01**: User can configure Pushover credentials (user key, API token)
+- [x] **NOTF-02**: Notification sent when charging starts and device is recognized
+- [x] **NOTF-03**: Notification sent when target SOC reached and charging stopped
+- [x] **NOTF-04**: Notification sent when charging aborted or error occurs
 
 ### Session History
 
-- [ ] **HIST-01**: Each charge session is logged (device, start, end, energy consumed, final SOC)
+- [x] **HIST-01**: Each charge session is logged (device, start, end, energy consumed, final SOC)
 - [x] **HIST-02**: User can view charge history per device with session details
 - [ ] **HIST-03**: User can view past charge curves from session history
 
@@ -125,11 +125,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHRG-05 | Phase 3 | Complete |
 | CHRG-06 | Phase 3 | Complete |
 | CHRG-07 | Phase 3 | Complete |
-| NOTF-01 | Phase 4 | Pending |
-| NOTF-02 | Phase 4 | Pending |
-| NOTF-03 | Phase 4 | Pending |
-| NOTF-04 | Phase 4 | Pending |
-| HIST-01 | Phase 4 | Pending |
+| NOTF-01 | Phase 4 | Complete |
+| NOTF-02 | Phase 4 | Complete |
+| NOTF-03 | Phase 4 | Complete |
+| NOTF-04 | Phase 4 | Complete |
+| HIST-01 | Phase 4 | Complete |
 | HIST-02 | Phase 4 | Complete |
 | HIST-03 | Phase 4 | Pending |
 | SETT-01 | Phase 1 | Complete |
