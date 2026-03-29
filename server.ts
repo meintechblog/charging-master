@@ -3,6 +3,8 @@ import next from 'next';
 import { MqttService } from './src/modules/mqtt/mqtt-service';
 import { EventBus, type PlugOnlineEvent } from './src/modules/events/event-bus';
 import { ChargeMonitor } from './src/modules/charging/charge-monitor';
+import { NotificationService } from './src/modules/notifications/notification-service';
+import { SessionRecorder } from './src/modules/charging/session-recorder';
 import type { DiscoveredDevice } from './src/modules/mqtt/discovery';
 import { db } from './src/db/client';
 import { config, plugs } from './src/db/schema';
@@ -45,6 +47,12 @@ async function main() {
   // Initialize ChargeMonitor singleton
   const chargeMonitor = new ChargeMonitor(eventBus, mqttService);
   chargeMonitor.start();
+
+  // Initialize notification and session recording services
+  const notificationService = new NotificationService(eventBus);
+  notificationService.start();
+  const sessionRecorder = new SessionRecorder(eventBus);
+  sessionRecorder.start();
 
   // Expose globals for route handlers
   globalThis.__eventBus = eventBus;
@@ -89,6 +97,8 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log('Shutting down...');
+    notificationService.stop();
+    sessionRecorder.stop();
     chargeMonitor.stop();
     mqttService.stopAllHttpPolling();
     await mqttService.disconnect();
