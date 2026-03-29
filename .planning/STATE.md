@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-29T18:27:33.254Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-29T18:31:01.675Z"
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -59,6 +59,7 @@ Plan: 3 of 3
 | Phase 03-charge-intelligence P05 | 3min | 2 tasks | 8 files |
 | Phase 04-notifications-history P02 | 2min | 2 tasks | 3 files |
 | Phase 04-notifications-history P01 | 2min | 2 tasks | 5 files |
+| Phase 04-notifications-history P03 | 2min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,7 @@ Recent decisions affecting current work:
 - [Phase 03-charge-intelligence]: ChargeBanner self-manages via useChargeStream SSE; adapted /plugs to /devices route; reference curve aligned to session startedAt
 - [Phase 04-notifications-history]: Client component with useEffect fetch for filter reactivity in history page
 - [Phase 04-notifications-history]: 60s cooldown per plug prevents duplicate Pushover notifications; power readings throttled to every 5th
+- [Phase 04-notifications-history]: Reference curve aligned using curveOffsetSeconds offset for correct partial charge visualization
 
 ### Pending Todos
 
@@ -94,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T18:27:33.250Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-29T18:31:01.672Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

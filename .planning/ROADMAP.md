@@ -84,7 +84,7 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md — NotificationService with Pushover dispatch, SessionRecorder for readings/events persistence, sessionEvents schema
 - [x] 04-02-PLAN.md — History list page with table/filters, history API route, sidebar Verlauf link activation
-- [ ] 04-03-PLAN.md — Session detail page with power curve replay, reference overlay, event timeline, profile sessions section
+- [x] 04-03-PLAN.md — Session detail page with power curve replay, reference overlay, event timeline, profile sessions section
 
 ## Progress
 
