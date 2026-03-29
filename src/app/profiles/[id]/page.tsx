@@ -242,7 +242,7 @@ export default function ProfileDetailPage() {
 
     curveStats.push({ icon: <IconZap />, label: 'Startleistung', value: `${c.startPower.toFixed(1)} W`, accent: 'text-yellow-400' });
     curveStats.push({ icon: <IconBolt />, label: 'Spitzenleistung', value: `${c.peakPower.toFixed(1)} W`, accent: 'text-orange-400' });
-    curveStats.push({ icon: <IconBolt />, label: 'Gesamtenergie', value: energyStr, accent: 'text-green-400' });
+    curveStats.push({ icon: <IconBolt />, label: 'Energie (AC-seitig)', value: energyStr, accent: 'text-green-400' });
     curveStats.push({ icon: <IconClock />, label: 'Ladedauer', value: durationStr, accent: 'text-blue-400' });
   }
 
