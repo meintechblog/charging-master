@@ -5,7 +5,7 @@ import { EventBus, type PlugOnlineEvent } from './src/modules/events/event-bus';
 import { ChargeMonitor } from './src/modules/charging/charge-monitor';
 import type { DiscoveredDevice } from './src/modules/mqtt/discovery';
 import { db } from './src/db/client';
-import { config } from './src/db/schema';
+import { config, plugs } from './src/db/schema';
 import { env } from './src/lib/env';
 import { eq } from 'drizzle-orm';
 
@@ -51,6 +51,14 @@ async function main() {
   globalThis.__mqttService = mqttService;
   globalThis.__chargeMonitor = chargeMonitor;
 
+  // Start HTTP polling for all registered plugs with IP addresses
+  const registeredPlugs = db.select().from(plugs).all();
+  for (const plug of registeredPlugs) {
+    if (plug.enabled && plug.ipAddress) {
+      mqttService.startHttpPolling(plug.id);
+    }
+  }
+
   // Initialize discovered devices tracking
   globalThis.__discoveredDevices = new Map<string, DiscoveredDevice>();
 
@@ -82,6 +90,7 @@ async function main() {
   const shutdown = async () => {
     console.log('Shutting down...');
     chargeMonitor.stop();
+    mqttService.stopAllHttpPolling();
     await mqttService.disconnect();
     server.close(() => {
       process.exit(0);

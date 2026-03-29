@@ -13,11 +13,13 @@ export class MqttService {
   private lastPersistedAt: Map<string, number> = new Map();
   private lastMessageAt: number = 0;
   private watchdogTimer: NodeJS.Timeout | null = null;
+  private httpPollers: Map<string, NodeJS.Timeout> = new Map();
 
   private readonly ACTIVE_POWER_THRESHOLD = 5; // watts
   private readonly ACTIVE_INTERVAL = 5_000; // ms -- 5s during active charging
   private readonly IDLE_INTERVAL = 60_000; // ms -- 60s during idle/standby
   private readonly WATCHDOG_CHECK_INTERVAL = 15_000; // ms
+  private readonly HTTP_POLL_INTERVAL = 5_000; // ms -- poll Shelly HTTP API every 5s
   private readonly WATCHDOG_STALE_THRESHOLD = 30_000; // ms
 
   constructor(eventBus: EventBus) {
@@ -219,6 +221,93 @@ export class MqttService {
       method: 'Switch.GetStatus',
       params: { id: 0 },
     }));
+  }
+
+  /**
+   * Start HTTP polling for a plug's power data.
+   * Shelly Gen3 only sends MQTT status_ntf on "significant changes",
+   * so we poll via HTTP API as a reliable data source.
+   */
+  startHttpPolling(plugId: string): void {
+    if (this.httpPollers.has(plugId)) return;
+
+    // Look up IP address from DB
+    const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+    const ipAddress = plug?.ipAddress;
+
+    // If no IP, try to derive from Shelly device ID pattern
+    // For now, poll all registered plugs that have an IP
+    if (!ipAddress) {
+      console.log(`HTTP polling skipped for ${plugId}: no IP address configured`);
+      return;
+    }
+
+    console.log(`Starting HTTP polling for ${plugId} at ${ipAddress}`);
+
+    const poll = async () => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+
+        const res = await fetch(`http://${ipAddress}/rpc/Switch.GetStatus?id=0`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (res.ok) {
+          const status = await res.json();
+          const reading: PowerReading = {
+            plugId,
+            apower: status.apower ?? 0,
+            voltage: status.voltage ?? 0,
+            current: status.current ?? 0,
+            output: status.output ?? false,
+            totalEnergy: status.aenergy?.total ?? 0,
+            timestamp: Date.now(),
+          };
+          this.eventBus.emitPowerReading(reading);
+          this.persistIfDue(reading);
+
+          // Update online status
+          try {
+            db.update(plugs)
+              .set({ online: true, lastSeen: Date.now(), updatedAt: Date.now() })
+              .where(eq(plugs.id, plugId))
+              .run();
+          } catch { /* ignore */ }
+        }
+      } catch {
+        // Shelly unreachable — mark offline
+        try {
+          db.update(plugs)
+            .set({ online: false, updatedAt: Date.now() })
+            .where(eq(plugs.id, plugId))
+            .run();
+          this.eventBus.emitPlugOnline(plugId, false);
+        } catch { /* ignore */ }
+      }
+    };
+
+    // Poll immediately, then on interval
+    poll();
+    const timer = setInterval(poll, this.HTTP_POLL_INTERVAL);
+    this.httpPollers.set(plugId, timer);
+  }
+
+  stopHttpPolling(plugId: string): void {
+    const timer = this.httpPollers.get(plugId);
+    if (timer) {
+      clearInterval(timer);
+      this.httpPollers.delete(plugId);
+      console.log(`Stopped HTTP polling for ${plugId}`);
+    }
+  }
+
+  stopAllHttpPolling(): void {
+    for (const [plugId, timer] of this.httpPollers) {
+      clearInterval(timer);
+    }
+    this.httpPollers.clear();
   }
 
   isConnected(): boolean {
