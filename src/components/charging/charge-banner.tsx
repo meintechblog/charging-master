@@ -32,6 +32,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [showUnknown, setShowUnknown] = useState(false);
+  const dismissedUnknownRef = useRef(false);
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch profiles for override dropdown
@@ -53,10 +54,15 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
       sessionId: event.sessionId,
     });
 
-    // Show unknown device dialog when detecting without a match
-    if (event.state === 'detecting' && !event.profileId) {
+    // Reset dismissed flag when transitioning from idle to a new detection
+    if (event.state === 'idle') {
+      dismissedUnknownRef.current = false;
+    }
+
+    // Show unknown device dialog when detecting without a match (only if not dismissed)
+    if (event.state === 'detecting' && !event.profileId && !dismissedUnknownRef.current) {
       setShowUnknown(true);
-    } else {
+    } else if (event.state !== 'detecting' || event.profileId) {
       setShowUnknown(false);
     }
   }, []);
@@ -130,7 +136,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
       <UnknownDeviceDialog
         plugId={plugId}
         sessionId={session.sessionId}
-        onClose={() => setShowUnknown(false)}
+        onClose={() => { dismissedUnknownRef.current = true; setShowUnknown(false); }}
       />
     ) : null;
   }
@@ -158,7 +164,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
           <UnknownDeviceDialog
             plugId={plugId}
             sessionId={session.sessionId}
-            onClose={() => setShowUnknown(false)}
+            onClose={() => { dismissedUnknownRef.current = true; setShowUnknown(false); }}
           />
         )}
       </>
