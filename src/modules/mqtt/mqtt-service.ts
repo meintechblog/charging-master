@@ -16,10 +16,10 @@ export class MqttService {
   private httpPollers: Map<string, NodeJS.Timeout> = new Map();
 
   private readonly ACTIVE_POWER_THRESHOLD = 5; // watts
-  private readonly ACTIVE_INTERVAL = 5_000; // ms -- 5s during active charging
+  private readonly ACTIVE_INTERVAL = 1_000; // ms -- 1s during active charging for real-time UX
   private readonly IDLE_INTERVAL = 60_000; // ms -- 60s during idle/standby
   private readonly WATCHDOG_CHECK_INTERVAL = 15_000; // ms
-  private readonly HTTP_POLL_INTERVAL = 5_000; // ms -- poll Shelly HTTP API every 5s
+  private readonly HTTP_POLL_INTERVAL = 1_000; // ms -- poll Shelly HTTP API every 1s for real-time UX
   private readonly WATCHDOG_STALE_THRESHOLD = 30_000; // ms
 
   constructor(eventBus: EventBus) {

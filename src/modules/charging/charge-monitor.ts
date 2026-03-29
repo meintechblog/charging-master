@@ -41,6 +41,10 @@ export class ChargeMonitor {
   private matchData = new Map<string, MatchResult>();
   private pollingTimers = new Map<string, NodeJS.Timeout>();
   private plugTopics = new Map<string, string>();
+  private learnReadingCount = new Map<string, number>();
+  private learnCumulativeWh = new Map<string, number>();
+  private learnLastPower = new Map<string, number>();
+  private learnLastTimestamp = new Map<string, number>();
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
 
@@ -222,6 +226,33 @@ export class ChargeMonitor {
     machine.feedReading(apower, timestamp);
 
     const newState = machine.state;
+
+    // Track learning readings
+    if (newState === 'learning' || prevState === 'learning') {
+      const count = (this.learnReadingCount.get(plugId) ?? 0) + 1;
+      this.learnReadingCount.set(plugId, count);
+      this.learnLastPower.set(plugId, apower);
+
+      // Accumulate Wh: power (W) * time delta (h)
+      const lastTs = this.learnLastTimestamp.get(plugId);
+      if (lastTs) {
+        const deltaH = (timestamp - lastTs) / 3_600_000;
+        const avgPower = (apower + (this.learnLastPower.get(plugId) ?? apower)) / 2;
+        const wh = (this.learnCumulativeWh.get(plugId) ?? 0) + avgPower * deltaH;
+        this.learnCumulativeWh.set(plugId, wh);
+      }
+      this.learnLastTimestamp.set(plugId, timestamp);
+
+      // Update session in DB every 10 readings
+      if (count % 10 === 0) {
+        const sessionId = this.sessionIds.get(plugId);
+        if (sessionId) {
+          db.update(chargeSessions).set({
+            energyWh: this.learnCumulativeWh.get(plugId) ?? 0,
+          }).where(eq(chargeSessions.id, sessionId)).run();
+        }
+      }
+    }
 
     // Handle detection buffer accumulation
     if (newState === 'detecting') {

@@ -1,11 +1,11 @@
 import { db } from '@/db/client';
-import { chargeSessions, sessionReadings } from '@/db/schema';
-import { eq, inArray, desc, count, max, sql } from 'drizzle-orm';
+import { chargeSessions } from '@/db/schema';
+import { desc, inArray } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  // Find active learning sessions
   const sessions = db
     .select()
     .from(chargeSessions)
@@ -14,38 +14,25 @@ export async function GET() {
     .all();
 
   const now = Date.now();
+  const monitor = globalThis.__chargeMonitor;
 
   const result = sessions.map((s) => {
-    // Get reading stats for this session
-    const stats = db
-      .select({
-        readingCount: count(sessionReadings.id),
-        latestPower: max(sessionReadings.apower),
-      })
-      .from(sessionReadings)
-      .where(eq(sessionReadings.sessionId, s.id))
-      .get();
+    // Try to get live data from ChargeMonitor
+    let latestPower = 0;
+    let readingCount = 0;
+    let cumulativeWh = s.energyWh ?? 0;
 
-    // Get cumulative Wh from latest reading
-    const latestReading = db
-      .select({
-        apower: sessionReadings.apower,
-        offsetMs: sessionReadings.offsetMs,
-      })
-      .from(sessionReadings)
-      .where(eq(sessionReadings.sessionId, s.id))
-      .orderBy(desc(sessionReadings.offsetMs))
-      .limit(1)
-      .get();
+    if (monitor) {
+      // Access internal learning trackers
+      const monitorAny = monitor as Record<string, unknown>;
+      const learnLastPower = monitorAny.learnLastPower as Map<string, number> | undefined;
+      const learnReadingCount = monitorAny.learnReadingCount as Map<string, number> | undefined;
+      const learnCumulativeWh = monitorAny.learnCumulativeWh as Map<string, number> | undefined;
 
-    // Compute cumulative Wh from all readings
-    const allReadings = db
-      .select({
-        totalWh: sql<number>`sum(${sessionReadings.apower} * 1.0 / 3600)`,
-      })
-      .from(sessionReadings)
-      .where(eq(sessionReadings.sessionId, s.id))
-      .get();
+      if (learnLastPower) latestPower = learnLastPower.get(s.plugId) ?? 0;
+      if (learnReadingCount) readingCount = learnReadingCount.get(s.plugId) ?? 0;
+      if (learnCumulativeWh) cumulativeWh = learnCumulativeWh.get(s.plugId) ?? cumulativeWh;
+    }
 
     return {
       sessionId: s.id,
@@ -54,9 +41,9 @@ export async function GET() {
       state: s.state,
       startedAt: s.startedAt,
       durationMs: now - s.startedAt,
-      readingCount: stats?.readingCount ?? 0,
-      latestPower: latestReading?.apower ?? 0,
-      cumulativeWh: allReadings?.totalWh ?? 0,
+      readingCount,
+      latestPower,
+      cumulativeWh,
     };
   });
 

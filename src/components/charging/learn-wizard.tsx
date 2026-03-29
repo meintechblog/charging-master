@@ -112,7 +112,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
       };
 
       poll();
-      pollRef.current = setInterval(poll, 5000);
+      pollRef.current = setInterval(poll, 2000);
 
       return () => {
         if (pollRef.current) clearInterval(pollRef.current);
@@ -214,9 +214,16 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
 
   function formatDuration(ms: number): string {
     const totalSec = Math.floor(ms / 1000);
-    const min = Math.floor(totalSec / 60);
+    const hours = Math.floor(totalSec / 3600);
+    const min = Math.floor((totalSec % 3600) / 60);
     const sec = totalSec % 60;
+    if (hours > 0) return `${hours}:${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
     return `${min}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  function formatEnergy(wh: number): string {
+    if (wh >= 1000) return `${(wh / 1000).toFixed(2)} kWh`;
+    return `${wh.toFixed(1)} Wh`;
   }
 
   return (
@@ -375,7 +382,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
               <div className="bg-neutral-800 rounded p-3">
                 <div className="text-xs text-neutral-500">Energie</div>
                 <div className="text-lg font-mono text-neutral-100">
-                  {(learnStatus?.cumulativeWh ?? 0).toFixed(1)} Wh
+                  {formatEnergy(learnStatus?.cumulativeWh ?? 0)}
                 </div>
               </div>
               <div className="bg-neutral-800 rounded p-3">
