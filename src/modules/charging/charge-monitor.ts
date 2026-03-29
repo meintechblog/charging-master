@@ -47,6 +47,7 @@ export class ChargeMonitor {
   private learnLastTimestamp = new Map<string, number>();
   private learnStartPower = new Map<string, number>();
   private learnPowerSum = new Map<string, number>();
+  private learnMaxPower = new Map<string, number>();
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
 
@@ -236,6 +237,10 @@ export class ChargeMonitor {
       this.learnPowerSum.set(plugId, (this.learnPowerSum.get(plugId) ?? 0) + apower);
       if (!this.learnStartPower.has(plugId)) {
         this.learnStartPower.set(plugId, apower);
+      }
+      const currentMax = this.learnMaxPower.get(plugId) ?? 0;
+      if (apower > currentMax) {
+        this.learnMaxPower.set(plugId, apower);
       }
 
       // Use Shelly's hardware energy counter (aenergy.total) — far more accurate than software integration

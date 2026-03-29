@@ -8,6 +8,9 @@ export type ProfileFormValues = {
   modelName: string;
   purchaseDate: string;
   estimatedCycles: number | null;
+  productUrl: string;
+  documentUrl: string;
+  priceEur: number | null;
 };
 
 type ProfileFormProps = {
@@ -35,6 +38,11 @@ export function ProfileForm({
   const [estimatedCycles, setEstimatedCycles] = useState<string>(
     initialValues?.estimatedCycles != null ? String(initialValues.estimatedCycles) : ''
   );
+  const [productUrl, setProductUrl] = useState(initialValues?.productUrl ?? '');
+  const [documentUrl, setDocumentUrl] = useState(initialValues?.documentUrl ?? '');
+  const [priceEur, setPriceEur] = useState<string>(
+    initialValues?.priceEur != null ? String(initialValues.priceEur) : ''
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,6 +54,9 @@ export function ProfileForm({
       modelName: modelName.trim(),
       purchaseDate,
       estimatedCycles: estimatedCycles ? parseInt(estimatedCycles, 10) : null,
+      productUrl: productUrl.trim(),
+      documentUrl: documentUrl.trim(),
+      priceEur: priceEur ? parseFloat(priceEur) : null,
     });
   }
 
@@ -107,6 +118,44 @@ export function ProfileForm({
           onChange={(e) => setEstimatedCycles(e.target.value)}
           className={INPUT_CLASS}
           placeholder="z.B. 500"
+          min={0}
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Produkt-Link</label>
+        <input
+          type="url"
+          value={productUrl}
+          onChange={(e) => setProductUrl(e.target.value)}
+          className={INPUT_CLASS}
+          placeholder="https://www.example.com/produkt"
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Datenblatt / PDF</label>
+        <input
+          type="url"
+          value={documentUrl}
+          onChange={(e) => setDocumentUrl(e.target.value)}
+          className={INPUT_CLASS}
+          placeholder="https://www.example.com/datenblatt.pdf"
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Preis (EUR)</label>
+        <input
+          type="number"
+          step="0.01"
+          value={priceEur}
+          onChange={(e) => setPriceEur(e.target.value)}
+          className={INPUT_CLASS}
+          placeholder="z.B. 89.99"
           min={0}
           disabled={disabled}
         />

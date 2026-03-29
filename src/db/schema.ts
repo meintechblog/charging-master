@@ -40,8 +40,19 @@ export const deviceProfiles = sqliteTable('device_profiles', {
   purchaseDate: text('purchase_date'),
   estimatedCycles: integer('estimated_cycles'),
   targetSoc: integer('target_soc').notNull().default(80),
+  productUrl: text('product_url'),
+  documentUrl: text('document_url'),
+  priceEur: real('price_eur'),
+  priceUpdatedAt: integer('price_updated_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+});
+
+export const priceHistory = sqliteTable('price_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),
+  priceEur: real('price_eur').notNull(),
+  recordedAt: integer('recorded_at').notNull(),
 });
 
 export const referenceCurves = sqliteTable('reference_curves', {

@@ -24,6 +24,7 @@ type LearnStatus = {
   cumulativeWh: number;
   startPower: number;
   avgPower: number;
+  maxPower: number;
 };
 
 type LearnWizardProps = {
@@ -236,7 +237,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
   }
 
   return (
-    <div className="max-w-2xl">
+    <div>
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-6">
         {[1, 2, 3, 4].map((s) => (
@@ -419,11 +420,17 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-5 gap-3 mb-4">
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
               <div className="bg-neutral-800 rounded p-3">
                 <div className="text-xs text-neutral-500">Aktuell</div>
                 <div className="text-lg font-mono text-neutral-100">
                   {(learnStatus?.latestPower ?? 0).toFixed(1)} W
+                </div>
+              </div>
+              <div className="bg-neutral-800 rounded p-3">
+                <div className="text-xs text-neutral-500">Max</div>
+                <div className="text-lg font-mono text-neutral-100">
+                  {(learnStatus?.maxPower ?? 0).toFixed(1)} W
                 </div>
               </div>
               <div className="bg-neutral-800 rounded p-3">

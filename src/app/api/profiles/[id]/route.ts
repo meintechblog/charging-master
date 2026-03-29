@@ -1,6 +1,6 @@
 import { db } from '@/db/client';
-import { deviceProfiles, referenceCurves, socBoundaries } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { deviceProfiles, referenceCurves, socBoundaries, priceHistory } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 
@@ -38,6 +38,11 @@ export async function GET(
       .where(eq(socBoundaries.curveId, curve.id)).all();
   }
 
+  const prices = db.select().from(priceHistory)
+    .where(eq(priceHistory.profileId, profileId))
+    .orderBy(desc(priceHistory.recordedAt))
+    .all();
+
   return Response.json({
     ...profile,
     hasCurve: !!curve,
@@ -50,6 +55,7 @@ export async function GET(
       pointCount: curve.pointCount,
     } : null,
     socBoundaries: boundaries,
+    priceHistory: prices,
   });
 }
 
@@ -106,6 +112,30 @@ export async function PUT(
   if (typeof body.purchaseDate === 'string') updates.purchaseDate = body.purchaseDate;
   if (typeof body.estimatedCycles === 'number') updates.estimatedCycles = body.estimatedCycles;
   if (body.targetSoc !== undefined) updates.targetSoc = Number(body.targetSoc);
+  if (typeof body.productUrl === 'string') updates.productUrl = body.productUrl;
+  if (typeof body.documentUrl === 'string') updates.documentUrl = body.documentUrl;
+
+  // Price with history tracking
+  if (body.priceEur !== undefined) {
+    const newPrice = body.priceEur === null ? null : Number(body.priceEur);
+    const oldPrice = existing.priceEur;
+
+    if (newPrice !== oldPrice && newPrice !== null) {
+      const now = Date.now();
+      updates.priceEur = newPrice;
+      updates.priceUpdatedAt = now;
+
+      // Record price history entry
+      db.insert(priceHistory).values({
+        profileId,
+        priceEur: newPrice,
+        recordedAt: now,
+      }).run();
+    } else if (newPrice === null) {
+      updates.priceEur = null;
+      updates.priceUpdatedAt = null;
+    }
+  }
 
   db.update(deviceProfiles).set(updates)
     .where(eq(deviceProfiles.id, profileId)).run();
@@ -113,7 +143,13 @@ export async function PUT(
   const updated = db.select().from(deviceProfiles)
     .where(eq(deviceProfiles.id, profileId)).get();
 
-  return Response.json(updated);
+  // Include price history
+  const prices = db.select().from(priceHistory)
+    .where(eq(priceHistory.profileId, profileId))
+    .orderBy(desc(priceHistory.recordedAt))
+    .all();
+
+  return Response.json({ ...updated, priceHistory: prices });
 }
 
 /**

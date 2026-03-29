@@ -23,6 +23,7 @@ export async function GET() {
     let cumulativeWh = s.energyWh ?? 0;
     let startPower = 0;
     let avgPower = 0;
+    let maxPower = 0;
 
     if (monitor) {
       const m = monitor as unknown as Record<string, unknown>;
@@ -31,12 +32,14 @@ export async function GET() {
       const mCumulativeWh = m.learnCumulativeWh as Map<string, number> | undefined;
       const mStartPower = m.learnStartPower as Map<string, number> | undefined;
       const mPowerSum = m.learnPowerSum as Map<string, number> | undefined;
+      const mMaxPower = m.learnMaxPower as Map<string, number> | undefined;
 
       if (mLastPower) latestPower = mLastPower.get(s.plugId) ?? 0;
       if (mReadingCount) readingCount = mReadingCount.get(s.plugId) ?? 0;
       if (mCumulativeWh) cumulativeWh = mCumulativeWh.get(s.plugId) ?? cumulativeWh;
       if (mStartPower) startPower = mStartPower.get(s.plugId) ?? 0;
       if (mPowerSum && readingCount > 0) avgPower = (mPowerSum.get(s.plugId) ?? 0) / readingCount;
+      if (mMaxPower) maxPower = mMaxPower.get(s.plugId) ?? 0;
     }
 
     return {
@@ -51,6 +54,7 @@ export async function GET() {
       cumulativeWh,
       startPower,
       avgPower,
+      maxPower,
     };
   });
 
