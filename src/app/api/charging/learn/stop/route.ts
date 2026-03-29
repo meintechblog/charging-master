@@ -161,11 +161,13 @@ export async function POST(request: Request) {
 
   const curveId = curveResult.id;
 
-  // 7. Bulk insert curve points
-  if (curvePoints.length > 0) {
+  // 7. Bulk insert curve points in batches (SQLite has a variable limit)
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < curvePoints.length; i += BATCH_SIZE) {
+    const batch = curvePoints.slice(i, i + BATCH_SIZE);
     db.insert(referenceCurvePoints)
       .values(
-        curvePoints.map((p) => ({
+        batch.map((p) => ({
           curveId,
           offsetSeconds: p.offsetSeconds,
           apower: p.apower,
