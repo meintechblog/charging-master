@@ -3,6 +3,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+
+type SessionSummary = {
+  id: number;
+  state: string;
+  startedAt: number;
+  stoppedAt: number | null;
+  energyWh: number | null;
+  estimatedSoc: number | null;
+};
 import { ProfileForm, type ProfileFormValues } from '@/components/charging/profile-form';
 import { SocButtons } from '@/components/charging/soc-buttons';
 import { PowerChart } from '@/components/charts/power-chart';
@@ -116,6 +125,17 @@ export default function ProfileDetailPage() {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/history?profileId=${profileId}&limit=10`);
+      if (res.ok) {
+        const data = await res.json();
+        setRecentSessions(data.sessions ?? []);
+      }
+    } catch { /* ignore */ }
+  }, [profileId]);
 
   const loadProfile = useCallback(async () => {
     const res = await fetch(`/api/profiles/${profileId}`);
@@ -138,8 +158,8 @@ export default function ProfileDetailPage() {
   }, [profileId]);
 
   useEffect(() => {
-    Promise.all([loadProfile(), loadCurve()]).finally(() => setLoading(false));
-  }, [loadProfile, loadCurve]);
+    Promise.all([loadProfile(), loadCurve(), loadSessions()]).finally(() => setLoading(false));
+  }, [loadProfile, loadCurve, loadSessions]);
 
   async function handleSocChange(soc: number) {
     if (!profile) return;
@@ -346,6 +366,76 @@ export default function ProfileDetailPage() {
       <div className="bg-neutral-900 rounded-lg p-4">
         <h2 className="text-sm font-medium text-neutral-400 mb-3">Ziel-SOC</h2>
         <SocButtons value={profile.targetSoc} onChange={handleSocChange} disabled={saving} />
+      </div>
+
+      {/* Letzte Ladevorgaenge */}
+      <div className="bg-neutral-900 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-medium text-neutral-400">Letzte Ladevorgaenge</h2>
+          <Link href={`/history?profileId=${profile.id}`} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+            Alle anzeigen
+          </Link>
+        </div>
+        {recentSessions.length > 0 ? (
+          <div className="space-y-2">
+            {recentSessions.map((s) => {
+              const sessionStateColors: Record<string, string> = {
+                detecting: 'bg-blue-500/20 text-blue-400',
+                matched: 'bg-blue-500/20 text-blue-400',
+                charging: 'bg-green-500/20 text-green-400',
+                countdown: 'bg-green-500/20 text-green-400',
+                complete: 'bg-emerald-500/20 text-emerald-300',
+                error: 'bg-red-500/20 text-red-400',
+                aborted: 'bg-orange-500/20 text-orange-400',
+                learning: 'bg-yellow-500/20 text-yellow-400',
+                learn_complete: 'bg-yellow-500/20 text-yellow-400',
+                stopping: 'bg-blue-500/20 text-blue-400',
+              };
+              const sessionStateLabels: Record<string, string> = {
+                detecting: 'Erkennung', matched: 'Erkannt', charging: 'Laden',
+                countdown: 'Countdown', complete: 'Abgeschlossen', error: 'Fehler',
+                aborted: 'Abgebrochen', learning: 'Lernen', learn_complete: 'Lernvorgang abgeschlossen',
+                stopping: 'Wird gestoppt',
+              };
+              const badgeColor = sessionStateColors[s.state] ?? 'bg-neutral-700 text-neutral-300';
+              const badgeLabel = sessionStateLabels[s.state] ?? s.state;
+              const dateStr = new Date(s.startedAt).toLocaleString('de-DE', {
+                day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+              });
+              const durationStr = (() => {
+                const ms = (s.stoppedAt ?? Date.now()) - s.startedAt;
+                const totalMin = Math.floor(ms / 60000);
+                if (totalMin >= 60) return `${Math.floor(totalMin / 60)}h ${totalMin % 60}min`;
+                return `${totalMin} min`;
+              })();
+              const energyStr = s.energyWh != null
+                ? (s.energyWh >= 1000 ? `${(s.energyWh / 1000).toFixed(2)} kWh` : `${s.energyWh.toFixed(1)} Wh`)
+                : '-';
+
+              return (
+                <Link
+                  key={s.id}
+                  href={`/history/${s.id}`}
+                  className="flex items-center justify-between px-3 py-2 rounded bg-neutral-800/50 hover:bg-neutral-800 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${badgeColor}`}>
+                      {badgeLabel}
+                    </span>
+                    <span className="text-sm text-neutral-100">{dateStr}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-neutral-400">
+                    <span>{durationStr}</span>
+                    <span>{energyStr}</span>
+                    {s.estimatedSoc != null && <span>{s.estimatedSoc}%</span>}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-neutral-500">Noch keine Ladevorgaenge fuer dieses Profil.</p>
+        )}
       </div>
 
       {/* Reference curve */}
