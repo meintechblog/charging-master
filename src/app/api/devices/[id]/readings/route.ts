@@ -1,4 +1,5 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { db } from '@/db/client';
 import { powerReadings } from '@/db/schema';
@@ -18,8 +19,19 @@ export async function GET(
   const { id } = await context.params;
   const url = new URL(request.url);
   const window = url.searchParams.get('window') ?? '15m';
-  const windowMs = WINDOW_MS[window] ?? WINDOW_MS['15m'];
-  const since = Date.now() - windowMs;
+  const sinceParam = url.searchParams.get('since');
+
+  // If 'since' timestamp provided, use it directly (for learn mode: all readings since session start)
+  // Otherwise use window-based calculation
+  let since: number;
+  if (sinceParam) {
+    since = parseInt(sinceParam, 10);
+  } else if (window === 'max' || window === 'all') {
+    since = 0;
+  } else {
+    const windowMs = WINDOW_MS[window] ?? WINDOW_MS['15m'];
+    since = Date.now() - windowMs;
+  }
 
   const rows = db
     .select({
@@ -33,5 +45,6 @@ export async function GET(
 
   return Response.json({
     readings: rows.map((r) => [r.timestamp, r.apower]),
+    count: rows.length,
   });
 }

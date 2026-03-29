@@ -47,6 +47,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
+  const [historicalData, setHistoricalData] = useState<Array<[number, number]> | undefined>(undefined);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
@@ -129,6 +130,25 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
       };
     }
   }, [step, selectedPlugId, showComplete]);
+
+  // Load historical readings when entering step 4 (so chart shows full session, not just since page load)
+  useEffect(() => {
+    if (step === 4 && selectedPlugId && !historicalData) {
+      async function loadHistory() {
+        try {
+          const since = startTimeRef.current || learnStatus?.startedAt || 0;
+          const res = await fetch(`/api/devices/${encodeURIComponent(selectedPlugId!)}/readings?since=${since}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.readings && Array.isArray(data.readings) && data.readings.length > 0) {
+              setHistoricalData(data.readings as Array<[number, number]>);
+            }
+          }
+        } catch { /* ignore */ }
+      }
+      loadHistory();
+    }
+  }, [step, selectedPlugId, historicalData]);
 
   // Step 1 submit: create profile
   const handleProfileSubmit = useCallback(async (values: ProfileFormValues) => {
@@ -460,7 +480,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
             </div>
 
             {/* Live chart */}
-            <PowerChart plugId={selectedPlugId} height="400px" initialWindow="max" />
+            <PowerChart plugId={selectedPlugId} height="400px" initialWindow="max" initialData={historicalData} />
           </div>
 
           {/* Complete dialog (D-27) */}
