@@ -78,8 +78,13 @@ Plans:
   1. User receives Pushover notifications when charging starts, a device is recognized, target SOC is reached, or an error occurs
   2. User can view a per-device charge history showing session details (start, end, energy consumed, final SOC)
   3. User can view the power curve from any past charge session
-**Plans**: TBD
+**Plans:** 3 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 04-01-PLAN.md — NotificationService with Pushover dispatch, SessionRecorder for readings/events persistence, sessionEvents schema
+- [ ] 04-02-PLAN.md — History list page with table/filters, history API route, sidebar Verlauf link activation
+- [ ] 04-03-PLAN.md — Session detail page with power curve replay, reference overlay, event timeline, profile sessions section
 
 ## Progress
 
@@ -91,4 +96,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Foundation | 3/3 | Planning complete | - |
 | 2. Real-Time Visualization | 0/3 | Planning complete | - |
 | 3. Charge Intelligence | 0/5 | Planning complete | - |
-| 4. Notifications & History | 0/? | Not started | - |
+| 4. Notifications & History | 0/3 | Planning complete | - |
