@@ -45,6 +45,8 @@ export class ChargeMonitor {
   private learnCumulativeWh = new Map<string, number>();
   private learnLastPower = new Map<string, number>();
   private learnLastTimestamp = new Map<string, number>();
+  private learnStartPower = new Map<string, number>();
+  private learnPowerSum = new Map<string, number>();
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
 
@@ -232,6 +234,10 @@ export class ChargeMonitor {
       const count = (this.learnReadingCount.get(plugId) ?? 0) + 1;
       this.learnReadingCount.set(plugId, count);
       this.learnLastPower.set(plugId, apower);
+      this.learnPowerSum.set(plugId, (this.learnPowerSum.get(plugId) ?? 0) + apower);
+      if (!this.learnStartPower.has(plugId)) {
+        this.learnStartPower.set(plugId, apower);
+      }
 
       // Accumulate Wh: power (W) * time delta (h)
       const lastTs = this.learnLastTimestamp.get(plugId);

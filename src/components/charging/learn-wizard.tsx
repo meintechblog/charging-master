@@ -22,6 +22,8 @@ type LearnStatus = {
   readingCount: number;
   latestPower: number;
   cumulativeWh: number;
+  startPower: number;
+  avgPower: number;
 };
 
 type LearnWizardProps = {
@@ -417,7 +419,25 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-5 gap-3 mb-4">
+              <div className="bg-neutral-800 rounded p-3">
+                <div className="text-xs text-neutral-500">Aktuell</div>
+                <div className="text-lg font-mono text-neutral-100">
+                  {(learnStatus?.latestPower ?? 0).toFixed(1)} W
+                </div>
+              </div>
+              <div className="bg-neutral-800 rounded p-3">
+                <div className="text-xs text-neutral-500">Start</div>
+                <div className="text-lg font-mono text-neutral-100">
+                  {(learnStatus?.startPower ?? 0).toFixed(1)} W
+                </div>
+              </div>
+              <div className="bg-neutral-800 rounded p-3">
+                <div className="text-xs text-neutral-500">Durchschnitt</div>
+                <div className="text-lg font-mono text-neutral-100">
+                  {(learnStatus?.avgPower ?? 0).toFixed(1)} W
+                </div>
+              </div>
               <div className="bg-neutral-800 rounded p-3">
                 <div className="text-xs text-neutral-500">Energie</div>
                 <div className="text-lg font-mono text-neutral-100">
@@ -430,16 +450,10 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
                   {formatDuration(learnStatus?.durationMs ?? 0)}
                 </div>
               </div>
-              <div className="bg-neutral-800 rounded p-3">
-                <div className="text-xs text-neutral-500">Leistung</div>
-                <div className="text-lg font-mono text-neutral-100">
-                  {(learnStatus?.latestPower ?? 0).toFixed(1)} W
-                </div>
-              </div>
             </div>
 
             {/* Live chart */}
-            <PowerChart plugId={selectedPlugId} height="250px" initialWindow="max" />
+            <PowerChart plugId={selectedPlugId} height="400px" initialWindow="max" />
           </div>
 
           {/* Complete dialog (D-27) */}
