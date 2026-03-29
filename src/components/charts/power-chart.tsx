@@ -20,6 +20,7 @@ const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
   { key: '15m', label: '15m' },
   { key: '30m', label: '30m' },
   { key: '1h', label: '1h' },
+  { key: 'max', label: 'Max' },
 ];
 
 function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[number, number]>): EChartsOption {

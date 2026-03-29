@@ -7,9 +7,10 @@ export const WINDOW_POINTS: Record<WindowKey, number> = {
   '15m': 450,
   '30m': 900,
   '1h': 1800,
+  'max': Infinity,
 };
 
-export type WindowKey = '5m' | '15m' | '30m' | '1h';
+export type WindowKey = '5m' | '15m' | '30m' | '1h' | 'max';
 
 export function useSlidingWindow(windowKey: WindowKey = '15m') {
   const maxPoints = WINDOW_POINTS[windowKey] ?? 450;
@@ -18,7 +19,7 @@ export function useSlidingWindow(windowKey: WindowKey = '15m') {
   const push = useCallback(
     (timestamp: number, value: number): Array<[number, number]> => {
       dataRef.current.push([timestamp, value]);
-      if (dataRef.current.length > maxPoints) {
+      if (maxPoints !== Infinity && dataRef.current.length > maxPoints) {
         dataRef.current = dataRef.current.slice(-maxPoints);
       }
       return dataRef.current;

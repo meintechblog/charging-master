@@ -439,7 +439,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
             </div>
 
             {/* Live chart */}
-            <PowerChart plugId={selectedPlugId} height="250px" />
+            <PowerChart plugId={selectedPlugId} height="250px" initialWindow="max" />
           </div>
 
           {/* Complete dialog (D-27) */}
