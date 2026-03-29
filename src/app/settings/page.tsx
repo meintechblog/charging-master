@@ -18,7 +18,7 @@ export default async function SettingsPage() {
 
       <SettingsSection
         title="MQTT Broker"
-        description="Verbindungseinstellungen fuer den MQTT-Broker"
+        description="Verbindungseinstellungen für den MQTT-Broker"
       >
         <MqttSettings initialSettings={settings} />
       </SettingsSection>

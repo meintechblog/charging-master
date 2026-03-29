@@ -71,7 +71,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     return (
       <div className="flex items-center gap-2 text-sm text-neutral-400">
         <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-        Suche nach Shelly-Geraeten...
+        Suche nach Shelly-Geräten...
       </div>
     );
   }
@@ -84,7 +84,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     return (
       <div className="flex items-center gap-2 text-sm text-neutral-400">
         <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-        Suche nach Shelly-Geraeten...
+        Suche nach Shelly-Geräten...
       </div>
     );
   }
@@ -94,7 +94,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
   if (unregistered.length === 0) {
     return (
       <div className="text-sm text-neutral-500">
-        Keine neuen Geraete gefunden.
+        Keine neuen Geräte gefunden.
       </div>
     );
   }
@@ -120,7 +120,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
             onClick={() => onAddDevice(device.deviceId)}
             className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
           >
-            Hinzufuegen
+            Hinzufügen
           </button>
         </div>
       ))}

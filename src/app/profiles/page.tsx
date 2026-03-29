@@ -37,13 +37,13 @@ export default async function ProfilesPage() {
       {rows.length === 0 ? (
         <div className="bg-neutral-900 rounded-lg p-8 text-center">
           <p className="text-neutral-400">
-            Noch keine Profile angelegt. Starte mit dem Anlernen eines Geraets.
+            Noch keine Profile angelegt. Starte mit dem Anlernen eines Geräts.
           </p>
           <Link
             href="/profiles/learn"
             className="inline-block mt-4 px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded hover:bg-blue-600 transition-colors"
           >
-            Geraet anlernen
+            Gerät anlernen
           </Link>
         </div>
       ) : (

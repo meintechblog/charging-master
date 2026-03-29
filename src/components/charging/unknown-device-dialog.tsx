@@ -64,7 +64,7 @@ export function UnknownDeviceDialog({ plugId, sessionId, onClose }: UnknownDevic
       {/* Dialog */}
       <div className="relative bg-neutral-800 border border-neutral-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
         <h2 className="text-lg font-semibold text-neutral-100 mb-2">
-          Unbekanntes Geraet
+          Unbekanntes Gerät
         </h2>
         <p className="text-sm text-neutral-400 mb-6">
           Es wurde ein Ladevorgang erkannt, aber kein passendes Profil gefunden.
@@ -90,7 +90,7 @@ export function UnknownDeviceDialog({ plugId, sessionId, onClose }: UnknownDevic
             </button>
           ) : (
             <div className="space-y-2">
-              <p className="text-xs text-neutral-400">Profil auswaehlen:</p>
+              <p className="text-xs text-neutral-400">Profil auswählen:</p>
               <div className="max-h-48 overflow-y-auto space-y-1">
                 {profiles.map((profile) => (
                   <button
@@ -111,7 +111,7 @@ export function UnknownDeviceDialog({ plugId, sessionId, onClose }: UnknownDevic
             onClick={onClose}
             className="w-full px-4 py-2 text-neutral-400 hover:text-neutral-200 text-sm transition-colors"
           >
-            Schliessen
+            Schließen
           </button>
         </div>
       </div>

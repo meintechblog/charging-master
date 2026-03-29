@@ -151,7 +151,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
               <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
               <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
             </svg>
-            <span className="text-sm text-neutral-400">Geraet wird erkannt...</span>
+            <span className="text-sm text-neutral-400">Gerät wird erkannt...</span>
           </div>
         </div>
         {showUnknown && session.sessionId && (
@@ -239,7 +239,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
       <div className="flex flex-col gap-2 border-t border-neutral-700 pt-3">
         {/* Profile override */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500 shrink-0">Profil aendern:</span>
+          <span className="text-xs text-neutral-500 shrink-0">Profil ändern:</span>
           {!showProfileDropdown ? (
             <button
               onClick={() => setShowProfileDropdown(true)}

@@ -11,7 +11,7 @@ function LearnContent() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Geraet anlernen</h1>
+      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Gerät anlernen</h1>
       <LearnWizard initialProfileId={profileId} initialPlugId={plugId} />
     </div>
   );

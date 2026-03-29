@@ -292,7 +292,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
       {/* Step 1: Device name + profile form */}
       {step === 1 && (
         <div className="bg-neutral-900 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-neutral-100 mb-4">Geraetename</h2>
+          <h2 className="text-lg font-semibold text-neutral-100 mb-4">Gerätename</h2>
           <ProfileForm
             initialValues={profileValues ?? undefined}
             onSubmit={handleProfileSubmit}
@@ -306,18 +306,18 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
       {step === 2 && (
         <div className="bg-neutral-900 rounded-lg p-6">
           <h2 className="text-lg font-semibold text-neutral-100 mb-4">
-            Shelly Plug auswaehlen
+            Shelly Plug auswählen
           </h2>
           {(() => {
             const busyPlugIds = new Set(activeSessions.map((s) => s.plugId));
             const availablePlugs = plugs.filter((p) => !busyPlugIds.has(p.id));
             return availablePlugs.length === 0 && plugs.length > 0 ? (
               <p className="text-neutral-400 text-sm">
-                Alle Plugs haben bereits aktive Lernvorgaenge. Warte bis einer abgeschlossen ist oder nutze einen weiteren Plug.
+                Alle Plugs haben bereits aktive Lernvorgänge. Warte bis einer abgeschlossen ist oder nutze einen weiteren Plug.
               </p>
             ) : availablePlugs.length === 0 ? (
             <p className="text-neutral-400 text-sm">
-              Keine Shelly Plugs registriert. Registriere zuerst einen Plug unter Geraete.
+              Keine Shelly Plugs registriert. Registriere zuerst einen Plug unter Geräte.
             </p>
           ) : (
             <div className="grid gap-2">
@@ -348,7 +348,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
               onClick={() => setStep(1)}
               className="px-4 py-2 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
             >
-              Zurueck
+              Zurück
             </button>
             <button
               onClick={() => setStep(3)}
@@ -368,8 +368,8 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
 
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-4">
             <p className="text-sm text-yellow-200">
-              Akku moeglichst leer? Fuer ein genaues Profil sollte der Akku vor dem Anlernen
-              moeglichst leer sein. Schliesse das Ladegeraet an den Shelly Plug an und
+              Akku möglichst leer? Für ein genaues Profil sollte der Akku vor dem Anlernen
+              möglichst leer sein. Schließe das Ladegerät an den Shelly Plug an und
               verbinde den Akku.
             </p>
           </div>
@@ -389,7 +389,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
               onClick={() => setStep(2)}
               className="px-4 py-2 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
             >
-              Zurueck
+              Zurück
             </button>
             <button
               onClick={startLearning}

@@ -61,7 +61,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
       {/* Auto-Discovery Section */}
       <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
         <h2 className="text-lg font-semibold text-neutral-100 mb-4">
-          Geraete-Erkennung
+          Geräte-Erkennung
         </h2>
         <DiscoveryList
           registeredIds={registeredIds}
@@ -75,7 +75,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
           onClick={() => setShowManual(!showManual)}
           className="flex items-center justify-between w-full text-lg font-semibold text-neutral-100"
         >
-          <span>Manuell hinzufuegen</span>
+          <span>Manuell hinzufügen</span>
           <span className="text-neutral-500 text-sm">
             {showManual ? 'Einklappen' : 'Aufklappen'}
           </span>
@@ -91,7 +91,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
       {registeredPlugs.length > 0 && (
         <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
           <h2 className="text-lg font-semibold text-neutral-100 mb-4">
-            Registrierte Geraete
+            Registrierte Geräte
           </h2>
           <div className="flex flex-col gap-2">
             {registeredPlugs.map((plug) => (
@@ -119,7 +119,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
                     disabled={deleting === plug.id}
                     className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
                   >
-                    {deleting === plug.id ? 'Loeschen...' : 'Loeschen'}
+                    {deleting === plug.id ? 'Löschen...' : 'Löschen'}
                   </button>
                 </div>
               </div>

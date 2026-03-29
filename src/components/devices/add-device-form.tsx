@@ -18,7 +18,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
     setError(null);
 
     if (!id.trim() || !name.trim()) {
-      setError('Geraete-ID und Name sind erforderlich');
+      setError('Geräte-ID und Name sind erforderlich');
       return;
     }
 
@@ -42,10 +42,10 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
         setIpAddress('');
         onAdded();
       } else if (res.status === 409) {
-        setError('Geraet bereits registriert');
+        setError('Gerät bereits registriert');
       } else {
         const data = await res.json();
-        setError(data.error ?? 'Fehler beim Hinzufuegen');
+        setError(data.error ?? 'Fehler beim Hinzufügen');
       }
     } catch {
       setError('Netzwerkfehler');
@@ -58,7 +58,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
         <label htmlFor="device-id" className="block text-sm font-medium text-neutral-300 mb-1">
-          Geraete-ID
+          Geräte-ID
         </label>
         <input
           id="device-id"
@@ -79,7 +79,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Wohnzimmer Ladegeraet"
+          placeholder="Wohnzimmer Ladegerät"
           className="w-full bg-neutral-800 border border-neutral-700 text-neutral-100 rounded-md px-3 py-2 text-sm placeholder:text-neutral-500 focus:outline-none focus:border-neutral-600"
         />
       </div>
@@ -107,7 +107,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
         disabled={submitting}
         className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
       >
-        {submitting ? 'Wird hinzugefuegt...' : 'Geraet hinzufuegen'}
+        {submitting ? 'Wird hinzugefügt...' : 'Gerät hinzufügen'}
       </button>
     </form>
   );

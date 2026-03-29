@@ -9,7 +9,7 @@ export default async function DevicesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Geraete</h1>
+      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Geräte</h1>
       <DeviceManager registeredPlugs={registeredPlugs} />
     </div>
   );

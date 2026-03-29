@@ -32,12 +32,12 @@ export default async function HomePage() {
 
       {plugsWithOutput.length === 0 ? (
         <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-8 text-center">
-          <p className="text-neutral-400 mb-4">Keine Geraete hinzugefuegt</p>
+          <p className="text-neutral-400 mb-4">Keine Geräte hinzugefügt</p>
           <Link
             href="/devices"
             className="text-blue-400 hover:text-blue-300 underline text-sm"
           >
-            Geraet hinzufuegen
+            Gerät hinzufügen
           </Link>
         </div>
       ) : (

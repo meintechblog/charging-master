@@ -134,7 +134,7 @@ export default function ProfileDetailPage() {
             onClick={() => setConfirmDelete(true)}
             className="px-3 py-1.5 text-sm rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
           >
-            Loeschen
+            Löschen
           </button>
         </div>
       </div>
@@ -143,14 +143,14 @@ export default function ProfileDetailPage() {
       {confirmDelete && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
           <p className="text-sm text-red-300 mb-3">
-            Profil &quot;{profile.name}&quot; wirklich loeschen? Alle Referenzkurven und SOC-Daten gehen verloren.
+            Profil &quot;{profile.name}&quot; wirklich löschen? Alle Referenzkurven und SOC-Daten gehen verloren.
           </p>
           <div className="flex gap-2">
             <button
               onClick={handleDelete}
               className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
             >
-              Endgueltig loeschen
+              Endgültig löschen
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
@@ -197,7 +197,7 @@ export default function ProfileDetailPage() {
               <dd className="text-neutral-100">{profile.purchaseDate || '--'}</dd>
             </div>
             <div>
-              <dt className="text-neutral-500">Geschaetzte Zyklen</dt>
+              <dt className="text-neutral-500">Geschätzte Zyklen</dt>
               <dd className="text-neutral-100">{profile.estimatedCycles ?? '--'}</dd>
             </div>
           </dl>

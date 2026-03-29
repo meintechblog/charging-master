@@ -111,7 +111,7 @@ export function ProfileForm({
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Geschaetzte Ladezyklen</label>
+        <label className={LABEL_CLASS}>Geschätzte Ladezyklen</label>
         <input
           type="number"
           value={estimatedCycles}
