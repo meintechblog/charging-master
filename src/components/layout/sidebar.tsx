@@ -9,7 +9,7 @@ const NAV_ITEMS = [
   { href: '/devices', label: 'Geräte' },
   { href: '/profiles', label: 'Profile' },
   { href: '/settings', label: 'Einstellungen' },
-  { href: '/history', label: 'Verlauf', disabled: true },
+  { href: '/history', label: 'Verlauf' },
 ];
 
 function useMqttStatus() {
@@ -85,16 +85,6 @@ export function Sidebar() {
       <div className="flex flex-col gap-1 flex-1">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
-          if (item.disabled) {
-            return (
-              <span
-                key={item.href}
-                className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-neutral-600 cursor-not-allowed"
-              >
-                {item.label}
-              </span>
-            );
-          }
           return (
             <Link
               key={item.href}
