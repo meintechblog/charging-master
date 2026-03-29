@@ -233,24 +233,28 @@ export class ChargeMonitor {
     if (newState === 'learning' || prevState === 'learning') {
       const count = (this.learnReadingCount.get(plugId) ?? 0) + 1;
       this.learnReadingCount.set(plugId, count);
-      this.learnLastPower.set(plugId, apower);
       this.learnPowerSum.set(plugId, (this.learnPowerSum.get(plugId) ?? 0) + apower);
       if (!this.learnStartPower.has(plugId)) {
         this.learnStartPower.set(plugId, apower);
       }
 
-      // Accumulate Wh: power (W) * time delta (h)
-      const lastTs = this.learnLastTimestamp.get(plugId);
-      if (lastTs) {
-        const deltaH = (timestamp - lastTs) / 3_600_000;
-        const avgPower = (apower + (this.learnLastPower.get(plugId) ?? apower)) / 2;
-        const wh = (this.learnCumulativeWh.get(plugId) ?? 0) + avgPower * deltaH;
-        this.learnCumulativeWh.set(plugId, wh);
+      // Use Shelly's hardware energy counter (aenergy.total) — far more accurate than software integration
+      if (reading.totalEnergy > 0) {
+        const startEnergy = this.sessionStartEnergy.get(plugId);
+        if (startEnergy !== undefined) {
+          this.learnCumulativeWh.set(plugId, reading.totalEnergy - startEnergy);
+        } else {
+          // First reading after start or resume — back-calculate start energy from stored Wh
+          const storedWh = this.learnCumulativeWh.get(plugId) ?? 0;
+          this.sessionStartEnergy.set(plugId, reading.totalEnergy - storedWh);
+        }
       }
+
+      this.learnLastPower.set(plugId, apower);
       this.learnLastTimestamp.set(plugId, timestamp);
 
-      // Update session in DB every 10 readings
-      if (count % 10 === 0) {
+      // Persist energy to DB every 5 readings (~5s) so restarts don't lose much
+      if (count % 5 === 0) {
         const sessionId = this.sessionIds.get(plugId);
         if (sessionId) {
           db.update(chargeSessions).set({
@@ -623,7 +627,16 @@ export class ChargeMonitor {
       this.sessionIds.set(session.plugId, session.id);
       this.sessionWh.set(session.plugId, session.energyWh ?? 0);
 
-      console.log(`Resumed session ${session.id} for plug ${session.plugId} in state ${session.state}`);
+      // Restore learn tracking maps from DB for learning sessions
+      if (session.state === 'learning') {
+        this.learnCumulativeWh.set(session.plugId, session.energyWh ?? 0);
+        this.learnReadingCount.set(session.plugId, 0);
+        this.learnPowerSum.set(session.plugId, 0);
+        // sessionStartEnergy will be recalculated from first reading: currentTotal - storedWh
+        // This ensures the delta calculation stays correct across restarts
+      }
+
+      console.log(`Resumed session ${session.id} for plug ${session.plugId} in state ${session.state} (${(session.energyWh ?? 0).toFixed(1)} Wh)`);
     }
   }
 }
