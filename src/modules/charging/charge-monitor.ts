@@ -386,6 +386,20 @@ export class ChargeMonitor {
           }).where(eq(chargeSessions.id, sessionId)).run();
         }
         this.stopStatusPolling(plugId);
+
+        // Turn the plug off now that the teach-in device has finished drawing
+        // power. Mirrors the 'stopping' handler for regular charging sessions.
+        const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+        if (plug && canSwitchRelay(this.lastRelayOff.get(plugId) ?? 0)) {
+          switchRelayOff(
+            this.mqttService,
+            { mqttTopicPrefix: plug.mqttTopicPrefix, ipAddress: plug.ipAddress },
+            this.eventBus
+          ).then((ok) => {
+            if (ok) this.lastRelayOff.set(plugId, Date.now());
+          }).catch(() => { /* non-fatal */ });
+        }
+
         this.emitChargeEvent(plugId, 'learn_complete');
         break;
       }

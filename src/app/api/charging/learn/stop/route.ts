@@ -5,9 +5,35 @@ import {
   referenceCurves,
   referenceCurvePoints,
   socBoundaries,
+  plugs,
 } from '@/db/schema';
 import { eq, and, gte, inArray, asc } from 'drizzle-orm';
 import { computeSocBoundaries } from '@/modules/charging/soc-estimator';
+import { switchRelayOff } from '@/modules/charging/relay-controller';
+
+/**
+ * Best-effort: turn the Shelly plug off when a learning session ends.
+ * Symmetric to the auto turn-on in `/api/charging/learn/start`. Failures
+ * are swallowed so the save/discard flow is never blocked.
+ */
+async function turnPlugOff(plugId: string): Promise<void> {
+  const mqttService = globalThis.__mqttService;
+  const eventBus = globalThis.__eventBus;
+  if (!mqttService || !eventBus) return;
+
+  const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+  if (!plug) return;
+
+  try {
+    await switchRelayOff(
+      mqttService,
+      { mqttTopicPrefix: plug.mqttTopicPrefix, ipAddress: plug.ipAddress },
+      eventBus
+    );
+  } catch {
+    // non-fatal
+  }
+}
 
 export const runtime = 'nodejs';
 
@@ -56,6 +82,8 @@ export async function POST(request: Request) {
       .set({ state: 'aborted', stoppedAt: now, stopReason: 'manual' })
       .where(eq(chargeSessions.id, session.id))
       .run();
+
+    await turnPlugOff(plugId);
 
     return Response.json({ ok: true, action: 'discarded' });
   }
@@ -205,6 +233,10 @@ export async function POST(request: Request) {
     })
     .where(eq(chargeSessions.id, session.id))
     .run();
+
+  // 10. Turn the plug off — auto-complete may already have done this, but
+  // if the user saved before idle detection kicked in, the relay is still on.
+  await turnPlugOff(plugId);
 
   return Response.json({
     ok: true,

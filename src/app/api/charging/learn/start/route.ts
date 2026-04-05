@@ -1,6 +1,7 @@
 import { db } from '@/db/client';
 import { plugs, deviceProfiles, chargeSessions } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { switchRelayOn } from '@/modules/charging/relay-controller';
 
 export const runtime = 'nodejs';
 
@@ -61,6 +62,21 @@ export async function POST(request: Request) {
     .get();
 
   const sessionId = result.id;
+
+  // Turn the Shelly plug on so the charging cycle can actually start.
+  // Without this the wizard sits in "Ladevorgang aktiv" with 0 W because
+  // the relay defaults to off after a fresh teach-in.
+  const mqttService = globalThis.__mqttService;
+  if (mqttService) {
+    try {
+      await switchRelayOn(mqttService, {
+        mqttTopicPrefix: plug.mqttTopicPrefix,
+        ipAddress: plug.ipAddress,
+      });
+    } catch {
+      // Non-fatal: learning can still proceed and user can toggle manually.
+    }
+  }
 
   // Activate server-side recording via ChargeMonitor
   if (globalThis.__chargeMonitor) {

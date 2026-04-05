@@ -34,7 +34,8 @@ Charging-Master übernimmt das für dich. Ein Shelly S3 Plug sitzt zwischen Stec
 ### SOC-Schätzung & Auto-Stopp
 - **Energiebasierte SOC-Berechnung** — Kumulative Wh verglichen mit Referenzkurve, 10%-Schritte
 - **Countdown** — Visuelle Anzeige in den letzten 5% vor dem Ziel
-- **Automatischer Relay-Stopp** — MQTT-Befehl + HTTP-Fallback + Retry-Logik
+- **Automatischer Relay-Stopp** — MQTT-Befehl + HTTP-Fallback + Retry-Logik (sowohl bei Ziel-SOC als auch nach abgeschlossenem Anlernvorgang)
+- **Automatischer Relay-Start beim Anlernen** — Plug wird im Learn-Wizard-Step 4 automatisch eingeschaltet
 - **Hysterese** — Verhindert schnelles Ein/Aus-Schalten
 
 ### Pushover-Benachrichtigungen
@@ -218,6 +219,11 @@ curl -s 'http://SHELLY_IP/rpc/Shelly.Reboot'
 ### 1. Gerät anlernen
 
 Schließe das Ladegerät an den Shelly Plug an. Starte den Lernvorgang in der App. Der Akku sollte möglichst leer sein. Die App zeichnet den kompletten Ladezyklus auf — die charakteristische Leistungskurve dient als "Fingerabdruck" des Geräts.
+
+**Automatische Relay-Steuerung während des Anlernens:**
+- Beim Schritt "Ladevorgang aktiv" (Step 4) wird der Shelly Plug automatisch **eingeschaltet** (MQTT `Switch.Set on=true` + HTTP-Fallback auf `/rpc/Switch.Set?id=0&on=true`).
+- Sobald die Leistung für 60 s unter 2 W fällt (`learn_complete`), wird der Plug automatisch **wieder ausgeschaltet** — symmetrisch zum regulären Auto-Stopp.
+- Beim manuellen Beenden via "Speichern" oder "Verwerfen" wird der Plug ebenfalls ausgeschaltet.
 
 ### 2. SOC-Grenzen
 

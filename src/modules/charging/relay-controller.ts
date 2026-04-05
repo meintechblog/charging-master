@@ -89,6 +89,40 @@ export async function switchRelayOff(
 }
 
 /**
+ * Attempt to switch on the relay for a plug.
+ * Sends MQTT 'on' command and, if an IP is known, also issues an HTTP
+ * Switch.Set RPC as a belt-and-suspenders fallback so the plug reliably
+ * turns on even when the MQTT broker is lagging or the device has just
+ * reconnected. Returns true if at least one transport succeeded.
+ */
+export async function switchRelayOn(
+  mqttService: MqttService,
+  plug: { mqttTopicPrefix: string; ipAddress: string | null }
+): Promise<boolean> {
+  let mqttOk = false;
+  try {
+    mqttService.publishCommand(plug.mqttTopicPrefix, 'on');
+    mqttOk = true;
+  } catch {
+    // MQTT not connected or publish failed -- fall through to HTTP
+  }
+
+  if (plug.ipAddress) {
+    try {
+      const res = await fetch(
+        `http://${plug.ipAddress}/rpc/Switch.Set?id=0&on=true`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      if (res.ok) return true;
+    } catch {
+      // HTTP failed -- rely on MQTT result
+    }
+  }
+
+  return mqttOk;
+}
+
+/**
  * Check if relay switching is allowed (hysteresis guard).
  * Returns true if enough time has passed since last relay off.
  */
