@@ -16,24 +16,29 @@ function useMqttStatus() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const ctrl = new AbortController();
+    let cancelled = false;
 
     async function check() {
       try {
-        const res = await fetch('/api/mqtt/status');
-        if (!active) return;
+        const res = await fetch('/api/mqtt/status', { signal: ctrl.signal });
+        if (cancelled) return;
         if (res.ok) {
           const data = await res.json();
           setConnected(data.connected);
         }
       } catch {
-        if (active) setConnected(false);
+        if (!cancelled) setConnected(false);
       }
     }
 
     check();
-    const interval = setInterval(check, 5000);
-    return () => { active = false; clearInterval(interval); };
+    const interval = setInterval(check, 15000);
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearInterval(interval);
+    };
   }, []);
 
   return connected;
@@ -43,24 +48,29 @@ function useActiveLearnCount() {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    let active = true;
+    const ctrl = new AbortController();
+    let cancelled = false;
 
     async function check() {
       try {
-        const res = await fetch('/api/charging/learn/status');
-        if (!active) return;
+        const res = await fetch('/api/charging/learn/status', { signal: ctrl.signal });
+        if (cancelled) return;
         if (res.ok) {
           const sessions = await res.json();
           setCount(Array.isArray(sessions) ? sessions.filter((s: { state: string }) => s.state === 'learning').length : 0);
         }
       } catch {
-        // ignore
+        // ignore (includes AbortError on unmount)
       }
     }
 
     check();
-    const interval = setInterval(check, 5000);
-    return () => { active = false; clearInterval(interval); };
+    const interval = setInterval(check, 15000);
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearInterval(interval);
+    };
   }, []);
 
   return count;

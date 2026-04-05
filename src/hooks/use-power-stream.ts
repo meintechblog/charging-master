@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { PowerReading, PlugOnlineEvent } from '@/modules/events/event-bus';
 
 export type PowerCallback = (reading: PowerReading) => void;
@@ -8,8 +8,8 @@ export type OnlineCallback = (event: PlugOnlineEvent) => void;
 
 // Singleton EventSource state (module-level, not React state)
 let sharedEventSource: EventSource | null = null;
-let powerListeners = new Map<string, Set<PowerCallback>>();
-let onlineListeners = new Set<OnlineCallback>();
+const powerListeners = new Map<string, Set<PowerCallback>>();
+const onlineListeners = new Set<OnlineCallback>();
 let refCount = 0;
 
 // Cache most recent reading per plug (survives navigation)
@@ -27,13 +27,11 @@ function getEventSource(): EventSource {
       const reading: PowerReading = JSON.parse(event.data);
       latestReadings.set(reading.plugId, reading);
 
-      // Dispatch to plugId-specific listeners
       const plugSet = powerListeners.get(reading.plugId);
       if (plugSet) {
         for (const cb of plugSet) cb(reading);
       }
 
-      // Dispatch to wildcard listeners
       const wildcardSet = powerListeners.get('*');
       if (wildcardSet) {
         for (const cb of wildcardSet) cb(reading);
@@ -59,49 +57,77 @@ function getEventSource(): EventSource {
   return sharedEventSource;
 }
 
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
 function closeIfUnused() {
-  if (refCount <= 0 && sharedEventSource) {
-    sharedEventSource.close();
-    sharedEventSource = null;
-    refCount = 0;
-  }
+  // Defer the actual close: during a page navigation the old page's
+  // subscribers unmount a tick before the new page's subscribers mount,
+  // which would otherwise drop refCount to 0 and force the SSE connection
+  // to reconnect — causing visible click latency.
+  if (closeTimer) return;
+  closeTimer = setTimeout(() => {
+    closeTimer = null;
+    if (refCount <= 0 && sharedEventSource) {
+      sharedEventSource.close();
+      sharedEventSource = null;
+      refCount = 0;
+    }
+  }, 1500);
 }
 
 export function usePowerStream(plugId: string | '*', onReading: PowerCallback) {
+  const cbRef = useRef(onReading);
+  useEffect(() => {
+    cbRef.current = onReading;
+  }, [onReading]);
+
   useEffect(() => {
     refCount++;
     getEventSource();
+
+    const stableHandler: PowerCallback = (reading) => {
+      cbRef.current(reading);
+    };
 
     let set = powerListeners.get(plugId);
     if (!set) {
       set = new Set();
       powerListeners.set(plugId, set);
     }
-    set.add(onReading);
+    set.add(stableHandler);
 
     return () => {
       const s = powerListeners.get(plugId);
       if (s) {
-        s.delete(onReading);
+        s.delete(stableHandler);
         if (s.size === 0) powerListeners.delete(plugId);
       }
       refCount--;
       closeIfUnused();
     };
-  }, [plugId, onReading]);
+  }, [plugId]);
 }
 
 export function useOnlineStream(onEvent: OnlineCallback) {
+  const cbRef = useRef(onEvent);
+  useEffect(() => {
+    cbRef.current = onEvent;
+  }, [onEvent]);
+
   useEffect(() => {
     refCount++;
     getEventSource();
 
-    onlineListeners.add(onEvent);
+    const stableHandler: OnlineCallback = (event) => {
+      cbRef.current(event);
+    };
+
+    onlineListeners.add(stableHandler);
 
     return () => {
-      onlineListeners.delete(onEvent);
+      onlineListeners.delete(stableHandler);
       refCount--;
       closeIfUnused();
     };
-  }, [onEvent]);
+  }, []);
 }
