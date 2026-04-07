@@ -150,9 +150,9 @@ export default function ProfileDetailPage() {
     const res = await fetch(`/api/profiles/${profileId}/curve`);
     if (res.ok) {
       const data = await res.json();
-      const baseTime = Date.now();
+      // Use offset seconds directly (in ms) as X values for static chart
       const chartData: Array<[number, number]> = (data.points as CurvePoint[]).map(
-        (pt) => [baseTime + pt.offsetSeconds * 1000, pt.apower]
+        (pt) => [pt.offsetSeconds * 1000, pt.apower]
       );
       setCurveData(chartData);
     }
@@ -464,6 +464,7 @@ export default function ProfileDetailPage() {
             initialData={curveData}
             height="300px"
             initialWindow="max"
+            static
           />
         ) : (
           <p className="text-sm text-neutral-500">

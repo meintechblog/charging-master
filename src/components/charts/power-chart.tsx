@@ -13,6 +13,8 @@ type PowerChartProps = {
   onWindowChange?: (key: WindowKey) => void;
   height?: string;
   referenceData?: Array<[number, number]>;
+  /** When true, render initialData as-is without SSE streaming or sliding window. */
+  static?: boolean;
 };
 
 const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
@@ -23,7 +25,16 @@ const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
   { key: 'max', label: 'Max' },
 ];
 
-function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[number, number]>, yAxisAutoScale = false): EChartsOption {
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[number, number]>, yAxisAutoScale = false, isStatic = false): EChartsOption {
   const hasReference = referenceData && referenceData.length > 0;
 
   const series: EChartsOption['series'] = [
@@ -73,16 +84,25 @@ function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[
       formatter: (params: unknown) => {
         const items = params as Array<{ seriesName?: string; value: [number, number] }>;
         if (!items || items.length === 0) return '';
-        const date = new Date(items[0].value[0]);
-        const time = date.toLocaleTimeString('de-DE');
+        const timeLabel = isStatic
+          ? formatElapsed(items[0].value[0])
+          : new Date(items[0].value[0]).toLocaleTimeString('de-DE');
         const lines = items.map((item) => {
           const label = item.seriesName ? `${item.seriesName}: ` : '';
           return `${label}${item.value[1].toFixed(1)} W`;
         });
-        return `${time}<br/>${lines.join('<br/>')}`;
+        return `${timeLabel}<br/>${lines.join('<br/>')}`;
       },
     },
-    xAxis: {
+    xAxis: isStatic ? {
+      type: 'value',
+      splitLine: { show: false },
+      axisLabel: {
+        color: '#737373',
+        formatter: (val: number) => formatElapsed(val),
+      },
+      name: 'Zeit',
+    } : {
       type: 'time',
       splitLine: { show: false },
       axisLabel: { color: '#737373' },
@@ -124,7 +144,7 @@ function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[
   };
 }
 
-export function PowerChart({ plugId, initialWindow, initialData, onWindowChange, height, referenceData }: PowerChartProps) {
+export function PowerChart({ plugId, initialWindow, initialData, onWindowChange, height, referenceData, static: isStatic }: PowerChartProps) {
   const [windowKey, setWindowKey] = useState<WindowKey>(initialWindow ?? '15m');
   const { push, clear } = useSlidingWindow(windowKey);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,9 +153,16 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
   const [yAutoScale, setYAutoScale] = useState(false);
   const initialDataLoadedRef = useRef(false);
 
-  // Load initial historical data into sliding window once
+  // Static mode: use initialData directly, no sliding window
   useEffect(() => {
-    if (initialData && initialData.length > 0 && !initialDataLoadedRef.current) {
+    if (isStatic && initialData && initialData.length > 0) {
+      setChartData(initialData);
+    }
+  }, [isStatic, initialData]);
+
+  // Load initial historical data into sliding window once (live mode only)
+  useEffect(() => {
+    if (!isStatic && initialData && initialData.length > 0 && !initialDataLoadedRef.current) {
       initialDataLoadedRef.current = true;
       let latestData: Array<[number, number]> = [];
       for (const [ts, val] of initialData) {
@@ -143,17 +170,18 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
       }
       setChartData(latestData);
     }
-  }, [initialData, push]);
+  }, [isStatic, initialData, push]);
 
   const onReading = useCallback(
     (reading: { apower: number; timestamp: number }) => {
+      if (isStatic) return;
       const data = push(reading.timestamp, reading.apower);
       setChartData(data);
     },
-    [push]
+    [isStatic, push]
   );
 
-  usePowerStream(plugId, onReading);
+  usePowerStream(isStatic ? '__noop__' : plugId, onReading);
 
   const handleWindowChange = useCallback(
     (key: WindowKey) => {
@@ -227,7 +255,7 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
 
       {/* Chart */}
       <ReactECharts
-        option={buildChartOption(chartData, referenceData, yAutoScale)}
+        option={buildChartOption(chartData, referenceData, yAutoScale, isStatic)}
         notMerge={true}
         style={{ height: isFullscreen ? 'calc(100vh - 80px)' : (height ?? '300px'), width: '100%' }}
         opts={{ renderer: 'canvas' }}

@@ -165,9 +165,9 @@ export default function SessionDetailPage() {
     );
   }
 
-  // Build chart data from readings
+  // Build chart data from readings using elapsed time (offset from start)
   const sessionChartData: Array<[number, number]> = session.readings.map((r) => [
-    session.startedAt + r.offsetMs,
+    r.offsetMs,
     r.apower,
   ]);
 
@@ -176,7 +176,7 @@ export default function SessionDetailPage() {
   if (session.referenceCurve && session.referenceCurve.points.length > 0) {
     const offsetMs = (session.referenceCurve.curveOffsetSeconds ?? 0) * 1000;
     refChartData = session.referenceCurve.points.map((p) => [
-      session.startedAt - offsetMs + p.offsetSeconds * 1000,
+      p.offsetSeconds * 1000 - offsetMs,
       p.apower,
     ]);
   }
@@ -229,6 +229,7 @@ export default function SessionDetailPage() {
             referenceData={refChartData}
             height="400px"
             initialWindow="max"
+            static
           />
         ) : (
           <div className="bg-neutral-900 rounded-lg p-8 border border-neutral-800 text-center">
