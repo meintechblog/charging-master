@@ -604,7 +604,20 @@ export class ChargeMonitor {
       .where(inArray(chargeSessions.state, activeStates))
       .all();
 
+    const now = Date.now();
+    const MAX_DETECTING_AGE_MS = 10 * 60 * 1000; // 10 minutes — detecting should never take longer
+
     for (const session of activeSessions) {
+      // Abort stale detecting sessions that survived a restart
+      if (session.state === 'detecting' && (now - session.startedAt) > MAX_DETECTING_AGE_MS) {
+        db.update(chargeSessions)
+          .set({ state: 'aborted', stoppedAt: now, stopReason: 'stale_on_restart' })
+          .where(eq(chargeSessions.id, session.id))
+          .run();
+        console.log(`Aborted stale detecting session ${session.id} for plug ${session.plugId} (age: ${Math.round((now - session.startedAt) / 60000)} min)`);
+        continue;
+      }
+
       const machine = this.getOrCreateMachine(session.plugId);
 
       // Restore state machine to the correct state
