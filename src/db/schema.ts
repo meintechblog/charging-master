@@ -45,6 +45,7 @@ export const deviceProfiles = sqliteTable('device_profiles', {
   manufacturer: text('manufacturer'),
   articleNumber: text('article_number'),
   gtin: text('gtin'),
+  capacityWh: real('capacity_wh'),
   weightGrams: integer('weight_grams'),
   priceEur: real('price_eur'),
   priceUpdatedAt: integer('price_updated_at'),

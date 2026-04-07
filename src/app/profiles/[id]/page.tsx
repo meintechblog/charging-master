@@ -24,6 +24,7 @@ type ProfileData = {
   modelName: string | null;
   articleNumber: string | null;
   gtin: string | null;
+  capacityWh: number | null;
   weightGrams: number | null;
   purchaseDate: string | null;
   estimatedCycles: number | null;
@@ -217,6 +218,12 @@ export default function ProfileDetailPage() {
   if (profile.modelName) {
     attrs.push({ icon: <IconTag />, label: 'Modell', value: profile.modelName, accent: 'text-blue-400' });
   }
+  if (profile.capacityWh != null) {
+    const capStr = profile.capacityWh >= 1000
+      ? `${(profile.capacityWh / 1000).toFixed(2)} kWh`
+      : `${profile.capacityWh} Wh`;
+    attrs.push({ icon: <IconBolt />, label: 'Akkukapazität', value: capStr, accent: 'text-yellow-400' });
+  }
   if (profile.description) {
     attrs.push({ icon: <IconFile />, label: 'Beschreibung', value: profile.description });
   }
@@ -339,6 +346,7 @@ export default function ProfileDetailPage() {
               modelName: profile.modelName ?? '',
               articleNumber: profile.articleNumber ?? '',
               gtin: profile.gtin ?? '',
+              capacityWh: profile.capacityWh,
               weightGrams: profile.weightGrams,
               purchaseDate: profile.purchaseDate ?? '',
               estimatedCycles: profile.estimatedCycles,

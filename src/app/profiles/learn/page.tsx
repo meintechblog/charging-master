@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { LearnWizard } from '@/components/charging/learn-wizard';
+import { formatDuration, formatEnergy } from '@/lib/format';
 
 type LearnSession = {
   sessionId: number;
@@ -19,20 +20,6 @@ type LearnSession = {
   avgPower: number;
   maxPower: number;
 };
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSec / 3600);
-  const min = Math.floor((totalSec % 3600) / 60);
-  const sec = totalSec % 60;
-  if (hours > 0) return `${hours}:${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-  return `${min}:${sec.toString().padStart(2, '0')}`;
-}
-
-function formatEnergy(wh: number): string {
-  if (wh >= 1000) return `${(wh / 1000).toFixed(2)} kWh`;
-  return `${wh.toFixed(1)} Wh`;
-}
 
 function LearnOverview() {
   const [sessions, setSessions] = useState<LearnSession[]>([]);

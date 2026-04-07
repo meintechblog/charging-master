@@ -110,6 +110,7 @@ export async function PUT(
   if (typeof body.description === 'string') updates.description = body.description;
   if (typeof body.modelName === 'string') updates.modelName = body.modelName;
   if (typeof body.purchaseDate === 'string') updates.purchaseDate = body.purchaseDate;
+  if (body.capacityWh !== undefined) updates.capacityWh = body.capacityWh === null ? null : Number(body.capacityWh);
   if (typeof body.estimatedCycles === 'number') updates.estimatedCycles = body.estimatedCycles;
   if (body.targetSoc !== undefined) updates.targetSoc = Number(body.targetSoc);
   if (typeof body.manufacturer === 'string') updates.manufacturer = body.manufacturer;

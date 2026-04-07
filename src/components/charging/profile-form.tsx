@@ -9,6 +9,7 @@ export type ProfileFormValues = {
   modelName: string;
   articleNumber: string;
   gtin: string;
+  capacityWh: number | null;
   weightGrams: number | null;
   purchaseDate: string;
   estimatedCycles: number | null;
@@ -41,6 +42,9 @@ export function ProfileForm({
   const [modelName, setModelName] = useState(initialValues?.modelName ?? '');
   const [articleNumber, setArticleNumber] = useState(initialValues?.articleNumber ?? '');
   const [gtin, setGtin] = useState(initialValues?.gtin ?? '');
+  const [capacityWh, setCapacityWh] = useState<string>(
+    initialValues?.capacityWh != null ? String(initialValues.capacityWh) : ''
+  );
   const [weightGrams, setWeightGrams] = useState<string>(
     initialValues?.weightGrams != null ? String(initialValues.weightGrams) : ''
   );
@@ -65,6 +69,7 @@ export function ProfileForm({
       modelName: modelName.trim(),
       articleNumber: articleNumber.trim(),
       gtin: gtin.trim(),
+      capacityWh: capacityWh ? parseFloat(capacityWh) : null,
       weightGrams: weightGrams ? parseInt(weightGrams, 10) : null,
       purchaseDate,
       estimatedCycles: estimatedCycles ? parseInt(estimatedCycles, 10) : null,
@@ -148,6 +153,20 @@ export function ProfileForm({
             disabled={disabled}
           />
         </div>
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Akkukapazität (Wh)</label>
+        <input
+          type="number"
+          step="0.1"
+          value={capacityWh}
+          onChange={(e) => setCapacityWh(e.target.value)}
+          className={INPUT_CLASS}
+          placeholder="z.B. 625"
+          min={0}
+          disabled={disabled}
+        />
       </div>
 
       <div>

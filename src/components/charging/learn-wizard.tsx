@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProfileForm, type ProfileFormValues } from '@/components/charging/profile-form';
 import { PowerChart } from '@/components/charts/power-chart';
+import { formatDuration, formatEnergy } from '@/lib/format';
 
 type Plug = {
   id: string;
@@ -27,6 +28,24 @@ type LearnStatus = {
   maxPower: number;
 };
 
+type ProfileData = {
+  id: number;
+  name: string;
+  description: string | null;
+  manufacturer: string | null;
+  modelName: string | null;
+  articleNumber: string | null;
+  gtin: string | null;
+  capacityWh: number | null;
+  weightGrams: number | null;
+  purchaseDate: string | null;
+  estimatedCycles: number | null;
+  productUrl: string | null;
+  documentUrl: string | null;
+  priceEur: number | null;
+  targetSoc: number;
+};
+
 type LearnWizardProps = {
   initialProfileId?: string;
   initialPlugId?: string;
@@ -47,13 +66,31 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<{ curveId: number; totalEnergyWh: number; durationSeconds: number } | null>(null);
   const [historicalData, setHistoricalData] = useState<Array<[number, number]> | undefined>(undefined);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
+  const autoSaveTriggeredRef = useRef(false);
+
+  // Profile details for inline editing during step 4
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const [activeSessions, setActiveSessions] = useState<LearnStatus[]>([]);
 
-  // On mount, check for active learning sessions (D-28: browser-close resilience)
+  // Load profile data when we have a profileId
+  const loadProfileData = useCallback(async (pid: number) => {
+    try {
+      const res = await fetch(`/api/profiles/${pid}`);
+      if (res.ok) {
+        setProfileData(await res.json());
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // On mount, check for active learning sessions (browser-close resilience)
   useEffect(() => {
     async function checkActive() {
       try {
@@ -62,7 +99,6 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
           const sessions: LearnStatus[] = await res.json();
           setActiveSessions(sessions);
 
-          // Only auto-resume if initialPlugId matches an active session
           if (initialPlugId) {
             const mySession = sessions.find(
               (s) => s.plugId === initialPlugId && (s.state === 'learning' || s.state === 'learn_complete')
@@ -74,18 +110,17 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
               setLearnStatus(mySession);
               startTimeRef.current = mySession.startedAt;
               setStep(4);
+              loadProfileData(mySession.profileId);
               if (mySession.state === 'learn_complete') {
                 setShowComplete(true);
               }
             }
           }
         }
-      } catch {
-        // Ignore
-      }
+      } catch { /* ignore */ }
     }
     checkActive();
-  }, [initialPlugId]);
+  }, [initialPlugId, loadProfileData]);
 
   // Load plugs for step 2
   useEffect(() => {
@@ -99,7 +134,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
 
   // Poll learn status during step 4
   useEffect(() => {
-    if (step === 4 && !showComplete) {
+    if (step === 4 && !saveResult) {
       const poll = async () => {
         try {
           const res = await fetch('/api/charging/learn/status');
@@ -117,9 +152,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
               }
             }
           }
-        } catch {
-          // Ignore poll errors
-        }
+        } catch { /* ignore */ }
       };
 
       poll();
@@ -129,9 +162,42 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
         if (pollRef.current) clearInterval(pollRef.current);
       };
     }
-  }, [step, selectedPlugId, showComplete]);
+  }, [step, selectedPlugId, saveResult]);
 
-  // Load historical readings when entering step 4 (so chart shows full session, not just since page load)
+  // Auto-save when learn_complete is detected
+  useEffect(() => {
+    if (showComplete && !autoSaveTriggeredRef.current && selectedPlugId) {
+      autoSaveTriggeredRef.current = true;
+      setAutoSaving(true);
+
+      (async () => {
+        try {
+          const res = await fetch('/api/charging/learn/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plugId: selectedPlugId, action: 'save' }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            setSaveResult({
+              curveId: data.curveId,
+              totalEnergyWh: data.totalEnergyWh,
+              durationSeconds: data.durationSeconds,
+            });
+          } else {
+            const err = await res.json();
+            setError(err.message || err.error || 'Fehler beim automatischen Speichern');
+          }
+        } catch {
+          setError('Netzwerkfehler beim Speichern');
+        }
+        setAutoSaving(false);
+      })();
+    }
+  }, [showComplete, selectedPlugId]);
+
+  // Load historical readings when entering step 4
   useEffect(() => {
     if (step === 4 && selectedPlugId && !historicalData) {
       async function loadHistory() {
@@ -150,11 +216,17 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
     }
   }, [step, selectedPlugId, historicalData]);
 
+  // Load profile data when entering step 4
+  useEffect(() => {
+    if (step === 4 && createdProfileId && !profileData) {
+      loadProfileData(createdProfileId);
+    }
+  }, [step, createdProfileId, profileData, loadProfileData]);
+
   // Step 1 submit: create profile
   const handleProfileSubmit = useCallback(async (values: ProfileFormValues) => {
     setProfileValues(values);
 
-    // Create profile if not re-learning
     if (!createdProfileId) {
       setLoading(true);
       setError(null);
@@ -214,46 +286,22 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
     setLoading(false);
   }
 
-  // Stop learning (save or discard)
-  async function stopLearning(action: 'save' | 'discard') {
-    if (!selectedPlugId) return;
-
-    setLoading(true);
+  // Inline profile update during step 4
+  async function handleInlineProfileSave(values: ProfileFormValues) {
+    if (!createdProfileId) return;
+    setSavingProfile(true);
     try {
-      const res = await fetch('/api/charging/learn/stop', {
-        method: 'POST',
+      const res = await fetch(`/api/profiles/${createdProfileId}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plugId: selectedPlugId, action }),
+        body: JSON.stringify(values),
       });
-
       if (res.ok) {
-        if (action === 'save' && createdProfileId) {
-          router.push(`/profiles/${createdProfileId}`);
-        } else {
-          router.push('/profiles');
-        }
-      } else {
-        const err = await res.json();
-        setError(err.message || err.error || 'Fehler');
+        await loadProfileData(createdProfileId);
+        setEditingProfile(false);
       }
-    } catch {
-      setError('Netzwerkfehler');
-    }
-    setLoading(false);
-  }
-
-  function formatDuration(ms: number): string {
-    const totalSec = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSec / 3600);
-    const min = Math.floor((totalSec % 3600) / 60);
-    const sec = totalSec % 60;
-    if (hours > 0) return `${hours}:${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-    return `${min}:${sec.toString().padStart(2, '0')}`;
-  }
-
-  function formatEnergy(wh: number): string {
-    if (wh >= 1000) return `${(wh / 1000).toFixed(2)} kWh`;
-    return `${wh.toFixed(1)} Wh`;
+    } catch { /* ignore */ }
+    setSavingProfile(false);
   }
 
   return (
@@ -422,13 +470,23 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
         </div>
       )}
 
-      {/* Step 4: Live recording */}
+      {/* Step 4: Live recording + inline profile details */}
       {step === 4 && selectedPlugId && (
         <div className="space-y-4">
           <div className="bg-neutral-900 rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-neutral-100">Aufnahme</h2>
-              {!showComplete && (
+              {autoSaving ? (
+                <span className="flex items-center gap-2 text-xs text-yellow-400">
+                  <span className="animate-spin h-3 w-3 border-2 border-yellow-400 border-t-transparent rounded-full" />
+                  Speichere Profil...
+                </span>
+              ) : saveResult ? (
+                <span className="flex items-center gap-2 text-xs text-green-400">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>
+                  Profil gespeichert
+                </span>
+              ) : !showComplete ? (
                 <span className="flex items-center gap-2 text-xs text-green-400">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -436,7 +494,7 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
                   </span>
                   Ladevorgang aktiv
                 </span>
-              )}
+              ) : null}
             </div>
 
             {/* Stats */}
@@ -483,35 +541,92 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
             <PowerChart plugId={selectedPlugId} height="400px" initialWindow="max" initialData={historicalData} />
           </div>
 
-          {/* Complete dialog (D-27) */}
-          {showComplete && (
+          {/* Auto-save success banner */}
+          {saveResult && (
             <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-green-300 mb-2">
-                Ladevorgang abgeschlossen
-              </h3>
-              <p className="text-sm text-neutral-300 mb-3">
-                Profil speichern?
-              </p>
-              <div className="flex gap-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-green-300 mb-1">
+                    Referenzkurve gespeichert
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    {formatEnergy(saveResult.totalEnergyWh)} in {formatDuration(saveResult.durationSeconds * 1000)} aufgezeichnet
+                  </p>
+                </div>
                 <button
-                  onClick={() => stopLearning('save')}
-                  disabled={loading}
-                  className="px-4 py-2 text-sm rounded bg-green-500 text-white hover:bg-green-600 transition-colors disabled:opacity-50"
+                  onClick={() => router.push(`/profiles/${createdProfileId}`)}
+                  className="px-4 py-2 text-sm rounded bg-green-500 text-white hover:bg-green-600 transition-colors"
                 >
-                  {loading ? 'Speichere...' : 'Speichern'}
-                </button>
-                <button
-                  onClick={() => stopLearning('discard')}
-                  disabled={loading}
-                  className="px-4 py-2 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
-                >
-                  Verwerfen
+                  Zum Profil
                 </button>
               </div>
             </div>
           )}
+
+          {/* Inline profile details panel */}
+          {profileData && (
+            <div className="bg-neutral-900 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-medium text-neutral-400">Geräte-Informationen</h2>
+                <button
+                  onClick={() => setEditingProfile(!editingProfile)}
+                  className="px-3 py-1.5 text-xs rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
+                >
+                  {editingProfile ? 'Abbrechen' : 'Bearbeiten'}
+                </button>
+              </div>
+
+              {editingProfile ? (
+                <ProfileForm
+                  initialValues={{
+                    name: profileData.name,
+                    description: profileData.description ?? '',
+                    manufacturer: profileData.manufacturer ?? '',
+                    modelName: profileData.modelName ?? '',
+                    articleNumber: profileData.articleNumber ?? '',
+                    gtin: profileData.gtin ?? '',
+                    capacityWh: profileData.capacityWh,
+                    weightGrams: profileData.weightGrams,
+                    purchaseDate: profileData.purchaseDate ?? '',
+                    estimatedCycles: profileData.estimatedCycles,
+                    productUrl: profileData.productUrl ?? '',
+                    documentUrl: profileData.documentUrl ?? '',
+                    priceEur: profileData.priceEur,
+                  }}
+                  onSubmit={handleInlineProfileSave}
+                  submitLabel="Speichern"
+                  disabled={savingProfile}
+                />
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  <ProfileInfoCard label="Name" value={profileData.name} />
+                  <ProfileInfoCard label="Hersteller" value={profileData.manufacturer} />
+                  <ProfileInfoCard label="Modell" value={profileData.modelName} />
+                  <ProfileInfoCard label="Kapazität" value={profileData.capacityWh != null ? `${profileData.capacityWh} Wh` : null} />
+                  <ProfileInfoCard label="Geschätzte Zyklen" value={profileData.estimatedCycles != null ? String(profileData.estimatedCycles) : null} />
+                  <ProfileInfoCard label="Gewicht" value={profileData.weightGrams != null ? (profileData.weightGrams >= 1000 ? `${(profileData.weightGrams / 1000).toFixed(1)} kg` : `${profileData.weightGrams} g`) : null} />
+                  <ProfileInfoCard label="Kaufdatum" value={profileData.purchaseDate ? new Date(profileData.purchaseDate).toLocaleDateString('de-DE') : null} />
+                  <ProfileInfoCard label="Preis" value={profileData.priceEur != null ? `${profileData.priceEur.toFixed(2)} €` : null} />
+                  <ProfileInfoCard label="Artikelnummer" value={profileData.articleNumber} />
+                  <ProfileInfoCard label="GTIN / EAN" value={profileData.gtin} />
+                  <ProfileInfoCard label="Ziel-SOC" value={`${profileData.targetSoc}%`} accent />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProfileInfoCard({ label, value, accent }: { label: string; value: string | null | undefined; accent?: boolean }) {
+  return (
+    <div className="bg-neutral-800/50 rounded-lg p-3">
+      <div className="text-xs text-neutral-500 mb-0.5">{label}</div>
+      <div className={`text-sm truncate ${value ? (accent ? 'text-blue-400 font-medium' : 'text-neutral-100') : 'text-neutral-600 italic'}`}>
+        {value || 'Nicht angegeben'}
+      </div>
     </div>
   );
 }
