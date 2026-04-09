@@ -183,6 +183,28 @@ do_update() {
   log "Applying database schema..."
   pnpm db:push
 
+  log "Updating systemd service..."
+  cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<'UNIT'
+[Unit]
+Description=Charging-Master Web App
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/charging-master
+ExecStart=/usr/bin/npx tsx server.ts
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=80
+KillMode=control-group
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+
   log "Starting service..."
   systemctl start "$SERVICE_NAME"
 
