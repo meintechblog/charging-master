@@ -124,6 +124,11 @@ Plans:
   3. The mqtt.js package is gone from package.json, MqttService and src/modules/mqtt/ are deleted, and the app starts and runs without any MQTT broker
   4. Settings page no longer shows MQTT configuration, and no MQTT references remain in server.ts, global.d.ts, or ChargeMonitor
 **UI hint**: yes
+**Plans:** 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — HTTP subnet scanner, discovery API rewrite, discovery UI with scan button, IP required for registration
+- [ ] 06-02-PLAN.md — Complete MQTT removal: delete module/routes/settings/globals/package dependency
 
 ## Progress
 
@@ -137,4 +142,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Charge Intelligence | v1.0 | 5/5 | Complete | 2026-04-09 |
 | 4. Notifications & History | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 5. HTTP Communication | v1.1 | 0/2 | Not started | - |
-| 6. Device Discovery & MQTT Removal | v1.1 | 0/? | Not started | - |
+| 6. Device Discovery & MQTT Removal | v1.1 | 0/2 | Not started | - |
