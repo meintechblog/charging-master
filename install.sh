@@ -102,7 +102,11 @@ do_install() {
   cd "$INSTALL_DIR"
 
   log "Installing dependencies..."
-  pnpm install --frozen-lockfile || pnpm install
+  pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+
+  log "Building native modules..."
+  pnpm approve-builds better-sqlite3 2>/dev/null || true
+  pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
   log "Building application..."
   pnpm build
@@ -308,7 +312,7 @@ do_create_lxc() {
     --cores 1 \
     --memory 1024 \
     --swap 512 \
-    --rootfs "${STORAGE}:4" \
+    --rootfs "${STORAGE}:8" \
     --net0 "name=eth0,bridge=${BRIDGE},ip=dhcp" \
     --unprivileged 1 \
     --features nesting=1 \
@@ -332,7 +336,7 @@ do_create_lxc() {
 
   # 8. Bootstrap inside container
   log "Installing charging-master inside CT ${VMID}..."
-  pct exec "$VMID" -- bash -c "apt-get update -qq && apt-get install -y -qq curl git > /dev/null"
+  pct exec "$VMID" -- bash -c "apt-get update -qq && apt-get install -y -qq curl git build-essential python3 > /dev/null"
   pct exec "$VMID" -- bash -c "curl -sSL https://raw.githubusercontent.com/meintechblog/charging-master/main/install.sh | bash -s -- install"
 
   # 9. Print result
