@@ -12,38 +12,6 @@ const NAV_ITEMS = [
   { href: '/history', label: 'Verlauf' },
 ];
 
-function useMqttStatus() {
-  const [connected, setConnected] = useState(false);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    let cancelled = false;
-
-    async function check() {
-      try {
-        const res = await fetch('/api/mqtt/status', { signal: ctrl.signal });
-        if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          setConnected(data.connected);
-        }
-      } catch {
-        if (!cancelled) setConnected(false);
-      }
-    }
-
-    check();
-    const interval = setInterval(check, 15000);
-    return () => {
-      cancelled = true;
-      ctrl.abort();
-      clearInterval(interval);
-    };
-  }, []);
-
-  return connected;
-}
-
 function useActiveLearnCount() {
   const [count, setCount] = useState(0);
 
@@ -78,7 +46,6 @@ function useActiveLearnCount() {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const mqttConnected = useMqttStatus();
   const activeLearnCount = useActiveLearnCount();
 
   function isActive(href: string) {
@@ -124,15 +91,6 @@ export function Sidebar() {
           {activeLearnCount} Lernvorgang{activeLearnCount !== 1 ? 'e' : ''} aktiv
         </Link>
       )}
-
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-neutral-400">
-        <span
-          className={`w-2 h-2 rounded-full ${
-            mqttConnected ? 'bg-green-500' : 'bg-red-500'
-          }`}
-        />
-        MQTT {mqttConnected ? 'Verbunden' : 'Getrennt'}
-      </div>
     </nav>
   );
 }

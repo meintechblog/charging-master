@@ -3,7 +3,6 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 export const plugs = sqliteTable('plugs', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  mqttTopicPrefix: text('mqtt_topic_prefix').notNull(),
   ipAddress: text('ip_address'),
   pollingInterval: integer('polling_interval').notNull().default(5),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

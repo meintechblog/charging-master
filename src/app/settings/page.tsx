@@ -1,7 +1,6 @@
 import { db } from '@/db/client';
 import { config } from '@/db/schema';
 import { SettingsSection } from '@/components/settings/settings-section';
-import { MqttSettings } from '@/components/settings/mqtt-settings';
 import { PushoverSettings } from '@/components/settings/pushover-settings';
 
 export const dynamic = 'force-dynamic';
@@ -15,13 +14,6 @@ export default async function SettingsPage() {
   return (
     <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
       <h1 className="text-2xl font-bold text-neutral-100">Einstellungen</h1>
-
-      <SettingsSection
-        title="MQTT Broker"
-        description="Verbindungseinstellungen für den MQTT-Broker"
-      >
-        <MqttSettings initialSettings={settings} />
-      </SettingsSection>
 
       <SettingsSection
         title="Pushover"

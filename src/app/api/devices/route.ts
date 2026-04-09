@@ -11,10 +11,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { id, name, mqttTopicPrefix, ipAddress, pollingInterval } = body as {
+  const { id, name, ipAddress, pollingInterval } = body as {
     id: string;
     name: string;
-    mqttTopicPrefix: string;
     ipAddress?: string;
     pollingInterval?: number;
   };
@@ -37,7 +36,6 @@ export async function POST(request: Request) {
   const newPlug = {
     id,
     name,
-    mqttTopicPrefix: mqttTopicPrefix || id,
     ipAddress: ipAddress ?? null,
     pollingInterval: pollingInterval ?? 5,
     enabled: true,
