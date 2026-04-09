@@ -112,7 +112,12 @@ do_install() {
   log "Applying database schema..."
   pnpm db:push
 
-  # 8. Systemd service
+  # 8. mDNS (avahi) for charging-master.local
+  log "Setting up mDNS (charging-master.local)..."
+  apt-get install -y -qq avahi-daemon > /dev/null 2>&1
+  systemctl enable --now avahi-daemon 2>/dev/null || true
+
+  # 9. Systemd service
   log "Creating systemd service..."
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<'UNIT'
 [Unit]
