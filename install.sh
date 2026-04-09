@@ -126,6 +126,7 @@ ExecStart=/usr/bin/npx tsx server.ts
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
+Environment=PORT=80
 KillMode=control-group
 TimeoutStopSec=5
 
@@ -142,7 +143,7 @@ UNIT
   ip=$(hostname -I | awk '{print $1}')
   echo ""
   log "Installation complete!"
-  log "Charging-Master is running at: http://${ip}:3000"
+  log "Charging-Master is running at: http://${ip}"
   log ""
   log "Manage the service:"
   log "  systemctl status ${SERVICE_NAME}"
@@ -189,7 +190,7 @@ do_update() {
   ip=$(hostname -I | awk '{print $1}')
   echo ""
   log "Update complete!"
-  log "Charging-Master is running at: http://${ip}:3000"
+  log "Charging-Master is running at: http://${ip}"
 }
 
 # ---------------------------------------------------------------------------
@@ -343,7 +344,7 @@ do_create_lxc() {
   log "  IP:       ${ip:-unknown}"
   log ""
   if [ -n "$ip" ]; then
-    log "Charging-Master is running at: http://${ip}:3000"
+    log "Charging-Master is running at: http://${ip}"
   else
     log "Could not detect IP. Check: pct exec ${VMID} -- hostname -I"
   fi
