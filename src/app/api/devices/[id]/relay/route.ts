@@ -1,10 +1,9 @@
 import { db } from '@/db/client';
 import { plugs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import { switchRelayOnHttp, switchRelayOffHttp } from '@/modules/shelly/relay-http';
 
 export const runtime = 'nodejs';
-
-const VALID_COMMANDS = new Set(['on', 'off', 'toggle']);
 
 export async function POST(
   request: Request,
@@ -19,15 +18,9 @@ export async function POST(
     return Response.json({ error: 'invalid_body' }, { status: 400 });
   }
 
-  if (!body.command || !VALID_COMMANDS.has(body.command)) {
-    return Response.json({ error: 'invalid_command' }, { status: 400 });
-  }
-
-  const command = body.command as 'on' | 'off' | 'toggle';
-
-  const mqttService = globalThis.__mqttService;
-  if (!mqttService?.isConnected()) {
-    return Response.json({ error: 'mqtt_disconnected' }, { status: 503 });
+  const command = body.command;
+  if (command !== 'on' && command !== 'off') {
+    return Response.json({ error: 'invalid_command', valid: ['on', 'off'] }, { status: 400 });
   }
 
   const plug = db.select().from(plugs).where(eq(plugs.id, id)).get();
@@ -35,7 +28,17 @@ export async function POST(
     return Response.json({ error: 'plug_not_found' }, { status: 404 });
   }
 
-  mqttService.publishCommand(plug.mqttTopicPrefix, command);
+  if (!plug.ipAddress) {
+    return Response.json({ error: 'no_ip_address' }, { status: 422 });
+  }
+
+  const success = command === 'on'
+    ? await switchRelayOnHttp(plug.ipAddress)
+    : await switchRelayOffHttp(plug.ipAddress);
+
+  if (!success) {
+    return Response.json({ error: 'device_unreachable' }, { status: 502 });
+  }
 
   return Response.json({ ok: true, command });
 }

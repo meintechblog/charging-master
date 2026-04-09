@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import next from 'next';
 import { MqttService } from './src/modules/mqtt/mqtt-service';
+import { HttpPollingService } from './src/modules/shelly/http-polling-service';
 import { EventBus, type PlugOnlineEvent } from './src/modules/events/event-bus';
 import { ChargeMonitor } from './src/modules/charging/charge-monitor';
 import { NotificationService } from './src/modules/notifications/notification-service';
@@ -25,6 +26,7 @@ async function main() {
 
   const eventBus = new EventBus();
   const mqttService = new MqttService(eventBus);
+  const httpPollingService = new HttpPollingService(eventBus);
 
   // Load MQTT settings from config table
   const mqttHost = getConfigValue('mqtt.host');
@@ -44,8 +46,8 @@ async function main() {
     console.log('No MQTT broker configured. Set mqtt.host in settings to connect.');
   }
 
-  // Initialize ChargeMonitor singleton
-  const chargeMonitor = new ChargeMonitor(eventBus, mqttService);
+  // Initialize ChargeMonitor singleton (no mqttService dependency)
+  const chargeMonitor = new ChargeMonitor(eventBus);
   chargeMonitor.start();
 
   // Initialize notification and session recording services
@@ -57,13 +59,14 @@ async function main() {
   // Expose globals for route handlers
   globalThis.__eventBus = eventBus;
   globalThis.__mqttService = mqttService;
+  globalThis.__httpPollingService = httpPollingService;
   globalThis.__chargeMonitor = chargeMonitor;
 
   // Start HTTP polling for all registered plugs with IP addresses
   const registeredPlugs = db.select().from(plugs).all();
   for (const plug of registeredPlugs) {
     if (plug.enabled && plug.ipAddress) {
-      mqttService.startHttpPolling(plug.id);
+      httpPollingService.startPolling(plug.id, plug.ipAddress, (plug.pollingInterval ?? 1) * 1000);
     }
   }
 
@@ -100,7 +103,7 @@ async function main() {
     notificationService.stop();
     sessionRecorder.stop();
     chargeMonitor.stop();
-    mqttService.stopAllHttpPolling();
+    httpPollingService.stopAll();
     await mqttService.disconnect();
     server.close(() => {
       process.exit(0);

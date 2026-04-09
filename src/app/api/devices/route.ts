@@ -45,10 +45,13 @@ export async function POST(request: Request) {
 
   db.insert(plugs).values(newPlug).run();
 
-  // Subscribe to MQTT topics for the new plug
-  if (globalThis.__mqttService) {
-    globalThis.__mqttService.subscribeToPlug(newPlug.mqttTopicPrefix);
-    globalThis.__mqttService.registerTopicMapping(newPlug.mqttTopicPrefix, id);
+  // Start HTTP polling for the new plug
+  if (globalThis.__httpPollingService && newPlug.ipAddress) {
+    globalThis.__httpPollingService.startPolling(
+      newPlug.id,
+      newPlug.ipAddress,
+      (newPlug.pollingInterval ?? 1) * 1000
+    );
   }
 
   return Response.json(newPlug, { status: 201 });
@@ -82,6 +85,19 @@ export async function PATCH(request: Request) {
   db.update(plugs).set(fields).where(eq(plugs.id, id)).run();
 
   const updated = db.select().from(plugs).where(eq(plugs.id, id)).get();
+
+  // Restart HTTP polling if relevant fields changed
+  if (globalThis.__httpPollingService) {
+    globalThis.__httpPollingService.stopPolling(id);
+    if (updated?.enabled && updated?.ipAddress) {
+      globalThis.__httpPollingService.startPolling(
+        id,
+        updated.ipAddress,
+        (updated.pollingInterval ?? 1) * 1000
+      );
+    }
+  }
+
   return Response.json(updated);
 }
 
@@ -100,9 +116,9 @@ export async function DELETE(request: Request) {
 
   db.delete(plugs).where(eq(plugs.id, id)).run();
 
-  // Unsubscribe from MQTT topics
-  if (globalThis.__mqttService) {
-    globalThis.__mqttService.unsubscribeFromPlug(existing.mqttTopicPrefix);
+  // Stop HTTP polling for the deleted plug
+  if (globalThis.__httpPollingService) {
+    globalThis.__httpPollingService.stopPolling(existing.id);
   }
 
   return Response.json({ ok: true });
