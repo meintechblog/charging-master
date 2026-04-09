@@ -139,12 +139,25 @@ All 34 requirements shipped. See traceability below.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _Filled by roadmapper_ | | |
+| POLL-01 | Phase 5 | Pending |
+| POLL-02 | Phase 5 | Pending |
+| POLL-03 | Phase 5 | Pending |
+| POLL-04 | Phase 5 | Pending |
+| RELAY-01 | Phase 5 | Pending |
+| RELAY-02 | Phase 5 | Pending |
+| DISC-01 | Phase 6 | Pending |
+| DISC-02 | Phase 6 | Pending |
+| DISC-03 | Phase 6 | Pending |
+| CLEAN-01 | Phase 6 | Pending |
+| CLEAN-02 | Phase 6 | Pending |
+| CLEAN-03 | Phase 6 | Pending |
+| CLEAN-04 | Phase 6 | Pending |
+| CLEAN-05 | Phase 6 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 34 total, 34 complete
-- v1.1 requirements: 14 total, 0 mapped
+- v1.1 requirements: 14 total, 14 mapped
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-09 — v1.1 requirements added*
+*Last updated: 2026-04-09 — v1.1 traceability added*

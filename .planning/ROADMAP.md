@@ -1,8 +1,9 @@
 # Roadmap: Charging-Master
 
-## Overview
+## Milestones
 
-Charging-Master delivers smart charging management in four phases, ordered by dependency: first establish the MQTT/database backbone that everything depends on, then add real-time visualization to validate the data pipeline visually, then build the core intelligence (device learning, SOC estimation, auto-stop), and finally layer on notifications and history as polish. Each phase delivers an independently verifiable capability.
+- v1.0 MVP - Phases 1-4 (shipped 2026-04-09)
+- v1.1 MQTT raus, HTTP rein - Phases 5-6 (in progress)
 
 ## Phases
 
@@ -12,12 +13,13 @@ Charging-Master delivers smart charging management in four phases, ordered by de
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - MQTT connectivity, Shelly plug management, SQLite database, and app settings
-- [ ] **Phase 2: Real-Time Visualization** - Live power charts, dashboard with plug overview, and manual relay control UI
-- [ ] **Phase 3: Charge Intelligence** - Device profiles, reference curve learning, automatic device detection, SOC estimation, and auto-stop
-- [ ] **Phase 4: Notifications & History** - Pushover alerts for charge events and per-device session history
+<details>
+<summary>v1.0 MVP (Phases 1-4) - SHIPPED 2026-04-09</summary>
 
-## Phase Details
+- [x] **Phase 1: Foundation** - MQTT connectivity, Shelly plug management, SQLite database, and app settings
+- [x] **Phase 2: Real-Time Visualization** - Live power charts, dashboard with plug overview, and manual relay control UI
+- [x] **Phase 3: Charge Intelligence** - Device profiles, reference curve learning, automatic device detection, SOC estimation, and auto-stop
+- [x] **Phase 4: Notifications & History** - Pushover alerts for charge events and per-device session history
 
 ### Phase 1: Foundation
 **Goal**: Users can connect Shelly S3 Plugs via MQTT and the app reliably receives and persists power data
@@ -86,14 +88,49 @@ Plans:
 - [x] 04-02-PLAN.md — History list page with table/filters, history API route, sidebar Verlauf link activation
 - [x] 04-03-PLAN.md — Session detail page with power curve replay, reference overlay, event timeline, profile sessions section
 
+</details>
+
+### v1.1 MQTT raus, HTTP rein (In Progress)
+
+**Milestone Goal:** MQTT komplett entfernen und durch direkte HTTP-Kommunikation mit Shelly Plugs ersetzen -- einfacher, zuverlaessiger, kein Broker noetig.
+
+- [ ] **Phase 5: HTTP Communication** - HTTP polling service for power data, HTTP relay control, replacing the MQTT data path
+- [ ] **Phase 6: Device Discovery & MQTT Removal** - Network scan for Shelly discovery, complete removal of all MQTT code and dependencies
+
+## Phase Details
+
+### Phase 5: HTTP Communication
+**Goal**: App communicates with Shelly Plugs entirely over HTTP -- polling for power data and controlling relays without any MQTT dependency
+**Depends on**: Phase 4
+**Requirements**: POLL-01, POLL-02, POLL-03, POLL-04, RELAY-01, RELAY-02
+**Success Criteria** (what must be TRUE):
+  1. Power readings from all registered Shelly Plugs arrive continuously via HTTP polling and appear in the live chart and dashboard identically to the old MQTT path
+  2. User can configure the polling interval per device and the app respects that interval
+  3. Device online/offline status updates correctly based on HTTP reachability (device shows offline when unreachable, online when responding)
+  4. User can toggle relay on/off from the dashboard and it executes via Shelly HTTP API (/rpc/Switch.Set), with relay state read from the polling response
+**Plans**: TBD
+
+### Phase 6: Device Discovery & MQTT Removal
+**Goal**: Users can discover Shelly Plugs on the network without MQTT, and all MQTT code is completely removed from the codebase
+**Depends on**: Phase 5
+**Requirements**: DISC-01, DISC-02, DISC-03, CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-04, CLEAN-05
+**Success Criteria** (what must be TRUE):
+  1. User can trigger a network scan that finds Shelly Plugs in the local subnet and displays their ID, IP, model, and current power reading
+  2. User can register a discovered device with one click, and IP address is required for device registration
+  3. The mqtt.js package is gone from package.json, MqttService and src/modules/mqtt/ are deleted, and the app starts and runs without any MQTT broker
+  4. Settings page no longer shows MQTT configuration, and no MQTT references remain in server.ts, global.d.ts, or ChargeMonitor
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Foundation | 3/3 | Planning complete | - |
-| 2. Real-Time Visualization | 0/3 | Planning complete | - |
-| 3. Charge Intelligence | 0/5 | Planning complete | - |
-| 4. Notifications & History | 0/3 | Planning complete | - |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Foundation | v1.0 | 3/3 | Complete | 2026-04-09 |
+| 2. Real-Time Visualization | v1.0 | 3/3 | Complete | 2026-04-09 |
+| 3. Charge Intelligence | v1.0 | 5/5 | Complete | 2026-04-09 |
+| 4. Notifications & History | v1.0 | 3/3 | Complete | 2026-04-09 |
+| 5. HTTP Communication | v1.1 | 0/? | Not started | - |
+| 6. Device Discovery & MQTT Removal | v1.1 | 0/? | Not started | - |

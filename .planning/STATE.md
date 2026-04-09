@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: mqtt-raus-http-rein
-status: Defining requirements
+status: Ready to plan
 stopped_at: null
-last_updated: "2026-04-09T08:00:00.000Z"
+last_updated: "2026-04-09T09:00:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,49 +19,40 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-09)
 
 **Core value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt -- kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
-**Current focus:** Milestone v1.1 — MQTT raus, HTTP rein
+**Current focus:** Milestone v1.1 -- MQTT raus, HTTP rein (Phase 5)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-04-09 — Milestone v1.1 started
+Phase: 5 of 6 (HTTP Communication)
+Plan: 0 of ? in current phase
+Status: Ready to plan
+Last activity: 2026-04-09 -- Roadmap created for v1.1
+
+Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 14 (v1.0)
+- Average duration: ~3 min
+- Total execution time: ~42 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| Phase 01-foundation | 3 | ~8min | ~2.7min |
+| Phase 02-visualization | 3 | ~8.5min | ~2.8min |
+| Phase 03-intelligence | 5 | ~17min | ~3.4min |
+| Phase 04-notifications | 3 | ~6min | ~2min |
 
 **Recent Trend:**
 
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 3min, 2min, 2min, 2min, 2min
+- Trend: Stable
 
 *Updated after each plan completion*
-| Phase 01-foundation P01 | 4min | 2 tasks | 19 files |
-| Phase 01-foundation P02 | 2min | 2 tasks | 6 files |
-| Phase 01 P03 | 2min | 2 tasks | 11 files |
-| Phase 02-real-time-visualization P01 | 3min | 2 tasks | 6 files |
-| Phase 02-real-time-visualization P02 | 3min | 2 tasks | 7 files |
-| Phase 02-real-time-visualization P03 | 147s | 1 tasks | 4 files |
-| Phase 03-charge-intelligence P01 | 4min | 2 tasks | 11 files |
-| Phase 03-charge-intelligence P03 | 2min | 2 tasks | 7 files |
-| Phase 03-charge-intelligence P02 | 4min | 2 tasks | 10 files |
-| Phase 03-charge-intelligence P04 | 4min | 2 tasks | 9 files |
-| Phase 03-charge-intelligence P05 | 3min | 2 tasks | 8 files |
-| Phase 04-notifications-history P02 | 2min | 2 tasks | 3 files |
-| Phase 04-notifications-history P01 | 2min | 2 tasks | 5 files |
-| Phase 04-notifications-history P03 | 2min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -70,23 +61,10 @@ Last activity: 2026-04-09 — Milestone v1.1 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap]: 4-phase structure derived from requirement dependencies (Foundation -> Visualization -> Intelligence -> Polish)
-- [Roadmap]: VIZL-03 (reference overlay) assigned to Phase 3 (needs reference curves from device profiles)
-- [Roadmap]: SHLY-04 (manual relay toggle) assigned to Phase 2 (UI-dependent, not foundation)
-- [Phase 01-foundation]: TS 5.9 uses module=preserve instead of bundler; Zod v4 with zod/v4 import path
-- [Phase 01-foundation]: useAutoSave hook with skipInitial flag prevents unnecessary API call on mount
-- [Phase 01]: Client wrapper pattern for server/client boundary in devices page
-- [Phase 02-real-time-visualization]: Singleton EventSource at module level (not React state) to survive re-renders and share across components
-- [Phase 02-real-time-visualization]: Blue-500 accent color for charts; 4s SSE debounce after relay toggle; sparkline data in PlugCard state
-- [Phase 02-real-time-visualization]: PowerChart extended with initialData/onWindowChange/height props for detail page reuse
-- [Phase 03-charge-intelligence]: vitest added as dev dependency for TDD; ChargeStateMachine uses reading timestamps (not Date.now) for deterministic testing
-- [Phase 03-charge-intelligence]: ChargeMonitorLike interface in global.d.ts decouples API routes from ChargeMonitor implementation (parallel plan execution)
-- [Phase 03-charge-intelligence]: ChargeMonitor uses Map-based lazy creation for per-plug state machines; active MQTT polling every 5s during learning/charging
-- [Phase 03-charge-intelligence]: Separate EventSource for useChargeStream hook; Profile detail page as client component; Suspense boundary for useSearchParams in learn page
-- [Phase 03-charge-intelligence]: ChargeBanner self-manages via useChargeStream SSE; adapted /plugs to /devices route; reference curve aligned to session startedAt
-- [Phase 04-notifications-history]: Client component with useEffect fetch for filter reactivity in history page
-- [Phase 04-notifications-history]: 60s cooldown per plug prevents duplicate Pushover notifications; power readings throttled to every 5th
-- [Phase 04-notifications-history]: Reference curve aligned using curveOffsetSeconds offset for correct partial charge visualization
+- [v1.1 Roadmap]: 2-phase structure -- Phase 5 (HTTP polling + relay) then Phase 6 (discovery + MQTT cleanup)
+- [v1.1 Roadmap]: Existing MqttService.startHttpPolling code can be extracted into standalone HttpPollingService
+- [v1.1 Roadmap]: EventBus and SSE endpoint stay unchanged -- only the data source changes
+- [v1.1 Roadmap]: relay-controller.ts HTTP fallback becomes primary path
 
 ### Pending Todos
 
@@ -94,17 +72,17 @@ None yet.
 
 ### Blockers/Concerns
 
-- Research flag: Phase 3 DTW curve matching thresholds need empirical tuning with real Shelly data
+None.
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 260409-awk | Create one-line installer script (install.sh) for install, update, uninstall with systemd service setup | 2026-04-09 | df1042c | [260409-awk-create-one-line-installer-script-install](./quick/260409-awk-create-one-line-installer-script-install/) |
-| 260409-b9z | Extend install.sh with create-lxc mode for Proxmox host deployment | 2026-04-09 | dd97532 | [260409-b9z-extend-install-sh-with-create-lxc-mode-f](./quick/260409-b9z-extend-install-sh-with-create-lxc-mode-f/) |
+| 260409-awk | Create one-line installer script (install.sh) | 2026-04-09 | df1042c | [260409-awk](./quick/260409-awk-create-one-line-installer-script-install/) |
+| 260409-b9z | Extend install.sh with create-lxc mode | 2026-04-09 | dd97532 | [260409-b9z](./quick/260409-b9z-extend-install-sh-with-create-lxc-mode-f/) |
 
 ## Session Continuity
 
-Last session: 2026-04-09T06:07:11.193Z
-Stopped at: Completed quick task 260409-b9z: Extend install.sh with create-lxc mode
+Last session: 2026-04-09T09:00:00.000Z
+Stopped at: Roadmap created for v1.1 milestone (Phases 5-6)
 Resume file: None
