@@ -14,6 +14,8 @@ export class MqttService {
   private lastMessageAt: number = 0;
   private watchdogTimer: NodeJS.Timeout | null = null;
   private httpPollers: Map<string, NodeJS.Timeout> = new Map();
+  // Maps MQTT topic prefix → plug.id for correct DB lookups
+  private topicToPlugId: Map<string, string> = new Map();
 
   private readonly ACTIVE_POWER_THRESHOLD = 5; // watts
   private readonly ACTIVE_INTERVAL = 1_000; // ms -- 1s during active charging for real-time UX
@@ -86,20 +88,22 @@ export class MqttService {
     const registeredPlugs = db.select().from(plugs).where(eq(plugs.enabled, true)).all();
     for (const plug of registeredPlugs) {
       this.subscribeToPlug(plug.mqttTopicPrefix);
+      this.topicToPlugId.set(plug.mqttTopicPrefix, plug.id);
     }
   }
 
   private handleMessage(topic: string, payload: string) {
-    const deviceId = parseDeviceId(topic);
+    const topicPrefix = parseDeviceId(topic);
+    // Resolve MQTT topic prefix to the plug's DB id
+    const plugId = this.topicToPlugId.get(topicPrefix) ?? topicPrefix;
 
     if (topic.endsWith('/online')) {
       const online = payload === 'true';
-      this.eventBus.emitPlugOnline(deviceId, online);
-      // Update plug online status in DB
+      this.eventBus.emitPlugOnline(plugId, online);
       try {
         db.update(plugs)
           .set({ online, lastSeen: Date.now(), updatedAt: Date.now() })
-          .where(eq(plugs.id, deviceId))
+          .where(eq(plugs.id, plugId))
           .run();
       } catch { /* plug may not exist in DB yet */ }
       return;
@@ -109,7 +113,7 @@ export class MqttService {
       const status = parseShellyStatus(payload);
       if (status) {
         const reading: PowerReading = {
-          plugId: deviceId,
+          plugId,
           apower: status.apower,
           voltage: status.voltage,
           current: status.current,
@@ -119,11 +123,10 @@ export class MqttService {
         };
         this.eventBus.emitPowerReading(reading);
         this.persistIfDue(reading);
-        // Update plug lastSeen + online in DB
         try {
           db.update(plugs)
             .set({ online: true, lastSeen: Date.now(), updatedAt: Date.now() })
-            .where(eq(plugs.id, deviceId))
+            .where(eq(plugs.id, plugId))
             .run();
         } catch { /* plug may not exist */ }
       }
@@ -159,10 +162,14 @@ export class MqttService {
     }
   }
 
-  subscribeToPlug(plugId: string) {
+  subscribeToPlug(topicPrefix: string) {
     if (!this.client) return;
-    this.client.subscribe(`${plugId}/status/switch:0`);
-    this.client.subscribe(`${plugId}/online`);
+    this.client.subscribe(`${topicPrefix}/status/switch:0`);
+    this.client.subscribe(`${topicPrefix}/online`);
+  }
+
+  registerTopicMapping(topicPrefix: string, plugId: string) {
+    this.topicToPlugId.set(topicPrefix, plugId);
   }
 
   unsubscribeFromPlug(plugId: string) {

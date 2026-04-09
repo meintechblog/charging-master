@@ -47,7 +47,8 @@ export async function POST(request: Request) {
 
   // Subscribe to MQTT topics for the new plug
   if (globalThis.__mqttService) {
-    globalThis.__mqttService.subscribeToPlug(id);
+    globalThis.__mqttService.subscribeToPlug(newPlug.mqttTopicPrefix);
+    globalThis.__mqttService.registerTopicMapping(newPlug.mqttTopicPrefix, id);
   }
 
   return Response.json(newPlug, { status: 201 });
@@ -70,7 +71,7 @@ export async function DELETE(request: Request) {
 
   // Unsubscribe from MQTT topics
   if (globalThis.__mqttService) {
-    globalThis.__mqttService.unsubscribeFromPlug(id);
+    globalThis.__mqttService.unsubscribeFromPlug(existing.mqttTopicPrefix);
   }
 
   return Response.json({ ok: true });
