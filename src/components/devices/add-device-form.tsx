@@ -17,8 +17,8 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
     e.preventDefault();
     setError(null);
 
-    if (!id.trim() || !name.trim()) {
-      setError('Geräte-ID und Name sind erforderlich');
+    if (!id.trim() || !name.trim() || !ipAddress.trim()) {
+      setError('Geraete-ID, Name und IP-Adresse sind erforderlich');
       return;
     }
 
@@ -31,8 +31,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
         body: JSON.stringify({
           id: id.trim(),
           name: name.trim(),
-          mqttTopicPrefix: id.trim(),
-          ipAddress: ipAddress.trim() || undefined,
+          ipAddress: ipAddress.trim(),
         }),
       });
 
@@ -42,10 +41,10 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
         setIpAddress('');
         onAdded();
       } else if (res.status === 409) {
-        setError('Gerät bereits registriert');
+        setError('Geraet bereits registriert');
       } else {
         const data = await res.json();
-        setError(data.error ?? 'Fehler beim Hinzufügen');
+        setError(data.error ?? 'Fehler beim Hinzufuegen');
       }
     } catch {
       setError('Netzwerkfehler');
@@ -58,7 +57,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
         <label htmlFor="device-id" className="block text-sm font-medium text-neutral-300 mb-1">
-          Geräte-ID
+          Geraete-ID
         </label>
         <input
           id="device-id"
@@ -79,14 +78,14 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Wohnzimmer Ladegerät"
+          placeholder="Wohnzimmer Ladegeraet"
           className="w-full bg-neutral-800 border border-neutral-700 text-neutral-100 rounded-md px-3 py-2 text-sm placeholder:text-neutral-500 focus:outline-none focus:border-neutral-600"
         />
       </div>
 
       <div>
         <label htmlFor="device-ip" className="block text-sm font-medium text-neutral-300 mb-1">
-          IP-Adresse (optional)
+          IP-Adresse <span className="text-red-400">(erforderlich)</span>
         </label>
         <input
           id="device-ip"
@@ -107,7 +106,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
         disabled={submitting}
         className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
       >
-        {submitting ? 'Wird hinzugefügt...' : 'Gerät hinzufügen'}
+        {submitting ? 'Wird hinzugefuegt...' : 'Geraet hinzufuegen'}
       </button>
     </form>
   );

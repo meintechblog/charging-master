@@ -23,6 +23,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'invalid_input' }, { status: 400 });
   }
 
+  if (!ipAddress || typeof ipAddress !== 'string') {
+    return Response.json({ error: 'ip_address_required' }, { status: 400 });
+  }
+
   // Check for duplicate
   const existing = db.select().from(plugs).where(eq(plugs.id, id)).get();
   if (existing) {
