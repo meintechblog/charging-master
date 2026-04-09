@@ -54,6 +54,37 @@ export async function POST(request: Request) {
   return Response.json(newPlug, { status: 201 });
 }
 
+export async function PATCH(request: Request) {
+  const body = await request.json();
+  const { id, ...updates } = body as {
+    id: string;
+    name?: string;
+    ipAddress?: string | null;
+    pollingInterval?: number;
+    enabled?: boolean;
+  };
+
+  if (!id || typeof id !== 'string') {
+    return Response.json({ error: 'invalid_input' }, { status: 400 });
+  }
+
+  const existing = db.select().from(plugs).where(eq(plugs.id, id)).get();
+  if (!existing) {
+    return Response.json({ error: 'not_found' }, { status: 404 });
+  }
+
+  const fields: Record<string, unknown> = { updatedAt: Date.now() };
+  if (updates.name !== undefined) fields.name = updates.name;
+  if (updates.ipAddress !== undefined) fields.ipAddress = updates.ipAddress;
+  if (updates.pollingInterval !== undefined) fields.pollingInterval = updates.pollingInterval;
+  if (updates.enabled !== undefined) fields.enabled = updates.enabled;
+
+  db.update(plugs).set(fields).where(eq(plugs.id, id)).run();
+
+  const updated = db.select().from(plugs).where(eq(plugs.id, id)).get();
+  return Response.json(updated);
+}
+
 export async function DELETE(request: Request) {
   const body = await request.json();
   const { id } = body as { id: string };
