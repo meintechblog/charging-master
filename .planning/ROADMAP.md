@@ -108,7 +108,11 @@ Plans:
   2. User can configure the polling interval per device and the app respects that interval
   3. Device online/offline status updates correctly based on HTTP reachability (device shows offline when unreachable, online when responding)
   4. User can toggle relay on/off from the dashboard and it executes via Shelly HTTP API (/rpc/Switch.Set), with relay state read from the polling response
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — HttpPollingService and relay-http standalone modules with unit tests
+- [ ] 05-02-PLAN.md — Wire HTTP modules into server.ts, ChargeMonitor, relay-controller, and API routes
 
 ### Phase 6: Device Discovery & MQTT Removal
 **Goal**: Users can discover Shelly Plugs on the network without MQTT, and all MQTT code is completely removed from the codebase
@@ -132,5 +136,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Real-Time Visualization | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 3. Charge Intelligence | v1.0 | 5/5 | Complete | 2026-04-09 |
 | 4. Notifications & History | v1.0 | 3/3 | Complete | 2026-04-09 |
-| 5. HTTP Communication | v1.1 | 0/? | Not started | - |
+| 5. HTTP Communication | v1.1 | 0/2 | Not started | - |
 | 6. Device Discovery & MQTT Removal | v1.1 | 0/? | Not started | - |
