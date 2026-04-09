@@ -8,13 +8,24 @@ Eine Web-App, die Ladevorgaenge von Akkus (E-Bike, iPad, etc.) ueber Shelly S3 P
 
 Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt — kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
 
+## Current Milestone: v1.1 MQTT raus, HTTP rein
+
+**Goal:** MQTT komplett entfernen und durch direkte HTTP-Kommunikation mit Shelly Plugs ersetzen — einfacher, zuverlässiger, kein Broker nötig.
+
+**Target features:**
+- HTTP-Polling-Service als primäre Datenquelle (ersetzt MqttService)
+- Relay-Steuerung per Shelly HTTP API (statt MQTT publish)
+- Netzwerk-Scan für automatische Shelly-Erkennung (statt MQTT discovery)
+- MQTT-Abhängigkeiten komplett entfernen (mqtt.js, Broker-Config, MQTT-Settings UI)
+- Bestehende Funktionalität bleibt erhalten (EventBus, SSE, Charts, Charge-Monitor)
+
 ## Requirements
 
 ### Validated
 
-- Shelly S3 Plug Integration via MQTT (Leistungsdaten lesen) — Phase 1
+- Shelly S3 Plug Integration via MQTT (Leistungsdaten lesen) — Phase 1 (v1.0, wird in v1.1 durch HTTP ersetzt)
 - Mehrere Shelly Plugs parallel unterstuetzen — Phase 1
-- MQTT-Broker konfigurierbar (Host, Port, optional Credentials) — Phase 1
+- MQTT-Broker konfigurierbar (Host, Port, optional Credentials) — Phase 1 (v1.0, wird in v1.1 entfernt)
 - Dashboard mit Uebersicht aller aktiven Ladevorgaenge (Plug Cards) — Phase 1
 
 ### Active
@@ -73,7 +84,7 @@ Frischer Debian LXC Container unter charging-master.local. Zugang: `ssh root@cha
 
 - **Deployment**: Debian LXC Container (charging-master.local), Root-Zugang via SSH
 - **Smart Plug**: Shelly S3 Plug (Gen3 API, MQTT-faehig)
-- **Kommunikation**: MQTT primaer (mqtt-master.local), HTTP-API als Backup fuer Switch-Steuerung
+- **Kommunikation**: HTTP-API direkt zu Shelly Plugs (kein Broker noetig)
 - **Datenbank**: SQLite (kein DB-Server, Single-User, Performance)
 - **Design**: Modernes Dark Theme, sexy Echtzeit-Charts
 - **Netzwerk**: Lokales Netz, kein Internet-Zugang noetig
@@ -109,4 +120,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-25 after Phase 1 completion*
+*Last updated: 2026-04-09 — Milestone v1.1 started*

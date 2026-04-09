@@ -1,30 +1,32 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Milestone complete
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-03-29T18:35:11.510Z"
+milestone: v1.1
+milestone_name: mqtt-raus-http-rein
+status: Defining requirements
+stopped_at: null
+last_updated: "2026-04-09T08:00:00.000Z"
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-25)
+See: .planning/PROJECT.md (updated 2026-04-09)
 
 **Core value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt -- kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
-**Current focus:** Phase 04 — notifications-history
+**Current focus:** Milestone v1.1 — MQTT raus, HTTP rein
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-09 — Milestone v1.1 started
 
 ## Performance Metrics
 
