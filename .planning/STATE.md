@@ -99,9 +99,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260409-awk | Create one-line installer script (install.sh) for install, update, uninstall with systemd service setup | 2026-04-09 | df1042c | [260409-awk-create-one-line-installer-script-install](./quick/260409-awk-create-one-line-installer-script-install/) |
+| 260409-b9z | Extend install.sh with create-lxc mode for Proxmox host deployment | 2026-04-09 | dd97532 | [260409-b9z-extend-install-sh-with-create-lxc-mode-f](./quick/260409-b9z-extend-install-sh-with-create-lxc-mode-f/) |
 
 ## Session Continuity
 
-Last session: 2026-04-09T05:51:04.658Z
-Stopped at: Completed quick task 260409-awk: Create one-line installer script
+Last session: 2026-04-09T06:07:11.193Z
+Stopped at: Completed quick task 260409-b9z: Extend install.sh with create-lxc mode
 Resume file: None
