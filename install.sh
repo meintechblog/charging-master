@@ -244,23 +244,129 @@ do_uninstall() {
 }
 
 # ---------------------------------------------------------------------------
+# create-lxc (Proxmox)
+# ---------------------------------------------------------------------------
+do_create_lxc() {
+  # 1. Parse flags
+  local STORAGE="local-lvm"
+  local BRIDGE="vmbr0"
+  local CT_HOSTNAME="charging-master"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --storage)  STORAGE="$2"; shift 2 ;;
+      --bridge)   BRIDGE="$2"; shift 2 ;;
+      --hostname) CT_HOSTNAME="$2"; shift 2 ;;
+      *) error "Unknown option: $1"; exit 1 ;;
+    esac
+  done
+
+  # 2. Proxmox check
+  if ! command -v pct &> /dev/null; then
+    error "This command must be run on a Proxmox host."
+    exit 1
+  fi
+
+  # 3. Root check
+  if [ "$(id -u)" -ne 0 ]; then
+    error "This script must be run as root."
+    exit 1
+  fi
+
+  # 4. Template handling
+  local TEMPLATE
+  TEMPLATE=$(pveam list local 2>/dev/null | grep 'debian-13' | awk '{print $1}' | head -1 | sed 's|^local:vztmpl/||')
+
+  if [ -z "$TEMPLATE" ]; then
+    log "Downloading Debian 13 template..."
+    pveam download local debian-13-standard_13.0-1_amd64.tar.zst
+    TEMPLATE=$(pveam list local 2>/dev/null | grep 'debian-13' | awk '{print $1}' | head -1 | sed 's|^local:vztmpl/||')
+    if [ -z "$TEMPLATE" ]; then
+      error "Failed to download Debian 13 template."
+      exit 1
+    fi
+  fi
+
+  log "Using template: ${TEMPLATE}"
+
+  # 5. Get next VMID
+  local VMID
+  VMID=$(pvesh get /cluster/nextid)
+  log "Assigned VMID: ${VMID}"
+
+  # 6. Create container
+  log "Creating LXC container..."
+  pct create "$VMID" "local:vztmpl/${TEMPLATE}" \
+    --hostname "$CT_HOSTNAME" \
+    --cores 1 \
+    --memory 1024 \
+    --swap 512 \
+    --rootfs "${STORAGE}:4" \
+    --net0 "name=eth0,bridge=${BRIDGE},ip=dhcp" \
+    --unprivileged 1 \
+    --features nesting=1 \
+    --start 1
+
+  # 7. Wait for network
+  log "Waiting for network..."
+  local ip=""
+  local retries=0
+  while [ -z "$ip" ] && [ "$retries" -lt 6 ]; do
+    sleep 5
+    ip=$(pct exec "$VMID" -- hostname -I 2>/dev/null | awk '{print $1}') || true
+    retries=$((retries + 1))
+  done
+
+  if [ -z "$ip" ]; then
+    warn "Could not detect container IP after 30 seconds."
+  else
+    log "Container IP: ${ip}"
+  fi
+
+  # 8. Bootstrap inside container
+  log "Installing charging-master inside CT ${VMID}..."
+  pct exec "$VMID" -- bash -c "apt-get update -qq && apt-get install -y -qq curl git > /dev/null"
+  pct exec "$VMID" -- bash -c "curl -sSL https://raw.githubusercontent.com/meintechblog/charging-master/main/install.sh | bash -s -- install"
+
+  # 9. Print result
+  echo ""
+  log "LXC container created successfully!"
+  log "  VMID:     ${VMID}"
+  log "  Hostname: ${CT_HOSTNAME}"
+  log "  IP:       ${ip:-unknown}"
+  log ""
+  if [ -n "$ip" ]; then
+    log "Charging-Master is running at: http://${ip}:3000"
+  else
+    log "Could not detect IP. Check: pct exec ${VMID} -- hostname -I"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Main — parse command
 # ---------------------------------------------------------------------------
 CMD="${1:-install}"
 shift || true
 
 case "$CMD" in
-  install)   do_install "$@" ;;
-  update)    do_update "$@" ;;
-  uninstall) do_uninstall "$@" ;;
+  install)    do_install "$@" ;;
+  update)     do_update "$@" ;;
+  uninstall)  do_uninstall "$@" ;;
+  create-lxc) do_create_lxc "$@" ;;
   *)
     error "Unknown command: $CMD"
     echo ""
-    echo "Usage: install.sh {install|update|uninstall} [--yes]"
+    echo "Usage: install.sh {install|update|uninstall|create-lxc} [options]"
     echo ""
-    echo "  install    Install charging-master (default)"
-    echo "  update     Update to latest version"
-    echo "  uninstall  Remove charging-master and all data"
+    echo "  install      Install charging-master (default)"
+    echo "  update       Update to latest version"
+    echo "  uninstall    Remove charging-master and all data"
+    echo "  create-lxc   Create LXC container on Proxmox and install"
+    echo ""
+    echo "create-lxc options:"
+    echo "  --storage NAME   Rootfs storage (default: local-lvm)"
+    echo "  --bridge NAME    Network bridge (default: vmbr0)"
+    echo "  --hostname NAME  Container hostname (default: charging-master)"
     exit 1
     ;;
 esac
