@@ -3,9 +3,9 @@
 **Defined:** 2026-03-25
 **Core Value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt — kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
 
-## v1 Requirements
+## v1.0 Requirements (Complete)
 
-Requirements for initial release. Each maps to roadmap phases.
+All 34 requirements shipped. See traceability below.
 
 ### Shelly Integration
 
@@ -62,15 +62,40 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SETT-02**: Pushover notification settings configurable
 - [x] **SETT-03**: All settings persisted in database
 
-## v2 Requirements
+## v1.1 Requirements — MQTT raus, HTTP rein
 
-Deferred to future release. Tracked but not in current roadmap.
+### HTTP Polling (POLL)
+
+- [ ] **POLL-01**: HttpPollingService pollt registrierte Shelly Plugs via HTTP API für Power-Readings
+- [ ] **POLL-02**: Polling-Intervall pro Device konfigurierbar (Standard: 1s)
+- [ ] **POLL-03**: Power-Readings werden über EventBus emittiert (gleiche Events wie bisher)
+- [ ] **POLL-04**: Device Online/Offline-Status wird per HTTP-Erreichbarkeit erkannt
+
+### Relay Control (RELAY)
+
+- [ ] **RELAY-01**: Relay ein/aus per Shelly HTTP API (/rpc/Switch.Set)
+- [ ] **RELAY-02**: Relay-Status wird aus HTTP-Polling-Response gelesen (output-Feld)
+
+### Device Discovery (DISC)
+
+- [ ] **DISC-01**: Netzwerk-Scan findet Shelly Plugs im lokalen Subnetz per HTTP
+- [ ] **DISC-02**: Gefundene Devices zeigen ID, IP, Model und aktuellen Power-Status
+- [ ] **DISC-03**: User kann gefundenes Device mit einem Klick registrieren
+
+### MQTT Cleanup (CLEAN)
+
+- [ ] **CLEAN-01**: mqtt.js Package aus dependencies entfernt
+- [ ] **CLEAN-02**: MqttService und src/modules/mqtt/ komplett gelöscht
+- [ ] **CLEAN-03**: MQTT-Settings UI und API-Endpunkte entfernt
+- [ ] **CLEAN-04**: MQTT-Referenzen in server.ts, global.d.ts, ChargeMonitor entfernt
+- [ ] **CLEAN-05**: ipAddress wird Pflichtfeld bei Device-Registrierung
+
+## v2 Requirements (Deferred)
 
 ### Extended Plug Support
 
 - **EXT-01**: Support for Tasmota-based smart plugs
 - **EXT-02**: Support for TP-Link / other MQTT-compatible plugs
-- **EXT-03**: Auto-discovery of Shelly plugs on the network
 
 ### Analytics
 
@@ -91,56 +116,35 @@ Deferred to future release. Tracked but not in current roadmap.
 | Cloud sync / Remote access | Local-only deployment on LXC |
 | Mobile native app | Responsive web app sufficient |
 | DC-side measurement | Only AC power available via Shelly |
-| ML-based SOC prediction | Overengineered for v1, simple curve mapping works |
-| Automatic Shelly firmware updates | Risky, could break MQTT integration |
-| Non-Shelly plugs in v1 | Fragments integration, abstract interface for v2 |
+| ML-based SOC prediction | Overengineered, simple curve mapping works |
+| MQTT als optionaler Fallback | Komplett raus, nicht beibehalten — HTTP ist einfacher und zuverlässiger |
+| WebSocket für Echtzeit | SSE via EventBus reicht |
+| mDNS/Bonjour Discovery | HTTP-Scan ist einfacher |
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+### v1.0 (Complete)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHLY-01 | Phase 1 | Complete |
-| SHLY-02 | Phase 1 | Complete |
-| SHLY-03 | Phase 1 | Complete |
-| SHLY-04 | Phase 2 | Complete |
-| SHLY-05 | Phase 1 | Complete |
-| SHLY-06 | Phase 1 | Complete |
-| VIZL-01 | Phase 2 | Complete |
-| VIZL-02 | Phase 2 | Complete |
-| VIZL-03 | Phase 3 | Complete |
-| VIZL-04 | Phase 2 | Complete |
-| PROF-01 | Phase 3 | Complete |
-| PROF-02 | Phase 3 | Complete |
-| PROF-03 | Phase 3 | Complete |
-| PROF-04 | Phase 3 | Complete |
-| PROF-05 | Phase 3 | Complete |
-| PROF-06 | Phase 3 | Complete |
-| PROF-07 | Phase 3 | Complete |
-| CHRG-01 | Phase 3 | Complete |
-| CHRG-02 | Phase 3 | Complete |
-| CHRG-03 | Phase 3 | Complete |
-| CHRG-04 | Phase 3 | Complete |
-| CHRG-05 | Phase 3 | Complete |
-| CHRG-06 | Phase 3 | Complete |
-| CHRG-07 | Phase 3 | Complete |
-| NOTF-01 | Phase 4 | Complete |
-| NOTF-02 | Phase 4 | Complete |
-| NOTF-03 | Phase 4 | Complete |
-| NOTF-04 | Phase 4 | Complete |
-| HIST-01 | Phase 4 | Complete |
-| HIST-02 | Phase 4 | Complete |
-| HIST-03 | Phase 4 | Complete |
-| SETT-01 | Phase 1 | Complete |
-| SETT-02 | Phase 1 | Complete |
-| SETT-03 | Phase 1 | Complete |
+| SHLY-01..06 | Phase 1 | Complete |
+| VIZL-01..04 | Phase 2 | Complete |
+| PROF-01..07 | Phase 3 | Complete |
+| CHRG-01..07 | Phase 3 | Complete |
+| NOTF-01..04 | Phase 4 | Complete |
+| HIST-01..03 | Phase 4 | Complete |
+| SETT-01..03 | Phase 1 | Complete |
+
+### v1.1 (Active)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| _Filled by roadmapper_ | | |
 
 **Coverage:**
-- v1 requirements: 34 total
-- Mapped to phases: 34
-- Unmapped: 0
+- v1.0 requirements: 34 total, 34 complete
+- v1.1 requirements: 14 total, 0 mapped
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after roadmap creation*
+*Last updated: 2026-04-09 — v1.1 requirements added*
