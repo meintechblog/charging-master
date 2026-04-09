@@ -1,20 +1,16 @@
+import { scanSubnet } from '@/modules/shelly/discovery-scanner';
+
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const mqttService = globalThis.__mqttService;
-
-  if (!mqttService || !mqttService.isConnected()) {
+  try {
+    const devices = await scanSubnet();
+    return Response.json({ devices });
+  } catch (err) {
+    console.error('Subnet scan failed:', err);
     return Response.json(
-      { error: 'mqtt_not_connected', devices: [] },
-      { status: 503 },
+      { error: 'scan_failed', devices: [] },
+      { status: 500 }
     );
   }
-
-  const discoveredMap = globalThis.__discoveredDevices;
-  if (!discoveredMap) {
-    return Response.json({ devices: [] });
-  }
-
-  const devices = Array.from(discoveredMap.values());
-  return Response.json({ devices });
 }
