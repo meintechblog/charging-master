@@ -13,7 +13,6 @@ import { estimateSoc } from './soc-estimator';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
 import type { EventBus, PowerReading } from '../events/event-bus';
-import type { MqttService } from '../mqtt/mqtt-service';
 import { db } from '@/db/client';
 import {
   chargeSessions,
@@ -26,11 +25,9 @@ import { eq, and, inArray } from 'drizzle-orm';
 
 const MIN_DETECTION_READINGS = 60;
 const MAX_DETECTION_READINGS = 120;
-const STATUS_POLL_INTERVAL_MS = 5000;
 
 export class ChargeMonitor {
   private eventBus: EventBus;
-  private mqttService: MqttService;
 
   private machines = new Map<string, ChargeStateMachine>();
   private detectionBuffers = new Map<string, number[]>();
@@ -39,8 +36,6 @@ export class ChargeMonitor {
   private sessionIds = new Map<string, number>();
   private sessionStartEnergy = new Map<string, number>();
   private matchData = new Map<string, MatchResult>();
-  private pollingTimers = new Map<string, NodeJS.Timeout>();
-  private plugTopics = new Map<string, string>();
   private learnReadingCount = new Map<string, number>();
   private learnCumulativeWh = new Map<string, number>();
   private learnLastPower = new Map<string, number>();
@@ -51,9 +46,8 @@ export class ChargeMonitor {
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
 
-  constructor(eventBus: EventBus, mqttService: MqttService, _db?: unknown) {
+  constructor(eventBus: EventBus, _db?: unknown) {
     this.eventBus = eventBus;
-    this.mqttService = mqttService;
   }
 
   /**
@@ -70,17 +64,13 @@ export class ChargeMonitor {
   }
 
   /**
-   * Stop listening, clear all timers.
+   * Stop listening, clear all state.
    */
   stop(): void {
     if (this.powerHandler) {
       this.eventBus.removeListener('power:*', this.powerHandler);
       this.powerHandler = null;
     }
-    for (const timer of this.pollingTimers.values()) {
-      clearInterval(timer);
-    }
-    this.pollingTimers.clear();
     this.machines.clear();
     this.detectionBuffers.clear();
     this.sessionWh.clear();
@@ -140,7 +130,6 @@ export class ChargeMonitor {
     const machine = this.getOrCreateMachine(plugId);
     this.sessionIds.set(plugId, sessionId);
     machine.startLearning(sessionId);
-    this.startStatusPolling(plugId);
   }
 
   /**
@@ -150,7 +139,6 @@ export class ChargeMonitor {
     const machine = this.machines.get(plugId);
     if (machine && machine.state === 'learning') {
       machine.abort();
-      this.stopStatusPolling(plugId);
     }
   }
 
@@ -170,7 +158,6 @@ export class ChargeMonitor {
     }
 
     machine.abort();
-    this.stopStatusPolling(plugId);
     this.cleanupSession(plugId);
     this.emitChargeEvent(plugId, 'aborted');
   }
@@ -217,11 +204,6 @@ export class ChargeMonitor {
 
   private handlePowerReading(reading: PowerReading): void {
     const { plugId, apower, timestamp } = reading;
-
-    // Cache plug topic for status polling
-    if (!this.plugTopics.has(plugId)) {
-      this.plugTopics.set(plugId, plugId);
-    }
 
     const machine = this.getOrCreateMachine(plugId);
     const prevState = machine.state;
@@ -356,7 +338,6 @@ export class ChargeMonitor {
           db.update(chargeSessions).set({ state: 'charging' })
             .where(eq(chargeSessions.id, sessionId)).run();
         }
-        this.startStatusPolling(plugId);
         this.emitChargeEvent(plugId, 'charging');
         break;
       }
@@ -385,15 +366,13 @@ export class ChargeMonitor {
             stopReason: 'learn_complete',
           }).where(eq(chargeSessions.id, sessionId)).run();
         }
-        this.stopStatusPolling(plugId);
 
         // Turn the plug off now that the teach-in device has finished drawing
         // power. Mirrors the 'stopping' handler for regular charging sessions.
         const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
-        if (plug && canSwitchRelay(this.lastRelayOff.get(plugId) ?? 0)) {
+        if (plug && plug.ipAddress && canSwitchRelay(this.lastRelayOff.get(plugId) ?? 0)) {
           switchRelayOff(
-            this.mqttService,
-            { mqttTopicPrefix: plug.mqttTopicPrefix, ipAddress: plug.ipAddress },
+            { id: plug.id, ipAddress: plug.ipAddress },
             this.eventBus
           ).then((ok) => {
             if (ok) this.lastRelayOff.set(plugId, Date.now());
@@ -406,7 +385,6 @@ export class ChargeMonitor {
 
       case 'idle': {
         if (from !== 'idle') {
-          this.stopStatusPolling(plugId);
           this.cleanupSession(plugId);
         }
         break;
@@ -505,9 +483,14 @@ export class ChargeMonitor {
       return;
     }
 
+    if (!plug.ipAddress) {
+      console.error(`Cannot switch relay for plug ${plugId}: no IP address configured`);
+      this.emitChargeEvent(plugId, 'error');
+      return;
+    }
+
     const success = await switchRelayOff(
-      this.mqttService,
-      { mqttTopicPrefix: plug.mqttTopicPrefix, ipAddress: plug.ipAddress },
+      { id: plug.id, ipAddress: plug.ipAddress },
       this.eventBus
     );
 
@@ -522,7 +505,6 @@ export class ChargeMonitor {
           stopReason: 'target_soc_reached',
         }).where(eq(chargeSessions.id, sessionId)).run();
       }
-      this.stopStatusPolling(plugId);
       this.emitChargeEvent(plugId, 'complete');
       this.cleanupSession(plugId);
     } else {
@@ -568,25 +550,6 @@ export class ChargeMonitor {
     return machine;
   }
 
-  private startStatusPolling(plugId: string): void {
-    if (this.pollingTimers.has(plugId)) return;
-
-    const topic = this.plugTopics.get(plugId) ?? plugId;
-    const timer = setInterval(() => {
-      this.mqttService.requestStatus(topic);
-    }, STATUS_POLL_INTERVAL_MS);
-
-    this.pollingTimers.set(plugId, timer);
-  }
-
-  private stopStatusPolling(plugId: string): void {
-    const timer = this.pollingTimers.get(plugId);
-    if (timer) {
-      clearInterval(timer);
-      this.pollingTimers.delete(plugId);
-    }
-  }
-
   private cleanupSession(plugId: string): void {
     this.sessionIds.delete(plugId);
     this.detectionBuffers.delete(plugId);
@@ -624,7 +587,6 @@ export class ChargeMonitor {
       switch (session.state) {
         case 'learning':
           machine.startLearning(session.id);
-          this.startStatusPolling(session.plugId);
           break;
         case 'detecting':
           // Re-enter detecting by simulating sustained readings
@@ -652,7 +614,6 @@ export class ChargeMonitor {
           machine.sessionId = session.id;
           machine.targetSoc = session.targetSoc ?? 80;
           machine.estimatedSoc = session.estimatedSoc ?? 0;
-          this.startStatusPolling(session.plugId);
           break;
       }
 

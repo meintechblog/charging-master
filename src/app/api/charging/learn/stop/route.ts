@@ -17,17 +17,15 @@ import { switchRelayOff } from '@/modules/charging/relay-controller';
  * are swallowed so the save/discard flow is never blocked.
  */
 async function turnPlugOff(plugId: string): Promise<void> {
-  const mqttService = globalThis.__mqttService;
   const eventBus = globalThis.__eventBus;
-  if (!mqttService || !eventBus) return;
+  if (!eventBus) return;
 
   const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
-  if (!plug) return;
+  if (!plug || !plug.ipAddress) return;
 
   try {
     await switchRelayOff(
-      mqttService,
-      { mqttTopicPrefix: plug.mqttTopicPrefix, ipAddress: plug.ipAddress },
+      { id: plug.id, ipAddress: plug.ipAddress },
       eventBus
     );
   } catch {

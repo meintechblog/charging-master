@@ -66,13 +66,9 @@ export async function POST(request: Request) {
   // Turn the Shelly plug on so the charging cycle can actually start.
   // Without this the wizard sits in "Ladevorgang aktiv" with 0 W because
   // the relay defaults to off after a fresh teach-in.
-  const mqttService = globalThis.__mqttService;
-  if (mqttService) {
+  if (plug.ipAddress) {
     try {
-      await switchRelayOn(mqttService, {
-        mqttTopicPrefix: plug.mqttTopicPrefix,
-        ipAddress: plug.ipAddress,
-      });
+      await switchRelayOn({ id: plug.id, ipAddress: plug.ipAddress });
     } catch {
       // Non-fatal: learning can still proceed and user can toggle manually.
     }
