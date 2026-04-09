@@ -1,15 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.1
-milestone_name: mqtt-raus-http-rein
-status: Ready to plan
-stopped_at: null
-last_updated: "2026-04-09T09:00:00.000Z"
+milestone_name: MQTT raus, HTTP rein
+status: planning
+stopped_at: Roadmap created for v1.1 milestone (Phases 5-6)
+last_updated: "2026-04-09T22:51:34.007Z"
+last_activity: 2026-04-09
 progress:
   total_phases: 2
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -23,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 
 ## Current Position
 
-Phase: 5 of 6 (HTTP Communication)
-Plan: 0 of ? in current phase
+Phase: 6 of 6 (device discovery & mqtt removal)
+Plan: Not started
 Status: Ready to plan
-Last activity: 2026-04-09 -- Roadmap created for v1.1
+Last activity: 2026-04-09
 
 Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 
@@ -34,7 +36,7 @@ Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 
 **Velocity:**
 
-- Total plans completed: 14 (v1.0)
+- Total plans completed: 16 (v1.0)
 - Average duration: ~3 min
 - Total execution time: ~42 min
 
@@ -46,6 +48,7 @@ Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 | Phase 02-visualization | 3 | ~8.5min | ~2.8min |
 | Phase 03-intelligence | 5 | ~17min | ~3.4min |
 | Phase 04-notifications | 3 | ~6min | ~2min |
+| 05 | 2 | - | - |
 
 **Recent Trend:**
 

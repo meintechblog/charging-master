@@ -111,8 +111,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — HttpPollingService and relay-http standalone modules with unit tests
-- [ ] 05-02-PLAN.md — Wire HTTP modules into server.ts, ChargeMonitor, relay-controller, and API routes
+- [x] 05-01-PLAN.md — HttpPollingService and relay-http standalone modules with unit tests
+- [x] 05-02-PLAN.md — Wire HTTP modules into server.ts, ChargeMonitor, relay-controller, and API routes
 
 ### Phase 6: Device Discovery & MQTT Removal
 **Goal**: Users can discover Shelly Plugs on the network without MQTT, and all MQTT code is completely removed from the codebase
