@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: MQTT raus, HTTP rein
 status: planning
-stopped_at: Roadmap created for v1.1 milestone (Phases 5-6)
-last_updated: "2026-04-09T22:51:34.007Z"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-04-09T22:55:58.860Z"
 last_activity: 2026-04-09
 progress:
   total_phases: 2
@@ -86,6 +86,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-09T09:00:00.000Z
-Stopped at: Roadmap created for v1.1 milestone (Phases 5-6)
-Resume file: None
+Last session: 2026-04-09T22:55:58.857Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-device-discovery-mqtt-removal/06-CONTEXT.md
