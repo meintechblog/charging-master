@@ -104,10 +104,6 @@ do_install() {
   log "Installing dependencies..."
   pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
-  log "Building native modules..."
-  pnpm approve-builds better-sqlite3 2>/dev/null || true
-  pnpm install --frozen-lockfile 2>/dev/null || pnpm install
-
   log "Building application..."
   pnpm build
 
