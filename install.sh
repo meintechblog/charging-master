@@ -279,7 +279,14 @@ do_create_lxc() {
 
   if [ -z "$TEMPLATE" ]; then
     log "Downloading Debian 13 template..."
-    pveam download local debian-13-standard_13.0-1_amd64.tar.zst
+    pveam update > /dev/null 2>&1 || true
+    local AVAILABLE
+    AVAILABLE=$(pveam available --section system 2>/dev/null | grep 'debian-13' | awk '{print $2}' | head -1)
+    if [ -z "$AVAILABLE" ]; then
+      error "No Debian 13 template available. Check: pveam available --section system"
+      exit 1
+    fi
+    pveam download local "$AVAILABLE"
     TEMPLATE=$(pveam list local 2>/dev/null | grep 'debian-13' | awk '{print $1}' | head -1 | sed 's|^local:vztmpl/||')
     if [ -z "$TEMPLATE" ]; then
       error "Failed to download Debian 13 template."
