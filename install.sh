@@ -340,6 +340,7 @@ do_create_lxc() {
     --net0 "name=eth0,bridge=${BRIDGE},ip=dhcp" \
     --unprivileged 1 \
     --features nesting=1 \
+    --onboot 1 \
     --start 1
 
   # 7. Wait for network
