@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: MQTT raus, HTTP rein
 status: executing
 stopped_at: Phase 6 context gathered
-last_updated: "2026-04-09T23:05:06.957Z"
-last_activity: 2026-04-09 -- Phase 06 planning complete
+last_updated: "2026-04-09T23:16:42.217Z"
+last_activity: 2026-04-09
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 
 ## Current Position
 
-Phase: 6 of 6 (device discovery & mqtt removal)
+Phase: 06 of 6 (device discovery & mqtt removal)
 Plan: Not started
 Status: Ready to execute
-Last activity: 2026-04-09 -- Phase 06 planning complete
+Last activity: 2026-04-09
 
 Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 
@@ -36,7 +36,7 @@ Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 
 **Velocity:**
 
-- Total plans completed: 16 (v1.0)
+- Total plans completed: 18 (v1.0)
 - Average duration: ~3 min
 - Total execution time: ~42 min
 
@@ -49,6 +49,7 @@ Progress: [##############░░░░░░] 70% (v1.0 complete, v1.1 starting)
 | Phase 03-intelligence | 5 | ~17min | ~3.4min |
 | Phase 04-notifications | 3 | ~6min | ~2min |
 | 05 | 2 | - | - |
+| 06 | 2 | - | - |
 
 **Recent Trend:**
 

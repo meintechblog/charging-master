@@ -127,8 +127,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — HTTP subnet scanner, discovery API rewrite, discovery UI with scan button, IP required for registration
-- [ ] 06-02-PLAN.md — Complete MQTT removal: delete module/routes/settings/globals/package dependency
+- [x] 06-01-PLAN.md — HTTP subnet scanner, discovery API rewrite, discovery UI with scan button, IP required for registration
+- [x] 06-02-PLAN.md — Complete MQTT removal: delete module/routes/settings/globals/package dependency
 
 ## Progress
 
