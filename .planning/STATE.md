@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Self-Update
-status: executing
-stopped_at: Phase 9 complete, Phase 10 next up
-last_updated: "2026-04-10T16:26:52.025Z"
-last_activity: 2026-04-10 — Plan 09-03 complete (dry-run harness, 2 tasks, 1 file created, 257 lines bash)
+milestone: v1.1
+milestone_name: MQTT raus, HTTP rein
+status: completed
+stopped_at: Plan 10-01 complete, Plan 10-02 (UI integration) next
+last_updated: "2026-04-10T16:49:38.288Z"
+last_activity: 2026-04-10 — Plan 09-03 complete (2 tasks, 1 file created, 257 lines bash, all dry-run tests PASS)
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 7
-  percent: 75
+  total_plans: 9
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 9 complete, Phase 10 next
-Plan: 10-01 — TBD (Phase 10 planning required)
-Status: Phase 9 complete (drain endpoint + updater pipeline + systemd unit + install.sh + dry-run harness)
-Last activity: 2026-04-10 — Plan 09-03 complete (2 tasks, 1 file created, 257 lines bash, all dry-run tests PASS)
+Phase: 10 in progress
+Plan: 10-02 next (UI integration, install modal, stage-stepper, log panel, reconnect overlay, rollback banner)
+Status: Plan 10-01 complete — backend endpoints landed (POST /api/update/trigger, GET /api/update/log SSE, POST /api/update/ack-rollback) + types extended for rollback banner
+Last activity: 2026-04-10 — Plan 10-01 complete (4 tasks, 3 routes created, 3 type modules extended, all curl-verified on macOS dev)
 
-Progress: [#######################░] 75% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 9 done; Phase 10 remaining)
+Progress: [########░] 89% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 9 done; Phase 10-01 backend complete; 10-02 UI remaining)
 
 **v1.2 Phase Map:**
 
@@ -71,6 +71,7 @@ Progress: [#######################░] 75% (v1.0 + v1.1 complete, v1.2 Phases 7 
 | Phase 09 P01 | 4min | 2 tasks + checkpoint (approved) | 3 files |
 | Phase 09 P02 | ~8min | 3 tasks | 3 files (2 created + 1 modified) |
 | Phase 09 P03 | 15min | 2 tasks | 1 files |
+| Phase 10 P01 | 14min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,7 @@ Recent decisions affecting current work:
 - [Phase 09-02]: `http://127.0.0.1:80` hard-coded in script per CONTEXT §Security (no env-var parametrization — less surface for mischief).
 - [Phase 09-03]: dry-run-helpers.sh uses a temp file (not `source <(...)`) because bash 3.2 on macOS has a long-standing process-substitution bug that truncates the sourced stream before function definitions are parsed. sed filter also rewrites `set -euo pipefail` → `set -uo pipefail` (strip -e) and deletes the `mkdir -p "${STATE_DIR}"` line before the flock block. The plan's `timeout 5` wrapper was replaced with a portable background-subshell + kill pattern because `timeout` is not available on macOS by default.
 - [Phase 09-03]: Checkpoint (Task 2) was auto-approved via orchestrator execution — the orchestrator ran the harness itself and asserted all four tests (preflight, snapshot, drain, health_probe) hit PASS markers. All deviations were Rule-3 blocking fixes discovered during that run.
+- [Phase 10]: [Phase 10-01]: Three localhost-guarded update routes landed. POST /api/update/trigger pre-writes state to 'installing', uses detached spawn + .unref() + --no-block, 200ms sync race catches ENOENT + exit 4/5 for dev-mode 503 fallback with state rollback. GET /api/update/log SSE with DOUBLE cleanup hook (request.signal.abort AND ReadableStream cancel) calling idempotent cleanup (SIGTERM + 1s unref'd SIGKILL). Line-buffered stdout, 10s heartbeat as SSE comment, ENOENT + exit 4/5 fall back to synthetic dev frames. POST /api/update/ack-rollback clears rollbackHappened/rollbackReason/rollbackStage via spread-merge write. Zero orphan journalctl verified on macOS.
 
 ### Pending Todos
 
@@ -118,7 +120,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T16:26:52.022Z
-Stopped at: Phase 9 complete, Phase 10 next up
+Last session: 2026-04-10T16:49:38.285Z
+Stopped at: Plan 10-01 complete, Plan 10-02 (UI integration) next
 Resume file: None
 Next command: `/gsd-plan 10` to plan Phase 10 (UI Integration & Restart Handoff)

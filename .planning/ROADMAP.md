@@ -200,11 +200,11 @@ Plans:
   3. The stage-stepper advances through Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify as the updater emits `::STAGE::` sentinel lines, and the live-log panel auto-scrolls with monospace terminal styling
   4. When the SSE connection drops during restart, a reconnect overlay appears and polls `/api/version` every 2s; on SHA-change the page auto-reloads and shows a green success banner with old-SHA → new-SHA; after 90s without SHA change it shows an error with an SSH hint to run `journalctl -u charging-master-updater`
   5. If `state.json` has `rollback_happened=true` on the next page load, a persistent red banner appears saying "Update fehlgeschlagen, auf Version X zurückgerollt" with a link to the run log, and the banner can be dismissed (which clears the flag)
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 **UI hint**: yes
 
 Plans:
-- [ ] 10-01-PLAN.md — Type extensions + trigger/log/ack-rollback backend routes with dev-mode fallbacks
+- [x] 10-01-PLAN.md — Type extensions + trigger/log/ack-rollback backend routes with dev-mode fallbacks
 - [ ] 10-02-PLAN.md — InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay + UpdateBanner state machine + rollback banner
 
 ## Progress
@@ -223,4 +223,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. Version Foundation & State Persistence | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
-| 10. UI Integration & Restart Handoff | v1.2 | 0/0 | Not started | - |
+| 10. UI Integration & Restart Handoff | v1.2 | 1/2 | In Progress|  |

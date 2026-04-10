@@ -119,8 +119,8 @@ All 34 requirements shipped. See traceability below.
 
 ### Live Feedback (LIVE)
 
-- [ ] **LIVE-01**: GET /api/update/log streamt `journalctl -fu charging-master-updater` live per SSE
-- [ ] **LIVE-02**: SSE-Endpoint killt journalctl-Child auf `request.signal.abort` UND ReadableStream `cancel()`
+- [x] **LIVE-01**: GET /api/update/log streamt `journalctl -fu charging-master-updater` live per SSE
+- [x] **LIVE-02**: SSE-Endpoint killt journalctl-Child auf `request.signal.abort` UND ReadableStream `cancel()`
 - [ ] **LIVE-03**: UI zeigt Stage-Stepper (Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify)
 - [ ] **LIVE-04**: UI zeigt Live-Log-Panel (terminal-style, monospace, auto-scroll)
 - [ ] **LIVE-05**: Reconnect-Overlay erscheint sobald SSE-Verbindung während des Restarts abbricht
@@ -135,7 +135,7 @@ All 34 requirements shipped. See traceability below.
 - [x] **ROLL-03**: Rollback-Stufe 2 (wenn Stufe 1 fehlschlägt): Tarball-Snapshot extrahieren, dann restart
 - [x] **ROLL-04**: Health-Probe nach Restart: bis zu 60s `/api/version` pollen; bei Fail Rollback triggern
 - [x] **ROLL-05**: Rollback-Status wird in `.update-state/state.json` persistiert (damit UI beim nächsten Laden informieren kann)
-- [ ] **ROLL-06**: UI zeigt beim nächsten Seitenaufruf roten Banner "Update fehlgeschlagen, auf Version X zurückgerollt" wenn Rollback passiert ist
+- [x] **ROLL-06**: UI zeigt beim nächsten Seitenaufruf roten Banner "Update fehlgeschlagen, auf Version X zurückgerollt" wenn Rollback passiert ist
 - [x] **ROLL-07**: Pushover-Benachrichtigung wird vom Updater-Script bei erfolgreichem und fehlgeschlagenem Update gesendet
 
 ### Infrastructure (INFR)
@@ -216,10 +216,11 @@ All 34 requirements shipped. See traceability below.
 | DETE-01..06 | Phase 8 | Complete |
 | EXEC-01..06 | Phase 9 | Complete |
 | ROLL-01..05, ROLL-07 | Phase 9 | Complete |
-| ROLL-06 | Phase 10 | Pending (UI banner reads state.json flag) |
+| ROLL-06 | Phase 10 | Backend complete (10-01: ack endpoint + state fields surfaced); UI banner pending (10-02) |
 | INFR-01 | Phase 9 | Complete |
 | INFR-02 | Phase 9 | Complete |
-| LIVE-01..08 | Phase 10 | Pending |
+| LIVE-01, LIVE-02 | Phase 10 | Complete (10-01: SSE endpoint with double cleanup, zero orphans on macOS) |
+| LIVE-03..08 | Phase 10 | Pending (10-02: stage stepper, log panel, reconnect overlay) |
 
 **Coverage:**
 - v1.0 requirements: 34 total, 34 complete
