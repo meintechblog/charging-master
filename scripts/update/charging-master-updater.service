@@ -1,0 +1,31 @@
+[Unit]
+Description=Charging-Master Self-Updater (one-shot)
+After=network.target charging-master.service
+# Deliberately no Requires=/BindsTo=/PartOf= — the updater is a SIBLING of
+# charging-master.service, not a dependent. This is the load-bearing structural
+# decision that prevents Pitfall 1 (parent-kill): because this unit runs in its
+# own cgroup, `systemctl stop charging-master` (which the updater calls) does
+# not terminate the updater itself.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/charging-master
+ExecStart=/opt/charging-master/scripts/update/run-update.sh
+User=root
+# Log everything to journalctl so the Phase 10 SSE log stream can tail it via
+# `journalctl -fu charging-master-updater`. No log file management on our side.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=charging-master-updater
+# Never restart on failure — the script handles its own two-stage rollback.
+# Letting systemd restart would re-run the entire pipeline and double-rollback.
+Restart=no
+# Generous timeout: pnpm install + next build on the LXC can take 3-5 minutes
+# under load. 900s = 15 minutes leaves generous headroom.
+TimeoutStartSec=900
+
+[Install]
+# We include this section so `systemctl enable` would work if ever needed, but
+# install.sh does NOT run `systemctl enable` on this unit — it is trigger-on-demand
+# via `systemctl start --no-block`.
+WantedBy=multi-user.target
