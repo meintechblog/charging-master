@@ -13,13 +13,19 @@ export function deriveUpdateInfoView(
 ): UpdateInfoView {
   const result: LastCheckResult | null = state.lastCheckResult;
 
-  // Default view — no check has ever happened.
+  // Default view — no check has ever happened. Rollback fields are ALWAYS
+  // copied from state onto the base so every return branch below inherits
+  // them via object spread. The UI's red rollback banner (ROLL-06) needs to
+  // render regardless of which LastCheckResult variant is active.
   const base: UpdateInfoView = {
     currentSha,
     currentShaShort,
     lastCheckAt: state.lastCheckAt,
     lastCheckStatus: 'never',
     updateAvailable: false,
+    rollbackHappened: state.rollbackHappened,
+    rollbackReason: state.rollbackReason,
+    rollbackStage: state.rollbackStage ?? null,
   };
 
   if (result === null) return base;

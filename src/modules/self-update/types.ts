@@ -50,6 +50,18 @@ export type UpdateState = {
   /** `true` when the most recent run ended in an auto-rollback. UI reads this to show the red banner. */
   rollbackHappened: boolean;
   rollbackReason: string | null;
+  // Phase 10 additions — optional so existing state.json files on disk
+  // (written before Phase 10) continue to parse with null defaults.
+  /** Target SHA the in-flight update is heading to. Set by the trigger endpoint. */
+  targetSha?: string | null;
+  /** Epoch ms when the trigger endpoint launched the updater unit. */
+  updateStartedAt?: number | null;
+  /**
+   * Which rollback stage fired (if any). Written by the Phase 9 bash updater
+   * on rollback; read-only from Node. `stage1` = git-reset rollback,
+   * `stage2` = tarball-restore rollback.
+   */
+  rollbackStage?: 'stage1' | 'stage2' | null;
 };
 
 export const DEFAULT_UPDATE_STATE: Omit<UpdateState, 'currentSha'> = {
@@ -60,7 +72,35 @@ export const DEFAULT_UPDATE_STATE: Omit<UpdateState, 'currentSha'> = {
   updateStatus: 'idle',
   rollbackHappened: false,
   rollbackReason: null,
+  targetSha: null,
+  updateStartedAt: null,
+  rollbackStage: null,
 };
+
+/**
+ * Response body from `POST /api/update/trigger`. Discriminated on `status`.
+ * On success, the client stores `startedAt` + `targetSha` so it can match the
+ * restart handoff (reconnect overlay polls /api/version and compares the SHA).
+ */
+export type UpdateTriggerResponse =
+  | { status: 'triggered'; startedAt: number; targetSha: string }
+  | { status: 'error'; error: string };
+
+/**
+ * The 9 pipeline stages emitted as `[stage=<name>]` markers by
+ * scripts/update/run-update.sh. The UI stage-stepper maps these to visual
+ * steps. Order matches the updater's execution sequence.
+ */
+export type UpdatePipelineStage =
+  | 'preflight'
+  | 'snapshot'
+  | 'drain'
+  | 'stop'
+  | 'fetch'
+  | 'install'
+  | 'build'
+  | 'start'
+  | 'verify';
 
 /**
  * View-model derived from UpdateState + CURRENT_SHA at render time. Returned
@@ -94,4 +134,12 @@ export type UpdateInfoView = {
   error?: string;
   /** Populated when lastCheckStatus === 'rate_limited'; epoch seconds. */
   rateLimitResetAt?: number;
+  // Phase 10 additions — surfaced from UpdateState so the UI can render the
+  // red rollback banner (ROLL-06) without a second API call.
+  /** True when the most recent update pipeline ended in auto-rollback. */
+  rollbackHappened?: boolean;
+  /** Human-readable reason for the rollback, if any. */
+  rollbackReason?: string | null;
+  /** Which rollback stage fired (stage1 = git-reset, stage2 = tarball). */
+  rollbackStage?: 'stage1' | 'stage2' | null;
 };

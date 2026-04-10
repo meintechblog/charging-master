@@ -29,6 +29,8 @@ const TMP_FILE = resolve(STATE_DIR, 'state.json.tmp');
  *
  * The bash updater script in Phase 9 reads this same file — JSON is the
  * lingua franca between Node and shell.
+ *
+ * Phase 10: state shape extended with targetSha, updateStartedAt, rollbackStage — see types.ts
  */
 export class UpdateStateStore {
   /**
