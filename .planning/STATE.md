@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Self-Update
-status: executing
-stopped_at: "Phase 7 complete, Phase 8 next up"
-last_updated: "2026-04-10T13:15:00.000Z"
+milestone: v1.1
+milestone_name: MQTT raus, HTTP rein
+status: completed
+stopped_at: Completed 08-01-PLAN.md (backend polling + routes + server.ts wiring)
+last_updated: "2026-04-10T13:36:12.955Z"
 last_activity: 2026-04-10 — Phase 7 complete (plans 01 + 02)
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_plans: 4
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State
@@ -66,6 +66,7 @@ Progress: [#################░░░] 85% (v1.0 + v1.1 complete, v1.2 Phase 7 d
 *Updated after each plan completion*
 | Phase 07 P01 | 3.5min | 3 tasks | 12 files |
 | Phase 07 P02 | 5.7min | 3 tasks + 1 checkpoint | 5 files |
+| Phase 08 P01 | 20min | 7 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,9 @@ Recent decisions affecting current work:
 - [v1.2 Roadmap]: Two-stage rollback: Stage 1 = git reset + pnpm install + pnpm build + restart; Stage 2 = tarball extract + restart (escape hatch if Stage 1 itself fails)
 - [v1.2 Roadmap]: Post-restart health probe (HTTP 200 + SHA match + DB healthy) is the anti-"silent success" gate
 - [Phase 07]: Phase 7 foundation laid: generated version.ts (git-ignored), updateRuns Drizzle table + migration, UpdateStateStore with atomic tmp+rename writes; drizzle/ un-ignored bug fix
+- [Phase 08]: GitHubClient uses native fetch + zod + AbortController; never throws, all failures mapped to LastCheckResult variants
+- [Phase 08]: 304 merge rule: preserve previous ok lastCheckResult on unchanged, only refresh lastCheckAt
+- [Phase 08]: 5-min /api/update/check cooldown enforced server-side via Date.now() - state.lastCheckAt, returns HTTP 429
 
 ### Pending Todos
 
@@ -101,7 +105,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T13:15:00.000Z
-Stopped at: "Phase 7 complete, Phase 8 next up"
+Last session: 2026-04-10T13:36:12.953Z
+Stopped at: Completed 08-01-PLAN.md (backend polling + routes + server.ts wiring)
 Resume file: None
 Next command: `/gsd-plan-phase 8`

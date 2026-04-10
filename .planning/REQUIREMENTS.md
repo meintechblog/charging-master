@@ -101,12 +101,12 @@ All 34 requirements shipped. See traceability below.
 
 ### Update Detection (DETE)
 
-- [ ] **DETE-01**: Background-Check pollt alle 6h `GET /repos/meintechblog/charging-master/commits/main` über ETag-fähigen Client
-- [ ] **DETE-02**: Check persistiert ETag in SQLite, nutzt `If-None-Match` für 304-Responses (kein Rate-Limit-Verbrauch)
+- [x] **DETE-01**: Background-Check pollt alle 6h `GET /repos/meintechblog/charging-master/commits/main` über ETag-fähigen Client
+- [x] **DETE-02**: Check persistiert ETag in SQLite, nutzt `If-None-Match` für 304-Responses (kein Rate-Limit-Verbrauch)
 - [ ] **DETE-03**: Update-Verfügbarkeit erscheint als Badge im Settings-Nav-Eintrag
-- [ ] **DETE-04**: "Jetzt prüfen" Button in Settings triggert sofortigen Check (mit Mindest-Cooldown 5 Min)
-- [ ] **DETE-05**: Settings zeigt Zeitpunkt des letzten Checks und Ergebnis
-- [ ] **DETE-06**: Verfügbares Update zeigt neuen SHA, Commit-Message, Autor und Commit-Datum
+- [x] **DETE-04**: "Jetzt prüfen" Button in Settings triggert sofortigen Check (mit Mindest-Cooldown 5 Min)
+- [x] **DETE-05**: Settings zeigt Zeitpunkt des letzten Checks und Ergebnis
+- [x] **DETE-06**: Verfügbares Update zeigt neuen SHA, Commit-Message, Autor und Commit-Datum
 
 ### Update Execution (EXEC)
 
