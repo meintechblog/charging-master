@@ -149,8 +149,12 @@ Plans:
   2. `GET /api/version` returns `{ sha, shaShort, buildTime, rollbackSha, dbHealthy }` in under 50ms, with `dbHealthy` reflecting a live SQLite probe
   3. The Settings page shows the short SHA prominently; hovering reveals the full SHA and copies to clipboard on click
   4. A fresh `.update-state/state.json` is created on first boot and can be read/written atomically via `UpdateStateStore` (tmp-file + rename), and Drizzle migrations create the `update_runs` table
-**Plans:** TBD
+**Plans:** 2 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 07-01-PLAN.md — Version generation script, Drizzle update_runs migration, self-update module (types + UpdateStateStore with atomic writes)
+- [ ] 07-02-PLAN.md — GET /api/version with DB health probe, UpdateStateStore.init() boot wiring, VersionBadge on Settings page
 
 ### Phase 8: GitHub Polling & Detection
 **Goal**: The app autonomously knows when a new commit lands on `main`, surfaces that awareness in the UI, and lets the user force an immediate check -- all without consuming GitHub's rate limit budget
