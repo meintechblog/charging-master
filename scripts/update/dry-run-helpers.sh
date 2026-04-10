@@ -58,21 +58,36 @@ echo "dry-run-stub" > "${SCRATCH}/data/charging-master.db"
 info "Sourcing run-update.sh helpers (filtered)"
 # Strip:
 #   1. The `main "$@"` trigger line so sourcing does NOT run the pipeline
-#   2. The `readonly` keyword so we can reassign constants
-#   3. The flock block (exec 9>... flock ... fi) because /opt/charging-master
-#      does not exist on dev and we are not root
+#   2. The `readonly` keyword so we can reassign constants (remove the
+#      keyword only — keep the assignment intact)
+#   3. `set -euo pipefail` → `set -uo pipefail` (no -e) so a single failing
+#      helper does not abort the harness
+#   4. The flock preamble: `mkdir -p "${STATE_DIR}"`, `exec 9>...`, and the
+#      `if ! flock ... fi` block — /opt/charging-master does not exist on
+#      dev and we are not root
+#
+# NOTE: we sed-filter to a real temp file instead of `source <(...)` process
+# substitution because bash 3.2 (macOS system bash) has a long-standing bug
+# where `source <(...)` truncates the sourced stream before all function
+# definitions are parsed. Writing to a temp file is portable and reliable.
+# The temp file is cleaned up unconditionally on exit.
+FILTERED="${SCRATCH}/run-update.filtered.sh"
+sed -e '/^main "\$@"$/d' \
+    -e 's/^readonly //' \
+    -e 's/^set -euo pipefail$/set -uo pipefail/' \
+    -e '/^mkdir -p "\${STATE_DIR}"$/d' \
+    -e '/^exec 9>/,/^fi$/d' \
+    "${RUN_UPDATE}" > "${FILTERED}"
 # shellcheck disable=SC1090
-source <(
-    sed -e '/^main "\$@"$/d' \
-        -e 's/^readonly /# DRY-RUN:stripped-readonly: /' \
-        -e '/^exec 9>/,/^fi$/d' \
-        "${RUN_UPDATE}"
-)
+source "${FILTERED}"
 
 # Disable the ERR/EXIT traps that the sourced script installed — we want to
 # handle failures inline so the harness can continue past a single failed helper.
 trap - ERR
 trap - EXIT
+# Belt and suspenders: make sure -e is off even if a future run-update.sh
+# reintroduces it somewhere the sed didn't catch.
+set +e
 
 # Override the constants to point at the scratch directory + dev server.
 INSTALL_DIR="${SCRATCH}"
@@ -202,13 +217,31 @@ if curl -sf --max-time 2 "${DEV_URL}/api/version" >/dev/null 2>&1; then
     fi
 
     # Negative test: probe for a sha that cannot possibly match. Should return 1
-    # after the 60s deadline — we trim to 5s via a timeout wrapper so the dry
-    # run does not hang.
-    info "health_probe negative test (expect timeout after ~5s via timeout wrapper)"
-    if timeout 5 bash -c 'health_probe 0000000000000000000000000000000000000000' 2>&1; then
-        fail "health_probe: returned 0 for an impossible sha (should have timed out)"
+    # after the 60s deadline — we cap it at ~5s by running health_probe in a
+    # background subshell and killing it. Portable (no `timeout` binary needed,
+    # which matters on macOS where coreutils is not installed by default).
+    info "health_probe negative test (capped at ~5s via background kill)"
+    (health_probe 0000000000000000000000000000000000000000 >/dev/null 2>&1) &
+    hp_pid=$!
+    hp_killed=0
+    for _ in 1 2 3 4 5; do
+        sleep 1
+        if ! kill -0 "${hp_pid}" 2>/dev/null; then
+            break
+        fi
+    done
+    if kill -0 "${hp_pid}" 2>/dev/null; then
+        kill "${hp_pid}" 2>/dev/null || true
+        hp_killed=1
+    fi
+    wait "${hp_pid}" 2>/dev/null
+    hp_exit=$?
+    if [ "${hp_killed}" = "1" ]; then
+        pass "health_probe: still looping after 5s as expected (killed) for an impossible sha"
+    elif [ "${hp_exit}" -ne 0 ]; then
+        pass "health_probe: correctly returned non-zero (${hp_exit}) for an impossible sha"
     else
-        pass "health_probe: correctly did not match for an impossible sha (exit via timeout)"
+        fail "health_probe: returned 0 for an impossible sha (should have kept probing or returned 1)"
     fi
 else
     warn "dev server not reachable — skipping health_probe test"
