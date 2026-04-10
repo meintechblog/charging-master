@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { UpdateInfoView } from '@/modules/self-update/types';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard' },
@@ -44,9 +45,54 @@ function useActiveLearnCount() {
   return count;
 }
 
+/**
+ * Polls GET /api/update/status every 60s to reflect the update-available state
+ * in the nav without requiring a page reload.
+ *
+ * Rationale for 60s cadence: the background checker runs every 6h so the
+ * nav badge only needs to catch up every so often. A faster cadence would
+ * just hit the local /api/update/status endpoint unnecessarily (though that
+ * is <50ms so the cost is negligible). 60s is a safe middle ground.
+ */
+function useUpdateAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    let cancelled = false;
+
+    async function check() {
+      try {
+        const res = await fetch('/api/update/status', {
+          signal: ctrl.signal,
+          cache: 'no-store',
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          const info = (await res.json()) as UpdateInfoView;
+          setAvailable(Boolean(info.updateAvailable));
+        }
+      } catch {
+        // ignore (includes AbortError on unmount)
+      }
+    }
+
+    check();
+    const interval = setInterval(check, 60000); // 60 seconds
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearInterval(interval);
+    };
+  }, []);
+
+  return available;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const activeLearnCount = useActiveLearnCount();
+  const updateAvailable = useUpdateAvailable();
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/';
@@ -62,17 +108,25 @@ export function Sidebar() {
       <div className="flex flex-col gap-1 flex-1">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
+          const showUpdateDot = item.href === '/settings' && updateAvailable;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`relative flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 active
                   ? 'bg-neutral-800 text-neutral-100'
                   : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50'
               }`}
             >
               {item.label}
+              {showUpdateDot && (
+                <span
+                  className="ml-auto inline-flex h-2 w-2 rounded-full bg-red-500"
+                  aria-label="Update verfügbar"
+                  title="Update verfügbar"
+                />
+              )}
             </Link>
           );
         })}
