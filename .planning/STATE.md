@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: MQTT raus, HTTP rein
+milestone: v1.2
+milestone_name: Self-Update
 status: completed
-stopped_at: Plan 10-01 complete, Plan 10-02 (UI integration) next
-last_updated: "2026-04-10T16:49:38.288Z"
-last_activity: 2026-04-10 — Plan 09-03 complete (2 tasks, 1 file created, 257 lines bash, all dry-run tests PASS)
+stopped_at: Phase 10 complete, milestone v1.2 ready for verification
+last_updated: "2026-04-10T16:57:30.000Z"
+last_activity: 2026-04-10 — Plan 10-02 complete (3 tasks + auto-verified checkpoint, 4 client components created, UpdateBanner extended with FlowState machine + rollback banner; milestone v1.2 self-update code-complete)
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -25,19 +25,19 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 10 in progress
-Plan: 10-02 next (UI integration, install modal, stage-stepper, log panel, reconnect overlay, rollback banner)
-Status: Plan 10-01 complete — backend endpoints landed (POST /api/update/trigger, GET /api/update/log SSE, POST /api/update/ack-rollback) + types extended for rollback banner
-Last activity: 2026-04-10 — Plan 10-01 complete (4 tasks, 3 routes created, 3 type modules extended, all curl-verified on macOS dev)
+Phase: 10 complete — milestone v1.2 code-complete
+Plan: None — all 10 plans across 4 phases shipped; ready for verification and LXC deployment
+Status: Phase 10-02 complete — UI integration landed. InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay shipped. UpdateBanner extended with FlowState machine and red rollback banner. All verified via curl harness on the dev server.
+Last activity: 2026-04-10 — Plan 10-02 complete (3 tasks + auto-verified checkpoint, 4 files created + update-banner.tsx extended, all typecheck + HTML + rollback seed/ack tests PASS)
 
-Progress: [########░] 89% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 9 done; Phase 10-01 backend complete; 10-02 UI remaining)
+Progress: [##########] 100% (v1.0 + v1.1 + v1.2 code-complete; milestone v1.2 ready for LXC deployment)
 
 **v1.2 Phase Map:**
 
 - ✅ Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs — complete
 - ✅ Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs — complete
-- ✅ Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs — complete (14/15 impl reqs done, ROLL-06 deferred to Phase 10 per plan)
-- Phase 10: UI Integration & Restart Handoff (LIVE-01..08, ROLL-06) — 9 reqs
+- ✅ Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs — complete (ROLL-06 finalized in Phase 10)
+- ✅ Phase 10: UI Integration & Restart Handoff (LIVE-01..08, ROLL-06) — 9 reqs — complete
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Progress: [########░] 89% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 9 done; P
 | Phase 09 P02 | ~8min | 3 tasks | 3 files (2 created + 1 modified) |
 | Phase 09 P03 | 15min | 2 tasks | 1 files |
 | Phase 10 P01 | 14min | 4 tasks | 6 files |
+| Phase 10 P02 | 5min | 3 tasks + auto-verified checkpoint | 5 files (4 created + 1 modified) |
 
 ## Accumulated Context
 
@@ -102,10 +103,11 @@ Recent decisions affecting current work:
 - [Phase 09-03]: dry-run-helpers.sh uses a temp file (not `source <(...)`) because bash 3.2 on macOS has a long-standing process-substitution bug that truncates the sourced stream before function definitions are parsed. sed filter also rewrites `set -euo pipefail` → `set -uo pipefail` (strip -e) and deletes the `mkdir -p "${STATE_DIR}"` line before the flock block. The plan's `timeout 5` wrapper was replaced with a portable background-subshell + kill pattern because `timeout` is not available on macOS by default.
 - [Phase 09-03]: Checkpoint (Task 2) was auto-approved via orchestrator execution — the orchestrator ran the harness itself and asserted all four tests (preflight, snapshot, drain, health_probe) hit PASS markers. All deviations were Rule-3 blocking fixes discovered during that run.
 - [Phase 10]: [Phase 10-01]: Three localhost-guarded update routes landed. POST /api/update/trigger pre-writes state to 'installing', uses detached spawn + .unref() + --no-block, 200ms sync race catches ENOENT + exit 4/5 for dev-mode 503 fallback with state rollback. GET /api/update/log SSE with DOUBLE cleanup hook (request.signal.abort AND ReadableStream cancel) calling idempotent cleanup (SIGTERM + 1s unref'd SIGKILL). Line-buffered stdout, 10s heartbeat as SSE comment, ENOENT + exit 4/5 fall back to synthetic dev frames. POST /api/update/ack-rollback clears rollbackHappened/rollbackReason/rollbackStage via spread-merge write. Zero orphan journalctl verified on macOS.
+- [Phase 10-02]: Four new client components (InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay) + UpdateBanner extended with FlowState discriminated union state machine (idle → confirm → triggered → streaming → reconnecting → error). Rollback red banner renders top-priority when info.rollbackHappened === true with Verstanden → POST /api/update/ack-rollback ack. EventSource effect on /api/update/log keyed on [flow.kind, info.currentSha] (not logLines) so message handler doesn't thrash subscription; onmessage appends to capped 2000-line buffer and parses [stage=X] last-match-wins into currentStage. onerror while streaming → transitions to reconnecting → mounts ReconnectOverlay. Overlay polls /api/version every 2s via setTimeout chain (no overlap on slow restarts), 90s timeout, success gated on sha !== initialSha AND dbHealthy === true. InstallModal focus trap bounces Tab between exactly two buttons (cancel/confirm), ESC closes unless submitting, backdrop cancels unless submitting. ReconnectOverlay backdrop is a no-op (non-dismissable). 503 dev_mode from trigger maps to inline "Dev-Modus: ..." warning in modal. Auto-verified via curl harness: tsc clean, HTTP 200, Installieren <button> present, Update verfügbar renders, rollback banner seed → render → ack endpoint clears state.json → banner stays gone on reload. Milestone v1.2 self-update is code-complete; post-deploy smoke test on charging-master.local LXC required before declaring done-done.
 
 ### Pending Todos
 
-- Plan Phase 10 (LIVE-01..08 + ROLL-06 UI red banner)
+- Post-deploy smoke test on charging-master.local LXC (verify real 202 trigger, full streaming flow, SHA auto-reload)
 
 ### Blockers/Concerns
 
@@ -120,7 +122,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T16:49:38.285Z
-Stopped at: Plan 10-01 complete, Plan 10-02 (UI integration) next
+Last session: 2026-04-10T16:57:30.000Z
+Stopped at: Phase 10 complete, milestone v1.2 ready for verification
 Resume file: None
-Next command: `/gsd-plan 10` to plan Phase 10 (UI Integration & Restart Handoff)
+Next command: `/gsd-verify-phase 10` or deploy to charging-master.local LXC for post-deploy smoke test

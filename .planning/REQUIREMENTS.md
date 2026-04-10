@@ -121,12 +121,12 @@ All 34 requirements shipped. See traceability below.
 
 - [x] **LIVE-01**: GET /api/update/log streamt `journalctl -fu charging-master-updater` live per SSE
 - [x] **LIVE-02**: SSE-Endpoint killt journalctl-Child auf `request.signal.abort` UND ReadableStream `cancel()`
-- [ ] **LIVE-03**: UI zeigt Stage-Stepper (Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify)
-- [ ] **LIVE-04**: UI zeigt Live-Log-Panel (terminal-style, monospace, auto-scroll)
-- [ ] **LIVE-05**: Reconnect-Overlay erscheint sobald SSE-Verbindung während des Restarts abbricht
-- [ ] **LIVE-06**: UI pollt /api/version nach Restart alle 2s bis neue SHA antwortet, maximal 90s
-- [ ] **LIVE-07**: Bei SHA-Change lädt UI die Seite automatisch neu und zeigt Erfolgs-Banner mit neuer Version
-- [ ] **LIVE-08**: Bei 90s-Timeout zeigt UI Fehlermeldung mit Hinweis, per SSH den Service zu prüfen
+- [x] **LIVE-03**: UI zeigt Stage-Stepper (Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify)
+- [x] **LIVE-04**: UI zeigt Live-Log-Panel (terminal-style, monospace, auto-scroll)
+- [x] **LIVE-05**: Reconnect-Overlay erscheint sobald SSE-Verbindung während des Restarts abbricht
+- [x] **LIVE-06**: UI pollt /api/version nach Restart alle 2s bis neue SHA antwortet, maximal 90s
+- [x] **LIVE-07**: Bei SHA-Change lädt UI die Seite automatisch neu und zeigt Erfolgs-Banner mit neuer Version
+- [x] **LIVE-08**: Bei 90s-Timeout zeigt UI Fehlermeldung mit Hinweis, per SSH den Service zu prüfen
 
 ### Rollback & Recovery (ROLL)
 
@@ -216,11 +216,11 @@ All 34 requirements shipped. See traceability below.
 | DETE-01..06 | Phase 8 | Complete |
 | EXEC-01..06 | Phase 9 | Complete |
 | ROLL-01..05, ROLL-07 | Phase 9 | Complete |
-| ROLL-06 | Phase 10 | Backend complete (10-01: ack endpoint + state fields surfaced); UI banner pending (10-02) |
+| ROLL-06 | Phase 10 | Complete (10-02: red banner + Verstanden ack flow verified via seed test) |
 | INFR-01 | Phase 9 | Complete |
 | INFR-02 | Phase 9 | Complete |
 | LIVE-01, LIVE-02 | Phase 10 | Complete (10-01: SSE endpoint with double cleanup, zero orphans on macOS) |
-| LIVE-03..08 | Phase 10 | Pending (10-02: stage stepper, log panel, reconnect overlay) |
+| LIVE-03..08 | Phase 10 | Complete (10-02: stage stepper, log panel, install modal, reconnect overlay, banner state machine) |
 
 **Coverage:**
 - v1.0 requirements: 34 total, 34 complete
@@ -229,4 +229,4 @@ All 34 requirements shipped. See traceability below.
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-10 — Plan 09-02 complete (EXEC-01..03, EXEC-05, EXEC-06, ROLL-01..05, ROLL-07, INFR-01, INFR-02 done)*
+*Last updated: 2026-04-10 — Plan 10-02 complete (LIVE-03..08, ROLL-06 done; milestone v1.2 self-update code-complete)*
