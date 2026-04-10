@@ -96,8 +96,8 @@ All 34 requirements shipped. See traceability below.
 
 - [x] **VERS-01**: App kennt ihren aktuellen Commit-SHA (aus `src/lib/version.ts`, generiert per Prebuild-Script)
 - [x] **VERS-02**: App kennt ihren Build-Zeitpunkt (ISO timestamp, in derselben generierten Datei)
-- [ ] **VERS-03**: GET /api/version liefert SHA (short + full), Build-Time, Rollback-SHA und Health-Status (DB probe)
-- [ ] **VERS-04**: Settings-Seite zeigt aktuelle Version prominent (short SHA sichtbar, full SHA auf Hover/Kopieren)
+- [x] **VERS-03**: GET /api/version liefert SHA (short + full), Build-Time, Rollback-SHA und Health-Status (DB probe)
+- [x] **VERS-04**: Settings-Seite zeigt aktuelle Version prominent (short SHA sichtbar, full SHA auf Hover/Kopieren)
 
 ### Update Detection (DETE)
 
