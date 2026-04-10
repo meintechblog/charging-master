@@ -102,7 +102,7 @@ Plans:
 
 **Milestone Goal:** In-App-Update-Mechanismus, der neue Versionen aus dem GitHub-Repo automatisch erkennt und auf Knopfdruck einspielt -- mit sauberem Restart und Auto-Rollback bei Fehler.
 
-- [ ] **Phase 7: Version Foundation & State Persistence** - Build-time SHA generation, /api/version endpoint, update_runs table, state.json, Settings version display
+- [x] **Phase 7: Version Foundation & State Persistence** - Build-time SHA generation, /api/version endpoint, update_runs table, state.json, Settings version display
 - [ ] **Phase 8: GitHub Polling & Detection** - ETag-aware GitHub client, 6h background checker, manual check endpoint, update-available badge and banner
 - [ ] **Phase 9: Updater Pipeline & systemd Unit** - run-update.sh with rollback trap, pre-shutdown drain, oneshot systemd unit, tarball snapshot, two-stage rollback, post-restart health gate
 - [ ] **Phase 10: UI Integration & Restart Handoff** - Install button, SSE log stream, stage-stepper, live log panel, reconnect overlay, auto-reload, rollback-happened banner
@@ -154,7 +154,7 @@ Plans:
 
 Plans:
 - [x] 07-01-PLAN.md — Version generation script, Drizzle update_runs migration, self-update module (types + UpdateStateStore with atomic writes)
-- [ ] 07-02-PLAN.md — GET /api/version with DB health probe, UpdateStateStore.init() boot wiring, VersionBadge on Settings page
+- [x] 07-02-PLAN.md — GET /api/version with DB health probe, UpdateStateStore.init() boot wiring, VersionBadge on Settings page
 
 ### Phase 8: GitHub Polling & Detection
 **Goal**: The app autonomously knows when a new commit lands on `main`, surfaces that awareness in the UI, and lets the user force an immediate check -- all without consuming GitHub's rate limit budget
@@ -207,7 +207,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Notifications & History | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 5. HTTP Communication | v1.1 | 2/2 | Complete | - |
 | 6. Device Discovery & MQTT Removal | v1.1 | 2/2 | Complete | - |
-| 7. Version Foundation & State Persistence | v1.2 | 0/0 | Not started | - |
+| 7. Version Foundation & State Persistence | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 8. GitHub Polling & Detection | v1.2 | 0/0 | Not started | - |
 | 9. Updater Pipeline & systemd Unit | v1.2 | 0/0 | Not started | - |
 | 10. UI Integration & Restart Handoff | v1.2 | 0/0 | Not started | - |

@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: MQTT raus, HTTP rein
-status: completed
-stopped_at: Completed 07-01-PLAN.md (Phase 7 wave 1)
-last_updated: "2026-04-10T12:42:14.114Z"
-last_activity: 2026-04-10 — Roadmap v1.2 mapped Phases 7-10
+milestone: v1.2
+milestone_name: Self-Update
+status: executing
+stopped_at: "Phase 7 complete, Phase 8 next up"
+last_updated: "2026-04-10T13:15:00.000Z"
+last_activity: 2026-04-10 — Phase 7 complete (plans 01 + 02)
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -25,17 +25,17 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 7 — Version Foundation & State Persistence (next up)
+Phase: 7 complete (2/2 plans), Phase 8 next up
 Plan: —
-Status: Roadmap complete, ready for `/gsd-plan-phase 7`
-Last activity: 2026-04-10 — Roadmap v1.2 mapped Phases 7-10
+Status: Phase 7 complete, ready for `/gsd-plan-phase 8`
+Last activity: 2026-04-10 — Phase 7 complete (plans 01 + 02)
 
-Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 planning)
+Progress: [#################░░░] 85% (v1.0 + v1.1 complete, v1.2 Phase 7 done)
 
 **v1.2 Phase Map:**
 
-- Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs
-- Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs
+- ✅ Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs — complete
+- Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs — next up
 - Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs
 - Phase 10: UI Integration & Restart Handoff (LIVE-01..08) — 8 reqs
 
@@ -65,6 +65,7 @@ Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 plannin
 
 *Updated after each plan completion*
 | Phase 07 P01 | 3.5min | 3 tasks | 12 files |
+| Phase 07 P02 | 5.7min | 3 tasks + 1 checkpoint | 5 files |
 
 ## Accumulated Context
 
@@ -85,7 +86,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Plan Phase 7 via `/gsd-plan-phase 7`
+- Plan Phase 8 via `/gsd-plan-phase 8`
 
 ### Blockers/Concerns
 
@@ -100,7 +101,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T12:42:14.111Z
-Stopped at: Completed 07-01-PLAN.md (Phase 7 wave 1)
+Last session: 2026-04-10T13:15:00.000Z
+Stopped at: "Phase 7 complete, Phase 8 next up"
 Resume file: None
-Next command: `/gsd-plan-phase 7`
+Next command: `/gsd-plan-phase 8`
