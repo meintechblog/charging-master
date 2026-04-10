@@ -4,8 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch server.ts",
-    "build": "next build",
+    "gen:version": "node scripts/build/generate-version.mjs",
+    "dev": "pnpm gen:version && tsx watch server.ts",
+    "build": "pnpm gen:version && next build",
     "start": "NODE_ENV=production tsx server.ts",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",

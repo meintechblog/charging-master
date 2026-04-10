@@ -1,6 +1,11 @@
 node_modules/
 .next/
 data/
-drizzle/
 .env
 .env.local
+
+# Generated at build time — environment-specific
+/src/lib/version.ts
+
+# Runtime update state — local to each machine
+/.update-state/
