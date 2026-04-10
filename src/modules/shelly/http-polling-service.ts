@@ -80,14 +80,45 @@ export class HttpPollingService {
   }
 
   /**
-   * Stop polling a specific plug.
+   * Stop polling a specific plug (single-plug overload).
    */
-  stopPolling(plugId: string): void {
-    const timer = this.pollers.get(plugId);
-    if (timer) {
-      clearInterval(timer);
-      this.pollers.delete(plugId);
+  stopPolling(plugId: string): void;
+  /**
+   * Stop ALL active polling intervals and wait for a brief settle window so
+   * any in-flight HTTP fetch has a chance to complete before the caller moves
+   * on to e.g. a WAL checkpoint. Returns the number of pollers that were
+   * active at the moment the call started.
+   *
+   * Added in Phase 9 (EXEC-04) for the /api/internal/prepare-for-shutdown
+   * drain path. The existing stopAll() method remains for the synchronous
+   * SIGTERM shutdown path in server.ts -- do not merge them.
+   */
+  stopPolling(): Promise<number>;
+  stopPolling(plugId?: string): void | Promise<number> {
+    if (typeof plugId === 'string') {
+      // Single-plug overload -- existing behavior, unchanged.
+      const timer = this.pollers.get(plugId);
+      if (timer) {
+        clearInterval(timer);
+        this.pollers.delete(plugId);
+      }
+      return;
     }
+
+    // No-arg overload -- drain-all.
+    const count = this.pollers.size;
+    for (const timer of this.pollers.values()) {
+      clearInterval(timer);
+    }
+    this.pollers.clear();
+    // Brief settle window so any fetch() that fired just before the interval
+    // was cleared has a chance to resolve and land its DB write BEFORE the
+    // caller checkpoints the WAL. 100ms is empirically enough -- the fetch
+    // itself already has AbortSignal.timeout(3000) but we don't need to wait
+    // for a stuck fetch, only for "normal" in-flight ones.
+    return new Promise<number>((resolve) => {
+      setTimeout(() => resolve(count), 100);
+    });
   }
 
   /**
