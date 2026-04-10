@@ -12,8 +12,9 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
-import { CURRENT_SHA } from '@/lib/version';
-import { DEFAULT_UPDATE_STATE, type UpdateState } from './types';
+import { CURRENT_SHA, CURRENT_SHA_SHORT } from '@/lib/version';
+import { DEFAULT_UPDATE_STATE, type UpdateInfoView, type UpdateState } from './types';
+import { deriveUpdateInfoView } from './update-info-view';
 
 const STATE_DIR = resolve(process.cwd(), '.update-state');
 const STATE_FILE = resolve(STATE_DIR, 'state.json');
@@ -69,6 +70,18 @@ export class UpdateStateStore {
     const next: UpdateState = { ...current, ...patch };
     this.writeAtomic(next);
     return next;
+  }
+
+  /**
+   * Derives a UpdateInfoView from the current state + baked CURRENT_SHA.
+   * Read-only: does NOT mutate state.json.
+   *
+   * Used by GET /api/update/status on every Settings page load and by
+   * GET /api/update/check after a manual trigger to return the fresh view.
+   */
+  getUpdateInfo(): UpdateInfoView {
+    const state = this.read();
+    return deriveUpdateInfoView(state, CURRENT_SHA, CURRENT_SHA_SHORT);
   }
 
   /**
