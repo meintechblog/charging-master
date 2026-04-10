@@ -324,8 +324,26 @@ do_install() {
     CURRENT_STAGE="install"
     db_update_stage "${CURRENT_STAGE}"
     cd "${INSTALL_DIR}"
-    log "pnpm install --frozen-lockfile"
-    pnpm install --frozen-lockfile || die "pnpm install failed"
+
+    # Optimization: skip pnpm install if neither package.json nor the lockfile changed
+    # between the rollback SHA and the new SHA. Saves 30-90s on UI/doc-only updates.
+    # Fails-open on any git diff error → falls through to the install.
+    local deps_changed=1
+    if [ -n "${ROLLBACK_SHA:-}" ] && [ -n "${NEW_SHA:-}" ]; then
+        if git diff --name-only "${ROLLBACK_SHA}" "${NEW_SHA}" 2>/dev/null \
+            | grep -qE '^(package\.json|pnpm-lock\.yaml)$'; then
+            deps_changed=1
+        else
+            deps_changed=0
+        fi
+    fi
+
+    if [ "${deps_changed}" = "0" ]; then
+        log "pnpm install SKIPPED (neither package.json nor pnpm-lock.yaml changed)"
+    else
+        log "pnpm install --frozen-lockfile"
+        pnpm install --frozen-lockfile || die "pnpm install failed"
+    fi
 }
 
 do_clean_build() {

@@ -1,6 +1,15 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+type ActiveSession = {
+  id: number;
+  plugName: string | null;
+  profileName: string | null;
+  state: string;
+  estimatedSoc: number | null;
+  targetSoc: number | null;
+};
 
 type Props = {
   currentShaShort: string;
@@ -31,6 +40,17 @@ export function InstallModal(props: Props) {
 
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[] | null>(null);
+
+  // Fetch active charge sessions on mount — user must see if a charge will be interrupted
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch('/api/charging/sessions', { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: ActiveSession[]) => setActiveSessions(Array.isArray(data) ? data : []))
+      .catch(() => setActiveSessions([])); // fail-open: don't block update on fetch error
+    return () => ctrl.abort();
+  }, []);
 
   // ESC to close + focus trap (very minimal — just bounce focus between the two buttons)
   useEffect(() => {
@@ -85,8 +105,31 @@ export function InstallModal(props: Props) {
               {commitAuthor} · {formattedDate}
             </p>
           </div>
+          {activeSessions !== null && activeSessions.length > 0 && (
+            <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs">
+              <p className="font-semibold text-red-300">
+                ⚠ {activeSessions.length === 1 ? 'Aktiver Ladevorgang' : `${activeSessions.length} aktive Ladevorgänge`} wird unterbrochen
+              </p>
+              <ul className="mt-2 space-y-1 text-red-200/90">
+                {activeSessions.map((s) => {
+                  const label = s.profileName ?? s.plugName ?? `Session ${s.id}`;
+                  const soc = s.estimatedSoc !== null ? `${Math.round(s.estimatedSoc)}%` : '?';
+                  const target = s.targetSoc !== null ? `${s.targetSoc}%` : '?';
+                  return (
+                    <li key={s.id} className="font-mono">
+                      {label}: {soc} / {target} ({s.state})
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-2 text-red-200/70">
+                Der Updater stoppt den Server und startet ihn neu. Der Akku lädt nach dem Restart weiter, aber der SOC-Tracker verliert die aktuelle Position in der Referenzkurve.
+              </p>
+            </div>
+          )}
           <p className="text-xs text-amber-300">
-            Dies wird den Server kurz neu starten. Aktive Ladesessions werden sauber beendet.
+            Dies wird den Server kurz neu starten.{' '}
+            {activeSessions !== null && activeSessions.length === 0 && 'Keine aktiven Ladevorgänge — sicherer Zeitpunkt.'}
           </p>
           {submitError !== null && (
             <p className="rounded bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-300">
