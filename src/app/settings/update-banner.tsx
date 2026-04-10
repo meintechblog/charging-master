@@ -68,8 +68,18 @@ export function UpdateBanner({ initialInfo }: Props) {
   const [cooldownSeconds, setCooldownSeconds] = useState<number | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  // Phase 10 state: install flow + streaming data + rollback ack
-  const [flow, setFlow] = useState<FlowState>({ kind: 'idle' });
+  // Phase 10 state: install flow + streaming data + rollback ack.
+  // Resume path: if state.json already has updateStatus === 'installing' when
+  // the page loads (user navigated away mid-update, reloaded, or opened the
+  // Settings tab for the first time during an active update), start directly
+  // in 'triggered' so the SSE effect auto-opens the log stream.
+  const [flow, setFlow] = useState<FlowState>(() => {
+    const inProgress = initialInfo.inProgressUpdate;
+    if (inProgress !== undefined) {
+      return { kind: 'triggered', startedAt: inProgress.startedAt, targetSha: inProgress.targetSha };
+    }
+    return { kind: 'idle' };
+  });
   const [logLines, setLogLines] = useState<string[]>([]);
   const [currentStage, setCurrentStage] = useState<UpdatePipelineStage | null>(null);
   const [isSubmittingInstall, setIsSubmittingInstall] = useState(false);

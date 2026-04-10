@@ -142,4 +142,14 @@ export type UpdateInfoView = {
   rollbackReason?: string | null;
   /** Which rollback stage fired (stage1 = git-reset, stage2 = tarball). */
   rollbackStage?: 'stage1' | 'stage2' | null;
+  /**
+   * Set when updateStatus === 'installing' — the updater unit is currently
+   * running in a sibling systemd process. UI uses this to auto-resume the
+   * streaming view if the user navigates away during an update.
+   */
+  inProgressUpdate?: {
+    targetSha: string;
+    targetShaShort: string;
+    startedAt: number;
+  };
 };

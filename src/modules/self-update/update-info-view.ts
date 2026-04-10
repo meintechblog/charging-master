@@ -17,6 +17,19 @@ export function deriveUpdateInfoView(
   // copied from state onto the base so every return branch below inherits
   // them via object spread. The UI's red rollback banner (ROLL-06) needs to
   // render regardless of which LastCheckResult variant is active.
+  //
+  // When `updateStatus === 'installing'`, also expose an inProgressUpdate
+  // payload so the UpdateBanner can auto-resume the streaming view on mount
+  // (e.g. after the user navigates away and comes back during an update).
+  const inProgressUpdate =
+    state.updateStatus === 'installing' && state.targetSha != null && state.updateStartedAt != null
+      ? {
+          targetSha: state.targetSha,
+          targetShaShort: state.targetSha.substring(0, 7),
+          startedAt: state.updateStartedAt,
+        }
+      : undefined;
+
   const base: UpdateInfoView = {
     currentSha,
     currentShaShort,
@@ -26,6 +39,7 @@ export function deriveUpdateInfoView(
     rollbackHappened: state.rollbackHappened,
     rollbackReason: state.rollbackReason,
     rollbackStage: state.rollbackStage ?? null,
+    ...(inProgressUpdate !== undefined ? { inProgressUpdate } : {}),
   };
 
   if (result === null) return base;

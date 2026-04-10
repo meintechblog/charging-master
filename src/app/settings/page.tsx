@@ -4,6 +4,7 @@ import { SettingsSection } from '@/components/settings/settings-section';
 import { PushoverSettings } from '@/components/settings/pushover-settings';
 import { VersionBadge } from './version-badge';
 import { UpdateBanner } from './update-banner';
+import { UpdateHistory } from './update-history';
 import { UpdateStateStore } from '@/modules/self-update/update-state-store';
 import type { UpdateInfoView } from '@/modules/self-update/types';
 import { CURRENT_SHA, CURRENT_SHA_SHORT } from '@/lib/version';
@@ -45,6 +46,8 @@ export default async function SettingsPage() {
       </div>
 
       <UpdateBanner initialInfo={initialUpdateInfo} />
+
+      <UpdateHistory />
 
       <SettingsSection
         title="Pushover"
