@@ -193,15 +193,19 @@ Plans:
 ### Phase 10: UI Integration & Restart Handoff
 **Goal**: A single click in the Settings UI carries the user through the entire update experience -- confirmation, live log, restart blackout, reconnect, success banner -- with rollback failures made loud and unmistakable on the next page load
 **Depends on**: Phase 7, Phase 8, Phase 9
-**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04, LIVE-05, LIVE-06, LIVE-07, LIVE-08
+**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04, LIVE-05, LIVE-06, LIVE-07, LIVE-08, ROLL-06
 **Success Criteria** (what must be TRUE):
   1. The Install button opens a confirmation modal; on confirm it POSTs to the trigger endpoint, stores the expected target SHA in localStorage, and the UI immediately switches to the stage-stepper + live-log view
   2. `GET /api/update/log` streams `journalctl -fu charging-master-updater` live via SSE, and its `journalctl` child process is reliably killed on **both** `request.signal.abort` AND the ReadableStream `cancel()` callback (verified by no orphan `journalctl` processes after the user closes the tab)
   3. The stage-stepper advances through Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify as the updater emits `::STAGE::` sentinel lines, and the live-log panel auto-scrolls with monospace terminal styling
   4. When the SSE connection drops during restart, a reconnect overlay appears and polls `/api/version` every 2s; on SHA-change the page auto-reloads and shows a green success banner with old-SHA → new-SHA; after 90s without SHA change it shows an error with an SSH hint to run `journalctl -u charging-master-updater`
   5. If `state.json` has `rollback_happened=true` on the next page load, a persistent red banner appears saying "Update fehlgeschlagen, auf Version X zurückgerollt" with a link to the run log, and the banner can be dismissed (which clears the flag)
-**Plans:** TBD
+**Plans:** 2 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 10-01-PLAN.md — Type extensions + trigger/log/ack-rollback backend routes with dev-mode fallbacks
+- [ ] 10-02-PLAN.md — InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay + UpdateBanner state machine + rollback banner
 
 ## Progress
 
