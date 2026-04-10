@@ -1,0 +1,147 @@
+// src/modules/self-update/update-checker.ts
+// Singleton scheduler for background GitHub commit polling.
+// Boot: constructed + started from server.ts main() AFTER UpdateStateStore.init()
+// and BEFORE HttpPollingService — non-blocking, no await on start().
+
+import type { LastCheckResult } from './types';
+import { GitHubClient } from './github-client';
+import { UpdateStateStore } from './update-state-store';
+
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+export class UpdateChecker {
+  private readonly store: UpdateStateStore;
+  private readonly client: GitHubClient;
+  private intervalHandle: ReturnType<typeof setInterval> | null = null;
+  private isChecking = false;
+
+  constructor(store: UpdateStateStore, client: GitHubClient = new GitHubClient()) {
+    this.store = store;
+    this.client = client;
+  }
+
+  /**
+   * Idempotent. Calling start() a second time is a no-op (logs a warning).
+   *
+   * Fire-and-forget: this method returns synchronously after scheduling the
+   * interval. The first check runs asynchronously in the background. Callers
+   * (server.ts main()) must NOT await start().
+   */
+  start(): void {
+    if (this.intervalHandle !== null) {
+      console.warn('[UpdateChecker] start() called while already running — ignoring');
+      return;
+    }
+
+    // Kick off the first check immediately (async, no await — we do not want
+    // to block server boot on a GitHub round-trip).
+    void this.runTick('initial');
+
+    // Schedule recurring checks every 6 hours. .unref() so the interval does
+    // not keep the event loop alive — shutdown proceeds normally.
+    this.intervalHandle = setInterval(() => {
+      void this.runTick('scheduled');
+    }, SIX_HOURS_MS);
+    this.intervalHandle.unref?.();
+
+    console.log(`[UpdateChecker] started (interval: ${SIX_HOURS_MS / 1000 / 60 / 60}h, first check: now)`);
+  }
+
+  /** Stop the scheduler. Not wired into server.ts shutdown in Phase 8. */
+  stop(): void {
+    if (this.intervalHandle !== null) {
+      clearInterval(this.intervalHandle);
+      this.intervalHandle = null;
+      console.log('[UpdateChecker] stopped');
+    }
+  }
+
+  /**
+   * Run a single check. Safe to call concurrently: the isChecking flag
+   * guarantees only one in-flight GitHub call at a time. The second caller
+   * short-circuits with the CURRENT persisted result (no error, no wait).
+   *
+   * Used by both the interval tick AND GET /api/update/check.
+   */
+  async check(options: { manual?: boolean } = {}): Promise<LastCheckResult> {
+    if (this.isChecking) {
+      // Another tick is already in flight. Return the last persisted result
+      // rather than queueing. The UI manual trigger gets "here's what we
+      // already know" rather than "please wait" — a pragmatic choice since
+      // the in-flight call will update state.json within ~10s anyway.
+      const current = this.store.read().lastCheckResult;
+      return current ?? { status: 'error', error: 'check already in progress' };
+    }
+
+    this.isChecking = true;
+    try {
+      const state = this.store.read();
+      const { result, etag: newEtag } = await this.client.checkLatestCommit({
+        etag: state.lastCheckEtag,
+      });
+
+      const now = Date.now();
+
+      // Merge rule: NEVER persist { status: 'unchanged' } as the authoritative
+      // lastCheckResult — we want the banner to keep showing the previous 'ok'
+      // metadata (remote SHA, commit message, etc.) so the UI does not lose
+      // context on a 304 reply. Only update lastCheckAt in that case.
+      if (result.status === 'unchanged') {
+        this.store.write({ lastCheckAt: now });
+        if (options.manual) {
+          console.log('[UpdateChecker] manual check: 304 unchanged');
+        }
+        return result;
+      }
+
+      // For 'ok', 'rate_limited', and 'error' we persist the new result.
+      // ETag is only updated from the client on an 'ok' 200 response.
+      const patch: Partial<import('./types').UpdateState> = {
+        lastCheckAt: now,
+        lastCheckResult: result,
+      };
+      if (newEtag !== null) {
+        patch.lastCheckEtag = newEtag;
+      }
+      this.store.write(patch);
+
+      if (result.status === 'ok') {
+        console.log(
+          `[UpdateChecker] ${options.manual ? 'manual' : 'scheduled'} check ok — remote=${result.remoteShaShort} author=${result.author}`,
+        );
+      } else if (result.status === 'rate_limited') {
+        console.warn(
+          `[UpdateChecker] rate-limited — reset at ${new Date(result.resetAt * 1000).toISOString()}`,
+        );
+      } else {
+        console.warn(`[UpdateChecker] check error: ${result.error}`);
+      }
+
+      return result;
+    } catch (err) {
+      // Belt-and-suspenders: GitHubClient is contractually non-throwing, but
+      // store.read()/write() can throw on fs permission errors. We catch,
+      // log, and return an error result so the scheduler loop (and the HTTP
+      // manual trigger) never blow up.
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UpdateChecker] check() threw: ${error}`);
+      return { status: 'error', error };
+    } finally {
+      this.isChecking = false;
+    }
+  }
+
+  /** Internal wrapper for scheduled ticks — swallows the return value. */
+  private async runTick(label: 'initial' | 'scheduled'): Promise<void> {
+    try {
+      await this.check({ manual: false });
+    } catch (err) {
+      // check() already has its own try/catch, but this is the final safety net
+      // for the setInterval callback — a thrown error here would crash Node's
+      // timer machinery only in pathological cases, but we log and swallow anyway.
+      console.error(
+        `[UpdateChecker] ${label} tick crashed unexpectedly: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
