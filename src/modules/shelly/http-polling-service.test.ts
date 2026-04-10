@@ -236,3 +236,82 @@ describe('HttpPollingService', () => {
     expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });
+
+describe('HttpPollingService.stopPolling overloads (Phase 9 drain)', () => {
+  let eventBus: EventBus;
+  let service: HttpPollingService;
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    eventBus = new EventBus();
+    service = new HttpPollingService(eventBus);
+
+    mockFetch = vi.fn();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ apower: 0, voltage: 230, current: 0, output: false, aenergy: { total: 0 } }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    service.stopAll();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('single-plug overload stops only the named plug', async () => {
+    service.startPolling('plug-a', '192.168.1.10', 10_000);
+    service.startPolling('plug-b', '192.168.1.11', 10_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(service.isPolling('plug-a')).toBe(true);
+    expect(service.isPolling('plug-b')).toBe(true);
+
+    service.stopPolling('plug-a');
+
+    expect(service.isPolling('plug-a')).toBe(false);
+    expect(service.isPolling('plug-b')).toBe(true);
+  });
+
+  it('no-arg overload stops every poller and returns the prior count', async () => {
+    service.startPolling('plug-a', '192.168.1.10', 10_000);
+    service.startPolling('plug-b', '192.168.1.11', 10_000);
+    service.startPolling('plug-c', '192.168.1.12', 10_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const drainPromise = service.stopPolling();
+    // The no-arg overload awaits a 100ms settle window.
+    await vi.advanceTimersByTimeAsync(100);
+    const stopped = await drainPromise;
+
+    expect(stopped).toBe(3);
+    expect(service.isPolling('plug-a')).toBe(false);
+    expect(service.isPolling('plug-b')).toBe(false);
+    expect(service.isPolling('plug-c')).toBe(false);
+  });
+
+  it('no-arg overload returns 0 when called on an idle service', async () => {
+    const drainPromise = service.stopPolling();
+    await vi.advanceTimersByTimeAsync(100);
+    const stopped = await drainPromise;
+    expect(stopped).toBe(0);
+  });
+
+  it('no-arg overload returns 0 on second call (idempotent)', async () => {
+    service.startPolling('plug-a', '192.168.1.10', 10_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const firstPromise = service.stopPolling();
+    await vi.advanceTimersByTimeAsync(100);
+    const first = await firstPromise;
+
+    const secondPromise = service.stopPolling();
+    await vi.advanceTimersByTimeAsync(100);
+    const second = await secondPromise;
+
+    expect(first).toBe(1);
+    expect(second).toBe(0);
+  });
+});
