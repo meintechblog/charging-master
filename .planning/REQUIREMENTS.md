@@ -62,33 +62,88 @@ All 34 requirements shipped. See traceability below.
 - [x] **SETT-02**: Pushover notification settings configurable
 - [x] **SETT-03**: All settings persisted in database
 
-## v1.1 Requirements — MQTT raus, HTTP rein
+## v1.1 Requirements — MQTT raus, HTTP rein (Complete)
 
 ### HTTP Polling (POLL)
 
-- [ ] **POLL-01**: HttpPollingService pollt registrierte Shelly Plugs via HTTP API für Power-Readings
-- [ ] **POLL-02**: Polling-Intervall pro Device konfigurierbar (Standard: 1s)
-- [ ] **POLL-03**: Power-Readings werden über EventBus emittiert (gleiche Events wie bisher)
-- [ ] **POLL-04**: Device Online/Offline-Status wird per HTTP-Erreichbarkeit erkannt
+- [x] **POLL-01**: HttpPollingService pollt registrierte Shelly Plugs via HTTP API für Power-Readings
+- [x] **POLL-02**: Polling-Intervall pro Device konfigurierbar (Standard: 1s)
+- [x] **POLL-03**: Power-Readings werden über EventBus emittiert (gleiche Events wie bisher)
+- [x] **POLL-04**: Device Online/Offline-Status wird per HTTP-Erreichbarkeit erkannt
 
 ### Relay Control (RELAY)
 
-- [ ] **RELAY-01**: Relay ein/aus per Shelly HTTP API (/rpc/Switch.Set)
-- [ ] **RELAY-02**: Relay-Status wird aus HTTP-Polling-Response gelesen (output-Feld)
+- [x] **RELAY-01**: Relay ein/aus per Shelly HTTP API (/rpc/Switch.Set)
+- [x] **RELAY-02**: Relay-Status wird aus HTTP-Polling-Response gelesen (output-Feld)
 
 ### Device Discovery (DISC)
 
-- [ ] **DISC-01**: Netzwerk-Scan findet Shelly Plugs im lokalen Subnetz per HTTP
-- [ ] **DISC-02**: Gefundene Devices zeigen ID, IP, Model und aktuellen Power-Status
-- [ ] **DISC-03**: User kann gefundenes Device mit einem Klick registrieren
+- [x] **DISC-01**: Netzwerk-Scan findet Shelly Plugs im lokalen Subnetz per HTTP
+- [x] **DISC-02**: Gefundene Devices zeigen ID, IP, Model und aktuellen Power-Status
+- [x] **DISC-03**: User kann gefundenes Device mit einem Klick registrieren
 
 ### MQTT Cleanup (CLEAN)
 
-- [ ] **CLEAN-01**: mqtt.js Package aus dependencies entfernt
-- [ ] **CLEAN-02**: MqttService und src/modules/mqtt/ komplett gelöscht
-- [ ] **CLEAN-03**: MQTT-Settings UI und API-Endpunkte entfernt
-- [ ] **CLEAN-04**: MQTT-Referenzen in server.ts, global.d.ts, ChargeMonitor entfernt
-- [ ] **CLEAN-05**: ipAddress wird Pflichtfeld bei Device-Registrierung
+- [x] **CLEAN-01**: mqtt.js Package aus dependencies entfernt
+- [x] **CLEAN-02**: MqttService und src/modules/mqtt/ komplett gelöscht
+- [x] **CLEAN-03**: MQTT-Settings UI und API-Endpunkte entfernt
+- [x] **CLEAN-04**: MQTT-Referenzen in server.ts, global.d.ts, ChargeMonitor entfernt
+- [x] **CLEAN-05**: ipAddress wird Pflichtfeld bei Device-Registrierung
+
+## v1.2 Requirements — Self-Update
+
+### Version Awareness (VERS)
+
+- [ ] **VERS-01**: App kennt ihren aktuellen Commit-SHA (aus `src/lib/version.ts`, generiert per Prebuild-Script)
+- [ ] **VERS-02**: App kennt ihren Build-Zeitpunkt (ISO timestamp, in derselben generierten Datei)
+- [ ] **VERS-03**: GET /api/version liefert SHA (short + full), Build-Time, Rollback-SHA und Health-Status (DB probe)
+- [ ] **VERS-04**: Settings-Seite zeigt aktuelle Version prominent (short SHA sichtbar, full SHA auf Hover/Kopieren)
+
+### Update Detection (DETE)
+
+- [ ] **DETE-01**: Background-Check pollt alle 6h `GET /repos/meintechblog/charging-master/commits/main` über ETag-fähigen Client
+- [ ] **DETE-02**: Check persistiert ETag in SQLite, nutzt `If-None-Match` für 304-Responses (kein Rate-Limit-Verbrauch)
+- [ ] **DETE-03**: Update-Verfügbarkeit erscheint als Badge im Settings-Nav-Eintrag
+- [ ] **DETE-04**: "Jetzt prüfen" Button in Settings triggert sofortigen Check (mit Mindest-Cooldown 5 Min)
+- [ ] **DETE-05**: Settings zeigt Zeitpunkt des letzten Checks und Ergebnis
+- [ ] **DETE-06**: Verfügbares Update zeigt neuen SHA, Commit-Message, Autor und Commit-Datum
+
+### Update Execution (EXEC)
+
+- [ ] **EXEC-01**: Install-Button startet Updater via `systemctl start --no-block charging-master-updater.service`
+- [ ] **EXEC-02**: Updater-Pipeline läuft in dieser Reihenfolge: tarball-snapshot → POST /prepare-for-shutdown → systemctl stop → git fetch + reset → pnpm install --frozen-lockfile → pnpm build → systemctl start → health-probe
+- [ ] **EXEC-03**: Pre-Update Tarball-Snapshot wird nach `.update-state/snapshots/<old-sha>.tar.gz` geschrieben
+- [ ] **EXEC-04**: POST /api/internal/prepare-for-shutdown macht `PRAGMA wal_checkpoint(TRUNCATE)` und stoppt HttpPollingService graceful
+- [ ] **EXEC-05**: flock verhindert parallele Update-Läufe (Button-Doppelklick, gleichzeitiger Auto-Check)
+- [ ] **EXEC-06**: Pre-Flight-Check verifiziert Disk-Space (>500MB frei), pnpm-Version und Node-Version vor Start
+
+### Live Feedback (LIVE)
+
+- [ ] **LIVE-01**: GET /api/update/log streamt `journalctl -fu charging-master-updater` live per SSE
+- [ ] **LIVE-02**: SSE-Endpoint killt journalctl-Child auf `request.signal.abort` UND ReadableStream `cancel()`
+- [ ] **LIVE-03**: UI zeigt Stage-Stepper (Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify)
+- [ ] **LIVE-04**: UI zeigt Live-Log-Panel (terminal-style, monospace, auto-scroll)
+- [ ] **LIVE-05**: Reconnect-Overlay erscheint sobald SSE-Verbindung während des Restarts abbricht
+- [ ] **LIVE-06**: UI pollt /api/version nach Restart alle 2s bis neue SHA antwortet, maximal 90s
+- [ ] **LIVE-07**: Bei SHA-Change lädt UI die Seite automatisch neu und zeigt Erfolgs-Banner mit neuer Version
+- [ ] **LIVE-08**: Bei 90s-Timeout zeigt UI Fehlermeldung mit Hinweis, per SSH den Service zu prüfen
+
+### Rollback & Recovery (ROLL)
+
+- [ ] **ROLL-01**: Updater-Script hat `trap ERR` das bei jedem fehlgeschlagenen Schritt Rollback auslöst
+- [ ] **ROLL-02**: Rollback-Stufe 1: git reset --hard <rollback-sha> → pnpm install → pnpm build → systemctl start
+- [ ] **ROLL-03**: Rollback-Stufe 2 (wenn Stufe 1 fehlschlägt): Tarball-Snapshot extrahieren, dann restart
+- [ ] **ROLL-04**: Health-Probe nach Restart: bis zu 60s `/api/version` pollen; bei Fail Rollback triggern
+- [ ] **ROLL-05**: Rollback-Status wird in `.update-state/state.json` persistiert (damit UI beim nächsten Laden informieren kann)
+- [ ] **ROLL-06**: UI zeigt beim nächsten Seitenaufruf roten Banner "Update fehlgeschlagen, auf Version X zurückgerollt" wenn Rollback passiert ist
+- [ ] **ROLL-07**: Pushover-Benachrichtigung wird vom Updater-Script bei erfolgreichem und fehlgeschlagenem Update gesendet
+
+### Infrastructure (INFR)
+
+- [ ] **INFR-01**: Neue systemd-Unit `charging-master-updater.service` (Type=oneshot) installiert von install.sh
+- [ ] **INFR-02**: Shell-Script `scripts/update/run-update.sh` enthält die komplette Update-Pipeline mit Rollback-Logik
+- [ ] **INFR-03**: Drizzle-Schema `update_runs` Tabelle loggt jeden Versuch (start_at, end_at, from_sha, to_sha, status, error)
+- [ ] **INFR-04**: `.update-state/state.json` hält aktuellen SHA, Rollback-SHA, ETag, letzten Check, Update-Status
 
 ## v2 Requirements (Deferred)
 
@@ -120,6 +175,13 @@ All 34 requirements shipped. See traceability below.
 | MQTT als optionaler Fallback | Komplett raus, nicht beibehalten — HTTP ist einfacher und zuverlässiger |
 | WebSocket für Echtzeit | SSE via EventBus reicht |
 | mDNS/Bonjour Discovery | HTTP-Scan ist einfacher |
+| Auto-Install ohne User-Klick (v1.2) | Gefährlich während aktiver Ladevorgänge — immer explizite Bestätigung |
+| Auto-Apply von DB-Migrationen (v1.2) | In v1.2 gibt es keine Migrationen; Schema-Änderungen werden manuell gehandhabt bis Migrations-Strategie steht |
+| Symlink-Swap Release Layout (v1.2) | In-Place + Tarball-Snapshot reicht für v1.2; Symlink-Swap ist v1.3-Kandidat wenn Rollback-Probleme auftauchen |
+| Changelog-Preview mit Commit-Liste (v1.2) | Commit-Message des HEAD reicht; Full-Changelog zwischen SHAs deferred auf v1.3 |
+| GitHub PAT / authentifizierte API-Calls | 60 req/h unauth reichen für 4 Checks/Tag bei weitem |
+| Post-Restart Watchdog für "boot-loop crashes" | Rollback fängt Pipeline-Fehler; wenn neuer Commit beim Start crasht nach Health-Fail, per SSH eingreifen |
+| Auto-Update-Kanal (stable/beta) | Single Branch (main) reicht, kein Release-Kanal-Konzept |
 
 ## Traceability
 
@@ -135,29 +197,31 @@ All 34 requirements shipped. See traceability below.
 | HIST-01..03 | Phase 4 | Complete |
 | SETT-01..03 | Phase 1 | Complete |
 
-### v1.1 (Active)
+### v1.1 (Complete)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POLL-01 | Phase 5 | Pending |
-| POLL-02 | Phase 5 | Pending |
-| POLL-03 | Phase 5 | Pending |
-| POLL-04 | Phase 5 | Pending |
-| RELAY-01 | Phase 5 | Pending |
-| RELAY-02 | Phase 5 | Pending |
-| DISC-01 | Phase 6 | Pending |
-| DISC-02 | Phase 6 | Pending |
-| DISC-03 | Phase 6 | Pending |
-| CLEAN-01 | Phase 6 | Pending |
-| CLEAN-02 | Phase 6 | Pending |
-| CLEAN-03 | Phase 6 | Pending |
-| CLEAN-04 | Phase 6 | Pending |
-| CLEAN-05 | Phase 6 | Pending |
+| POLL-01..04 | Phase 5 | Complete |
+| RELAY-01..02 | Phase 5 | Complete |
+| DISC-01..03 | Phase 6 | Complete |
+| CLEAN-01..05 | Phase 6 | Complete |
+
+### v1.2 (Active)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| VERS-01..04 | TBD | Pending |
+| DETE-01..06 | TBD | Pending |
+| EXEC-01..06 | TBD | Pending |
+| LIVE-01..08 | TBD | Pending |
+| ROLL-01..07 | TBD | Pending |
+| INFR-01..04 | TBD | Pending |
 
 **Coverage:**
 - v1.0 requirements: 34 total, 34 complete
-- v1.1 requirements: 14 total, 14 mapped
+- v1.1 requirements: 14 total, 14 complete
+- v1.2 requirements: 35 total, 0 mapped (awaiting roadmap)
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-09 — v1.1 traceability added*
+*Last updated: 2026-04-10 — v1.2 Self-Update requirements added*
