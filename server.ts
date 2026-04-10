@@ -5,6 +5,7 @@ import { EventBus } from './src/modules/events/event-bus';
 import { ChargeMonitor } from './src/modules/charging/charge-monitor';
 import { NotificationService } from './src/modules/notifications/notification-service';
 import { SessionRecorder } from './src/modules/charging/session-recorder';
+import { UpdateStateStore } from './src/modules/self-update/update-state-store';
 import { db } from './src/db/client';
 import { plugs } from './src/db/schema';
 import { env } from './src/lib/env';
@@ -15,6 +16,12 @@ const handle = app.getRequestHandler();
 
 async function main() {
   await app.prepare();
+
+  // Initialize self-update state store BEFORE anything else touches it.
+  // Creates .update-state/ and seeds state.json with { currentSha: CURRENT_SHA, ... }
+  // on fresh installs. Idempotent: never overwrites an existing file.
+  // NOT wrapped in try/catch — if this fails, the process MUST crash loud.
+  UpdateStateStore.init();
 
   const eventBus = new EventBus();
   const httpPollingService = new HttpPollingService(eventBus);

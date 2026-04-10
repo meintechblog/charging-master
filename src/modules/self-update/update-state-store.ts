@@ -1,4 +1,9 @@
-import 'server-only';
+// NOTE: We intentionally do NOT `import 'server-only'` here.
+// server-only throws when loaded outside a React Server Component module,
+// and this file is imported by the custom Node entrypoint (server.ts), which
+// is not a RSC. The node:fs imports below already guarantee this module
+// cannot be bundled into a client component — any client import attempt
+// would fail at build time with "Module not found: Can't resolve 'node:fs'".
 import {
   existsSync,
   mkdirSync,
