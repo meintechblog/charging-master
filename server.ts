@@ -6,6 +6,7 @@ import { ChargeMonitor } from './src/modules/charging/charge-monitor';
 import { NotificationService } from './src/modules/notifications/notification-service';
 import { SessionRecorder } from './src/modules/charging/session-recorder';
 import { UpdateStateStore } from './src/modules/self-update/update-state-store';
+import { UpdateChecker } from './src/modules/self-update/update-checker';
 import { db } from './src/db/client';
 import { plugs } from './src/db/schema';
 import { env } from './src/lib/env';
@@ -22,6 +23,17 @@ async function main() {
   // on fresh installs. Idempotent: never overwrites an existing file.
   // NOT wrapped in try/catch — if this fails, the process MUST crash loud.
   UpdateStateStore.init();
+
+  // Boot the background GitHub poller. Fire-and-forget: start() schedules an
+  // immediate first check (async) + a 6h setInterval (unref'd). Must run
+  // AFTER UpdateStateStore.init() (needs the store) and BEFORE HttpPollingService
+  // (convention: self-update infra before device infra).
+  // NOT wrapped in try/catch — the constructor and start() are designed to be
+  // safe (internal errors never propagate). If this somehow throws, boot should
+  // crash loud so we see it in systemd logs.
+  const updateChecker = new UpdateChecker(new UpdateStateStore());
+  updateChecker.start();
+  globalThis.__updateChecker = updateChecker;
 
   const eventBus = new EventBus();
   const httpPollingService = new HttpPollingService(eventBus);
