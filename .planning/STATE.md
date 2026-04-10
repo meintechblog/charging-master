@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Self-Update
 status: executing
-stopped_at: Phase 8 complete, Phase 9 next up
-last_updated: "2026-04-10T14:15:00.000Z"
-last_activity: 2026-04-10 — Phase 8 complete (plans 01 + 02)
+stopped_at: Plan 09-01 complete, Plan 09-02 next
+last_updated: "2026-04-10T17:35:00.000Z"
+last_activity: 2026-04-10 — Plan 09-01 complete (drain endpoint + stopPolling overload)
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 4
-  percent: 50
+  total_plans: 11
+  completed_plans: 5
+  percent: 55
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 8 complete (2/2 plans), Phase 9 next up
-Plan: —
-Status: Phase 8 complete, ready for `/gsd-plan-phase 9`
-Last activity: 2026-04-10 — Phase 8 complete (plans 01 + 02)
+Phase: 9 executing (1/3 plans complete), Plan 09-02 next
+Plan: 09-02 — Updater shell script + systemd unit + install.sh updates
+Status: Plan 09-01 complete (drain endpoint), Plan 09-02 in progress
+Last activity: 2026-04-10 — Plan 09-01 complete (all 5 smoke tests passed, approved)
 
-Progress: [##################░░] 90% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 done)
+Progress: [##################░░] 91% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 09-01 done)
 
 **v1.2 Phase Map:**
 
@@ -68,6 +68,7 @@ Progress: [##################░░] 90% (v1.0 + v1.1 complete, v1.2 Phases 7 + 
 | Phase 07 P02 | 5.7min | 3 tasks + 1 checkpoint | 5 files |
 | Phase 08 P01 | 20min | 7 tasks | 9 files |
 | Phase 08 P02 | 12min | 3 tasks + 1 checkpoint | 3 files |
+| Phase 09 P01 | 4min | 2 tasks + checkpoint (approved) | 3 files |
 
 ## Accumulated Context
 
@@ -91,10 +92,12 @@ Recent decisions affecting current work:
 - [Phase 08]: UpdateBanner renders 5 states in priority order (updateAvailable > error > rate_limited > ok/never); initial UpdateInfoView fetched server-side to eliminate loading flash
 - [Phase 08]: Sidebar useUpdateAvailable() hook polls /api/update/status every 60s (mirrors useActiveLearnCount pattern); static red dot (no pulse) distinguishes from green active-learn pulse
 - [Phase 08]: Install button intentionally absent per CONTEXT.md — Phase 10 re-entry point documented inline in STATE 1 branch of update-banner.tsx
+- [Phase 09-01]: stopPolling() no-arg overload added as NEW method (not a replacement — stopAll() stays sync for SIGTERM path). Drain endpoint enforces localhost via Host header (not x-forwarded-for). WAL checkpoint uses PRAGMA wal_checkpoint(TRUNCATE) — verified WAL file = 0 bytes after drain.
 
 ### Pending Todos
 
-- Plan Phase 9 via `/gsd-plan-phase 9`
+- Execute Plan 09-02 (updater shell script + systemd unit + install.sh updates)
+- Execute Plan 09-03 (dry-run + deferred verification on LXC)
 
 ### Blockers/Concerns
 

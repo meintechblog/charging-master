@@ -113,7 +113,7 @@ All 34 requirements shipped. See traceability below.
 - [ ] **EXEC-01**: Install-Button startet Updater via `systemctl start --no-block charging-master-updater.service`
 - [ ] **EXEC-02**: Updater-Pipeline läuft in dieser Reihenfolge: tarball-snapshot → POST /prepare-for-shutdown → systemctl stop → git fetch + reset → pnpm install --frozen-lockfile → pnpm build → systemctl start → health-probe
 - [ ] **EXEC-03**: Pre-Update Tarball-Snapshot wird nach `.update-state/snapshots/<old-sha>.tar.gz` geschrieben
-- [ ] **EXEC-04**: POST /api/internal/prepare-for-shutdown macht `PRAGMA wal_checkpoint(TRUNCATE)` und stoppt HttpPollingService graceful
+- [x] **EXEC-04**: POST /api/internal/prepare-for-shutdown macht `PRAGMA wal_checkpoint(TRUNCATE)` und stoppt HttpPollingService graceful
 - [ ] **EXEC-05**: flock verhindert parallele Update-Läufe (Button-Doppelklick, gleichzeitiger Auto-Check)
 - [ ] **EXEC-06**: Pre-Flight-Check verifiziert Disk-Space (>500MB frei), pnpm-Version und Node-Version vor Start
 

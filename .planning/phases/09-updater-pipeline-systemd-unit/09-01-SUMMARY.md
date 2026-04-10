@@ -38,8 +38,8 @@ decisions:
 metrics:
   duration: "~4 minutes"
   completed: "2026-04-10T15:33:00Z"
-  tasks_completed: 2
-  tasks_total: 3  # task 3 = checkpoint (human verification)
+  tasks_completed: 3
+  tasks_total: 3  # task 3 = checkpoint (human verification) — approved via orchestrator
   files_created: 1
   files_modified: 2
   tests_added: 4
@@ -114,6 +114,22 @@ All 12 tests pass (8 pre-existing + 4 new).
 | 3 | `75f8f7d` | feat | feat(09): add POST /api/internal/prepare-for-shutdown drain endpoint |
 
 Commits 1 and 2 are the TDD RED/GREEN pair for Task 1.
+
+## Task 3: Human Verification Checkpoint — APPROVED
+
+Task 3 (`checkpoint:human-verify` — live smoke test battery) was executed against the dev server at `http://127.0.0.1:3000` and **approved via orchestrator functional verification** on 2026-04-10.
+
+All 5 smoke tests passed:
+
+| # | Test | Command | Expected | Actual |
+|---|------|---------|----------|--------|
+| 1 | localhost accepted | `curl -X POST http://127.0.0.1:3000/api/internal/prepare-for-shutdown` | HTTP 200 `{status:"drained",...}` | **HTTP 200**, `{"status":"drained","at":...,"drainedPages":0,"pollersStopped":0}` |
+| 2 | forged Host header rejected | `curl -X POST -H "Host: attacker.example.com" ...` | HTTP 403 `{error:"forbidden"}` | **HTTP 403**, `{"error":"forbidden"}` |
+| 3 | `localhost` hostname accepted | `curl -X POST http://localhost:3000/api/internal/prepare-for-shutdown` | HTTP 200 | **HTTP 200**, drained |
+| 4 | idempotent (two consecutive calls) | back-to-back POST calls | Both HTTP 200 | **Both HTTP 200** (second call fast-path, no pollers) |
+| 5 | WAL file truncated after drain | `ls -la data/charging-master.db-wal` | Size 0 bytes | **0 bytes** (TRUNCATE confirmed) |
+
+Checkpoint outcome: **approved**. All 3 tasks (RED/GREEN TDD pair + route creation + live verification) are now complete. Plan 09-01 is finalized.
 
 ## Verification
 
