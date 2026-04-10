@@ -56,7 +56,7 @@ do_install() {
   # 3. System dependencies
   log "Installing system dependencies..."
   apt-get update -qq
-  apt-get install -y -qq curl git build-essential python3 > /dev/null
+  apt-get install -y -qq curl git build-essential python3 sqlite3 jq > /dev/null
 
   # 4. Node.js 22
   local need_node=false
@@ -139,9 +139,28 @@ TimeoutStopSec=5
 WantedBy=multi-user.target
 UNIT
 
-  # 9. Enable and start
+  # 9a. Updater systemd unit (Phase 9 — Type=oneshot sibling of the main service)
+  log "Installing updater systemd unit..."
+  if [ -f "${INSTALL_DIR}/scripts/update/charging-master-updater.service" ]; then
+    cp "${INSTALL_DIR}/scripts/update/charging-master-updater.service" \
+       "/etc/systemd/system/charging-master-updater.service"
+  else
+    warn "Updater unit file not found in repo — skipping. Re-run install after pulling."
+  fi
+
+  # 9b. Ensure the updater script is executable
+  if [ -f "${INSTALL_DIR}/scripts/update/run-update.sh" ]; then
+    chmod +x "${INSTALL_DIR}/scripts/update/run-update.sh"
+    log "Updater script marked executable"
+  else
+    warn "Updater script not found in repo — self-update will not work until next install"
+  fi
+
+  # 10. Enable and start
   systemctl daemon-reload
   systemctl enable --now "$SERVICE_NAME"
+  # Intentionally NOT enabling charging-master-updater — it's trigger-on-demand
+  # via `systemctl start --no-block charging-master-updater.service` from the app.
 
   # 10. Success
   local ip
@@ -157,7 +176,16 @@ UNIT
 }
 
 # ---------------------------------------------------------------------------
-# update
+# update — EMERGENCY SSH ESCAPE HATCH
+# ---------------------------------------------------------------------------
+# The normal update path is the in-app self-updater:
+#   systemctl start --no-block charging-master-updater.service
+# which runs scripts/update/run-update.sh with full pre-flight checks,
+# tarball snapshot, two-stage rollback, and health probe (Phase 9).
+#
+# This function is kept as a manual escape hatch for when the self-updater is
+# broken or the LXC needs to be recovered by hand. It does NOT run the rollback
+# logic, does NOT snapshot, and does NOT verify the new build.
 # ---------------------------------------------------------------------------
 do_update() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -260,8 +288,9 @@ do_uninstall() {
   log "Disabling service..."
   systemctl disable "$SERVICE_NAME" 2>/dev/null || true
 
-  log "Removing service file..."
+  log "Removing service files..."
   rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+  rm -f "/etc/systemd/system/charging-master-updater.service"
   systemctl daemon-reload
 
   log "Removing installation directory..."
