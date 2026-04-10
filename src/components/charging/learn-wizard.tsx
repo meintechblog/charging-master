@@ -53,7 +53,12 @@ type LearnWizardProps = {
 
 export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProps) {
   const router = useRouter();
-  const [step, setStep] = useState(1);
+  // Re-learn flow: when an existing profileId is passed (and no active plug
+  // session to resume), skip step 1 (profile form) and jump straight to
+  // step 2 (plug selection). The profile already exists; we only need a
+  // new reference curve for it.
+  const isRelearn = !!initialProfileId && !initialPlugId;
+  const [step, setStep] = useState<number>(isRelearn ? 2 : 1);
   const [profileValues, setProfileValues] = useState<ProfileFormValues | null>(null);
   const [plugs, setPlugs] = useState<Plug[]>([]);
   const [selectedPlugId, setSelectedPlugId] = useState<string | null>(initialPlugId ?? null);
@@ -121,6 +126,15 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
     }
     checkActive();
   }, [initialPlugId, loadProfileData]);
+
+  // Re-learn flow: when entering with an existing profileId (and no active
+  // plug session), preload profile data so step 2 can show which profile
+  // the new reference curve will be attached to.
+  useEffect(() => {
+    if (isRelearn && createdProfileId && !profileData) {
+      loadProfileData(createdProfileId);
+    }
+  }, [isRelearn, createdProfileId, profileData, loadProfileData]);
 
   // Load plugs for step 2
   useEffect(() => {
@@ -357,6 +371,19 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
         </div>
       )}
 
+      {/* Re-learn banner: shown whenever we entered with an existing profile
+          (i.e. the user clicked "Neu anlernen" on a profile detail page). */}
+      {isRelearn && step < 4 && (
+        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded">
+          <div className="text-sm font-medium text-yellow-200">
+            Referenzkurve{profileData?.name ? ` für „${profileData.name}"` : ''} neu aufnehmen
+          </div>
+          <p className="text-xs text-yellow-200/80 mt-1">
+            Das bestehende Profil bleibt erhalten — nur die Referenzkurve wird ersetzt.
+          </p>
+        </div>
+      )}
+
       {/* Step 1: Device name + profile form */}
       {step === 1 && (
         <div className="bg-neutral-900 rounded-lg p-6">
@@ -413,10 +440,18 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
 
           <div className="flex gap-2 mt-4">
             <button
-              onClick={() => setStep(1)}
+              onClick={() => {
+                // In re-learn mode there is no step 1 (profile form) to go
+                // back to — send the user back to the profile detail page.
+                if (isRelearn && createdProfileId) {
+                  router.push(`/profiles/${createdProfileId}`);
+                } else {
+                  setStep(1);
+                }
+              }}
               className="px-4 py-2 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
             >
-              Zurück
+              {isRelearn ? 'Abbrechen' : 'Zurück'}
             </button>
             <button
               onClick={() => setStep(3)}

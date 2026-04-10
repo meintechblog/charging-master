@@ -152,8 +152,10 @@ function LearnContent() {
   const profileId = searchParams.get('profileId') ?? undefined;
   const isNew = searchParams.get('new') === '1';
 
-  // Show wizard if plugId specified (resume) or new=1 (start fresh)
-  if (plugId || isNew) {
+  // Show wizard if plugId specified (resume active session),
+  // profileId specified (re-learn reference curve for existing profile),
+  // or new=1 (start fresh new-device flow).
+  if (plugId || profileId || isNew) {
     return (
       <div>
         <div className="flex items-center gap-3 mb-6">
