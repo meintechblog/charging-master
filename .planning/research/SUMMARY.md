@@ -1,172 +1,372 @@
-# Project Research Summary
+# Research Summary — v1.2 Self-Update
 
-**Project:** Charging-Master (Smart Charging Management)
-**Domain:** IoT Real-Time Monitoring and Control
-**Researched:** 2026-03-25
+**Project:** Charging-Master
+**Domain:** In-app self-update for a systemd-managed Next.js 15 server on Debian LXC
+**Researched:** 2026-04-10
 **Confidence:** HIGH
+
+---
 
 ## Executive Summary
 
-Charging-Master is a single-user, local-network IoT application that monitors Shelly S3 Plug Gen3 smart plugs via MQTT, records power curves of connected devices (e-bikes, iPads, etc.), and automatically stops charging when a target SOC is reached. The expert pattern for this type of app is a single-process architecture: one Node.js process running both a persistent MQTT client and a Next.js server, connected by an in-process EventEmitter bus. Data flows from Shelly plugs through MQTT to SQLite (WAL mode) for persistence and through SSE to the browser for real-time visualization. This is well-trodden ground -- MQTT-to-web bridges with Next.js custom servers are documented in multiple production implementations.
+Charging-Master v1.2 adds a production-quality in-app self-update mechanism: the app detects new commits on GitHub, lets the user review and trigger an update on-click, streams the live install log, handles the server restart gracefully in the browser, and rolls back automatically on failure. This is a well-trodden pattern in self-hosted tools (Home Assistant Supervisor, Portainer, Sonarr) and the research across all four files is tightly convergent — no framework debates, no library choices to make, just careful plumbing.
 
-The recommended stack is deliberately lightweight: Next.js 15 with a custom server entry point, SQLite via better-sqlite3 and Drizzle ORM (no database server needed), mqtt.js for MQTT connectivity, ECharts 6 for real-time charting, and SSE for server-to-browser streaming. Every choice optimizes for simplicity on a single Debian LXC container. The most novel technical challenge is the curve matching algorithm (subsequence DTW) for device identification and partial-charge SOC estimation. This is well-established in academic NILM research but will require empirical tuning with real device data.
+The fundamental architectural insight that shapes every other decision is the "kill your own parent" problem: the Node process that triggers the update is the same process that will be restarted by it. The solution — and the single highest-stakes decision of the milestone — is a dedicated `charging-master-updater.service` systemd `Type=oneshot` unit that runs in its own cgroup as a sibling of the main service, not a child. All update logic runs inside that unit. The Node app only fires-and-forgets a `systemctl start --no-block` call. Get this right first; everything else plugs in around it.
 
-The primary risks are: (1) MQTT switch commands lost at QoS 0, causing overcharging -- mitigated by HTTP API fallback with verification; (2) SSE buffering in Next.js silently breaking real-time display -- mitigated by explicit runtime/dynamic configuration; (3) curve matching accuracy depending heavily on reference data quality -- mitigated by recording multiple reference curves per device and tuning detection windows empirically.
+The main risks are: rollback that itself fails (mitigated by a pre-update snapshot tarball as the escape hatch), `pnpm install` corrupting `better-sqlite3` native bindings if the main service is still running during install (mitigated by stopping the app before `pnpm install`, not after), and the browser showing a blank error page during the 30-90 second restart window (mitigated by the reconnect overlay polling `/api/version`). All three are well-understood and preventable with the patterns documented in the research.
+
+---
+
+## Load-Bearing Decisions
+
+These five decisions are architectural constraints that shape every other implementation choice. They must be locked before writing a single line of feature code.
+
+### Decision 1: Dedicated `charging-master-updater.service` as the parent-kill solution
+
+The updater runs as a systemd `Type=oneshot` unit with no dependency on `charging-master.service`. The Node app triggers it via `child_process.spawn('systemctl', ['start', '--no-block', 'charging-master-updater.service'], { detached: true, stdio: 'ignore' }).unref()`. The `--no-block` flag is load-bearing: without it the API route hangs waiting for a unit that will kill the process it is waiting in. The `detached: true` + `unref()` combination ensures Node's event loop does not hold a handle on the systemctl call, so the caller process can exit cleanly while systemd continues. This is the correct answer; no alternatives are viable.
+
+### Decision 2: Stop-before-install pipeline order (not restart-after-build)
+
+The update pipeline order must be: `git fetch/reset` -> `systemctl stop charging-master.service` -> `pnpm install` -> `pnpm build` -> `systemctl start charging-master.service` -> health check. The naive order (`pnpm build` -> `systemctl restart`) is wrong: the main service's open file handles on `better-sqlite3`'s native `.node` binding race with `pnpm install` overwriting it. Stopping first creates a planned downtime window of 30-120 seconds, acceptable for a single-user LAN app.
+
+### Decision 3: Generated `src/lib/version.ts` (not `NEXT_PUBLIC_*` env vars)
+
+A prebuild script (`scripts/build/generate-version.mjs`) writes `src/lib/version.ts` with `CURRENT_SHA`, `CURRENT_SHA_SHORT`, `BUILD_TIME_ISO`, and `BRANCH` as static string exports. Both server code and client components import from `@/lib/version` — one source of truth. The `NEXT_PUBLIC_*` alternative works for the client but creates two read paths (server reads `process.env`, client reads the inlined constant) that can drift. `src/lib/version.ts` is git-ignored and regenerated on every `pnpm build`.
+
+### Decision 4: `.update-state/state.json` for cross-process state (not SQLite)
+
+The state shared between the Node app and the bash updater script lives in `/opt/charging-master/.update-state/state.json`. SQLite is rejected for this role because the bash updater cannot sanely read/write it on failure paths without depending on the `sqlite3` CLI. The JSON file uses atomic tmp-file + rename writes. The `UpdateStateStore` TypeScript class owns all Node-side reads/writes; the bash script has a `write_state()` function. Both agree on the schema at design time.
+
+### Decision 5: Snapshot tarball as the rollback escape hatch
+
+Before any git/pnpm operation, the updater tars `node_modules/` and `.next/` into `/var/lib/charging-master/snapshots/<sha>-prev.tgz`. If both the forward update and the clean rollback (git-reset + pnpm-install + pnpm-build) fail, the updater extracts the tarball and restarts — no network, no pnpm, no git required. Without this escape hatch, a disk-full or network-failure scenario during rollback leaves the box permanently down.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack is fully decided with HIGH confidence across all core technologies. SQLite over PostgreSQL is the right call for a single-user embedded app -- zero operational overhead. The mqtt.js v5 TypeScript rewrite provides type-safe MQTT 5.0 support. ECharts 6 is the only charting library with proper streaming/real-time support. SSE beats WebSocket because the data flow is strictly unidirectional (server pushes MQTT data to browser; commands go via regular POST routes).
+Zero new production dependencies. The entire self-update feature is built with Node.js built-ins plus tools already on the Debian LXC.
 
-**Core technologies:**
-- **Next.js 15 + Custom Server**: Full-stack framework with persistent MQTT client in single process
-- **SQLite (better-sqlite3) + Drizzle ORM**: Zero-config embedded database, WAL mode for concurrent reads/writes
-- **mqtt.js 5**: TypeScript MQTT client connecting to existing broker at mqtt-master.local
-- **ECharts 6**: Real-time charting with streaming data support and built-in dark theme
-- **SSE (native ReadableStream)**: Server-to-browser push with zero dependencies, auto-reconnect via EventSource
-- **Pushover (native fetch)**: Single HTTP POST for notifications, no library needed
+**Core technologies for this milestone:**
+- `node:child_process.spawn` — systemctl trigger, journalctl log tail, git operations in the updater script
+- `node:fetch` with ETag caching — GitHub commits API, single endpoint, no auth, 4 req/day under the 60/h unauthenticated limit
+- `ReadableStream` + `text/event-stream` — live log SSE, reuses the existing power-chart SSE pattern exactly
+- `setInterval` in `server.ts` — 6h background check, boots alongside `HttpPollingService` and `ChargeMonitor` in `main()`
+- `scripts/update/run-update.sh` — bash pipeline with `trap ERR` rollback, sentinel lines for stage parsing, atomic state.json writes
+- `systemd Type=oneshot` — the one new infrastructure artifact; written by `install.sh`, never `[Install]`ed
+
+**Do not add:** `simple-git`, `@octokit/rest`, `isomorphic-git`, `node-cron`, `pm2`, `execa`, `electron-updater`, `update-notifier`. Each is explicitly rejected in STACK.md with rationale.
 
 ### Expected Features
 
-**Must have (table stakes):**
-- Shelly Plug discovery and MQTT connection -- nothing works without this
-- Live power display with real-time chart -- the "wow" moment that validates the system works
-- Manual relay on/off control -- always needed as override
-- Reference curve recording (learn mode) -- core of device learning
-- Device profile management with target SOC
-- Automatic device detection via DTW curve matching -- the hardest feature
-- SOC estimation from curve position
-- Auto-stop at target SOC -- the primary value proposition
-- Charge session tracking with state machine
+All 13 table-stakes features (T1-T13) are in scope for v1.2. The UX bar is set by Home Assistant Supervisor, Portainer, and Sonarr. The gap between amateur and professional self-update is almost entirely in feedback during the install window and reconnect handling after restart.
 
-**Should have (differentiators):**
-- Partial charge detection (subsequence DTW) -- the key innovation
-- Reference curve overlay on live chart
-- Pushover notifications for charge events
-- Multi-plug dashboard
-- Charge history with statistics
+**Must have — v1.2 launch blockers (T1-T13):**
+- Version display: short SHA + build timestamp in Settings header (T1, T13)
+- Dedicated `/settings/updates` screen (T2)
+- "Update available" badge on Settings nav (T3) + last-check timestamp (T4)
+- Explicit Install button, never auto-applies (T5)
+- Live SSE log stream from `journalctl -fu charging-master-updater` (T6)
+- Staged progress states: idle -> checking -> available -> pulling -> installing -> building -> restarting -> verifying -> done/failed (T7)
+- Reconnect overlay polling `/api/version` every 2s with auto-reload (T8)
+- Success state showing old SHA -> new SHA (T9)
+- Failure banner + rollback visibility, never silent (T10)
+- "Check now" manual button with 5-minute server-side rate limit (T11)
+- "You're up to date" empty state (T12)
 
-**Defer (v2+):**
-- Cloud sync / remote access -- local-only by design
-- Multi-user auth -- single-user app
-- ML-based SOC prediction -- needs training data that does not exist
-- Calendar/scheduling -- not core value
-- Energy cost tracking -- needs tariff data
-- Non-Shelly plug support -- abstract the interface now, implement later
+**Should include if capacity allows (P2 polish, cheap):**
+- D2: Reconnect countdown with explanatory copy ("usually 30-60 seconds")
+- D3: Reconnect timeout hint with SSH fallback command after 90s
+- D4: Pushover notification on rollback (one-line reuse of existing integration)
+- D8: Copy log to clipboard button
+
+**Defer to v1.3+:**
+- D1: Changelog preview via GitHub compare API (highest-value deferral; consider promoting if GitHub client already wired)
+- D5: Update history table
+- D7: Global in-progress indicator across all pages
+
+**Never build (anti-features A1-A13):**
+- Auto-install without confirmation
+- Forced update modal blocking UI
+- Opaque spinner during install (must be live log)
+- Silent rollback (must be visible failure banner)
+- Client-side GitHub polling (must be server-side only)
 
 ### Architecture Approach
 
-Single-process architecture with a custom `server.ts` entry point that boots both the MQTT service and Next.js. An in-process EventEmitter acts as the message bus, decoupling MQTT ingestion from SSE streaming and charge monitoring logic. Each plug runs an independent state machine (IDLE -> DETECTING -> CHARGING -> STOPPING -> COMPLETE) managed by the Charge Monitor component. SQLite WAL mode handles concurrent writes from MQTT and reads from Next.js without locking.
+The new domain slots cleanly into the existing `server.ts`-as-long-lived-process architecture. `UpdateChecker` is a singleton booted in `main()` alongside `HttpPollingService` and `ChargeMonitor`. State flows through the existing `EventBus`. Route handlers are thin shims. The only structural novelty is the out-of-process updater unit and the cross-process state file.
 
 **Major components:**
-1. **Custom Server** (`server.ts`) -- boots MQTT client + Next.js, single entry point for systemd
-2. **MQTT Service** -- persistent connection to broker, subscribes to Shelly topics, publishes relay commands
-3. **Event Bus** (EventEmitter) -- decouples producers (MQTT) from consumers (SSE, charge logic)
-4. **SQLite Database** (WAL mode) -- persists plugs, profiles, reference curves, sessions, readings
-5. **SSE Handler** -- streams real-time power data per plug to browser via ReadableStream
-6. **Charge Monitor** -- state machine per plug, triggers DTW matching, SOC estimation, auto-stop
-7. **Curve Matcher** -- subsequence DTW algorithm for device identification and curve position
 
-### Critical Pitfalls
+1. **`src/lib/version.ts`** — git-ignored generated file; baked constants imported by both server routes and client components
 
-1. **MQTT QoS 0 unreliable for switch control** -- auto-stop command can be lost. Always use HTTP API fallback with verification: after MQTT `off`, check via HTTP `Switch.GetStatus` and retry if relay still on
-2. **SSE buffering in Next.js** -- stream appears dead without `export const runtime = 'nodejs'` and `export const dynamic = 'force-dynamic'`. Test with `curl` before building UI
-3. **SQLite WAL mode not enabled by default** -- concurrent reads/writes will deadlock. Enable WAL + busy_timeout on DB initialization
-4. **MQTT disabled by default on Shelly** -- fresh devices publish nothing. Show setup instructions in UI, detect "online but no data" state
-5. **ECharts memory leak with continuous data** -- implement sliding window (last 30 min) from day one, never accumulate unbounded data
+2. **`src/modules/self-update/`** — domain module:
+   - `update-checker.ts` — 6h interval singleton, compares GitHub SHA to `CURRENT_SHA`, emits `update:check` on EventBus
+   - `github-client.ts` — single `fetch()` to `/commits/main` with ETag support, zod-validated response
+   - `update-state-store.ts` — atomic reads/writes of `.update-state/state.json`; shared schema with the bash script
+   - `update-trigger.ts` — spawns `systemctl start --no-block` (detached, unref), writes `status=updating` before spawn
+   - `journal-tailer.ts` — per-SSE-subscriber ephemeral `journalctl -fu` child; bypasses EventBus
+
+3. **`src/app/api/version/route.ts`** — fast GET returning current SHA + state; the browser reconnect polling target
+
+4. **`src/app/api/update/start/route.ts`** — POST; validates no update in flight, calls trigger, returns 202
+
+5. **`src/app/api/update/log/route.ts`** — SSE GET; instantiates JournalTailer, cleans up on `request.signal.abort`
+
+6. **`scripts/update/run-update.sh`** — bash pipeline with stop-before-install order, `::STAGE::` sentinel lines, `trap ERR` rollback
+
+7. **`/etc/systemd/system/charging-master-updater.service`** — `Type=oneshot`, `TimeoutStartSec=900`, no `[Install]`, no coupling to main service
+
+### Critical Pitfalls — Watch Out For
+
+1. **Parent-kill via cgroup inheritance** — updater running as a child of `charging-master.service` gets killed by systemd's `KillMode=control-group` when the main service restarts, leaving `node_modules/` half-written. The `Type=oneshot` sibling unit with `--no-block` + `detached: true` + `unref()` is the only correct fix. (PITFALLS.md §1)
+
+2. **`better-sqlite3` binding race** — `pnpm install` running while the main service holds open file handles on the native `.node` binding produces "Could not locate the bindings file" on the next boot. Stop the main service before `pnpm install`, not after. Add `pnpm rebuild better-sqlite3` post-install. (PITFALLS.md §2)
+
+3. **Rollback that itself fails** — a git-reset rollback that then re-runs `pnpm build` can fail for the same reasons the forward update failed (stale `.next/` cache, disk full, network down). The pre-update snapshot tarball is the mandatory escape hatch: no network, no pnpm, pure filesystem restore. (PITFALLS.md §6, §7)
+
+4. **Browser stays on old version after restart** — EventSource auto-reconnect does not cause a page reload. The reconnect overlay must poll `/api/version` and trigger `window.location.reload()` when the returned SHA differs from the SHA baked into the current page. The expected-new-SHA must be stored in localStorage before triggering the update. (PITFALLS.md §10)
+
+5. **Stale `.next/` cache breaking the post-reset build** — run `rm -rf .next` unconditionally before every `pnpm build` in the updater pipeline (forward and rollback both). Non-negotiable. (PITFALLS.md §11)
+
+---
+
+## Conflicts and Open Decisions
+
+These tensions between research documents require an explicit decision before implementation begins.
+
+### Conflict A: `NEXT_PUBLIC_*` env vars vs generated `src/lib/version.ts`
+
+STACK.md recommends injecting version constants via `next.config.ts`'s `env` block. ARCHITECTURE.md recommends a generated `src/lib/version.ts` file.
+
+**Recommendation: generated file.** Creates one import path for both server and client, aligns with `src/lib/` conventions, avoids two read paths that can drift. Both researchers agree on using a prebuild script; only the output format differs.
+
+### Conflict B: In-place update vs symlink-swap deployment model
+
+PITFALLS.md §6 strongly recommends the symlink-swap pattern as the most robust rollback strategy (atomic, no rebuild needed). ARCHITECTURE.md and STACK.md design around in-place git-reset.
+
+**Recommendation: in-place for v1.2, document symlink-swap as the v1.3 upgrade path.** Symlink-swap is architecturally better but is a larger scope change. In-place + snapshot tarball escape hatch is a reasonable starting point for a single-developer v1.2. Mark as known technical debt.
+
+### Conflict C: SQLite WAL drain before stop
+
+PITFALLS.md §3 recommends a `POST /api/internal/prepare-for-shutdown` endpoint that checkpoints the SQLite WAL before stopping the main service. ARCHITECTURE.md does not include this in the component list.
+
+**Recommendation: include in Phase 2 as a mandatory pre-stop step.** This is a correctness concern (interrupted charging sessions lose the last 30 seconds of power samples, leave `ended_at = null` forever), not polish. The endpoint is internal-only and cheap to add.
+
+---
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+The four researchers independently converged on four phases. Minor differences reconciled below.
 
-### Phase 1: Foundation (MQTT + Database + Server)
-**Rationale:** Everything depends on MQTT connectivity and data persistence. The custom server pattern is the backbone -- without it, no other feature works.
-**Delivers:** Working server process that connects to MQTT broker, receives Shelly data, stores readings in SQLite, and exposes Next.js routes. Plug management CRUD.
-**Addresses:** Shelly Plug discovery/config, device registration
-**Avoids:** Pitfall 1 (MQTT client per request), Pitfall 3 (WAL mode), Pitfall 4 (MQTT not enabled), Pitfall 8 (native build deps)
-**Stack:** Custom server.ts, mqtt.js, better-sqlite3, Drizzle ORM, systemd service
+### Phase 1: Infrastructure Foundation
 
-### Phase 2: Real-Time Visualization
-**Rationale:** You need visual feedback to validate MQTT data is correct before building charge intelligence on top of it. This phase makes the app usable as a power monitor.
-**Delivers:** Dashboard with live power chart per plug, plug status overview (online/offline/relay state), manual relay control buttons.
-**Addresses:** Live power display, relay on/off control, plug status
-**Avoids:** Pitfall 2 (SSE buffering), Pitfall 6 (ECharts memory leak), Pitfall 7 (SSE connection limit)
-**Stack:** SSE endpoints, ECharts 6 with dark theme, EventSource client
+**Rationale:** The `Type=oneshot` systemd unit and the version-baking mechanism are prerequisites for every other component. No update logic can be tested without the unit. No version display can be built without `src/lib/version.ts`. Build this first even if it produces no visible UI.
 
-### Phase 3: Charge Intelligence
-**Rationale:** This is the core value. Depends on Phases 1-2 being solid -- reference curve recording needs validated data flow, and DTW matching needs visual debugging via the chart overlay.
-**Delivers:** Reference curve recording (learn mode), charge session state machine, DTW device detection, SOC estimation, auto-stop at target SOC, manual profile override.
-**Addresses:** Reference curve recording, device profile management, automatic device detection, SOC estimation, auto-stop logic, partial charge detection
-**Avoids:** Pitfall 5 (QoS 0 unreliable switch control -- HTTP fallback), Pitfall 9 (sparse Shelly data -- HTTP polling supplement)
-**Stack:** DTW algorithm (custom ~50 line implementation), charge state machine, HTTP API fallback for relay control
+**Delivers:**
+- `charging-master-updater.service` unit file (written by `install.sh`)
+- `scripts/build/generate-version.mjs` + `src/lib/version.ts` (git-ignored, prebuild)
+- `package.json` script changes (`gen:version && next build`, `gen:version && tsx watch server.ts`)
+- `src/lib/version.ts` added to `.gitignore`
+- GitHub API preflight compatibility check (pnpm/Node version gate before triggering)
+- `timedatectl` sync check in `install.sh`
 
-### Phase 4: Notifications and History
-**Rationale:** Polish features that enhance usability but do not block core value. Pushover is trivial to add once charge events exist. History needs session data to accumulate.
-**Delivers:** Pushover notifications for charge events, charge history with stats/charts, data archival for old sessions, multi-plug dashboard layout.
-**Addresses:** Pushover notifications, charge history, multi-plug dashboard
-**Avoids:** Pitfall 13 (Pushover rate limits -- debounce notifications)
-**Stack:** Native fetch for Pushover API, aggregation queries
+**Addresses features:** T1 (version display data), T13 (build timestamp)
+**Avoids pitfalls:** Pitfall 1 (parent-kill), Pitfall 13 (permissions documented), Pitfall 17 (clock sync)
+**Research flag:** Standard patterns — skip phase research
+
+### Phase 2: Updater Pipeline
+
+**Rationale:** The bash pipeline with its rollback trap is the critical path. Everything in the UI and backend depends on the pipeline producing reliable state transitions. Build and test the pipeline in isolation via SSH before wiring up any UI.
+
+**Delivers:**
+- `scripts/update/run-update.sh`: git stash -> fetch -> reset -> `systemctl stop main` -> `rm -rf .next` -> `pnpm install` -> `pnpm rebuild better-sqlite3` -> `pnpm build` -> `systemctl start main` -> health check
+- `trap ERR` rollback: Stage 1 (clean rebuild) -> Stage 2 (tarball restore) -> Stage 3 (Pushover + PANIC file)
+- Pre-update snapshot tarball at `/var/lib/charging-master/snapshots/<sha>-prev.tgz`
+- `::STAGE::` sentinel lines for UI step parsing
+- `POST /api/internal/prepare-for-shutdown` (WAL checkpoint + pause writes)
+- `flock` file lock to prevent concurrent runs
+- Pre-flight checks: disk space, git repo cleanliness, pnpm/Node version compatibility, clock sync
+- `update_log` Drizzle schema for persistent log after run
+
+**Addresses features:** T6 (log source), T7 (stage markers), T10 (rollback state)
+**Avoids pitfalls:** Pitfall 2, 3, 4, 5, 6, 7, 11, 14, 15, 16
+**Research flag:** Complex — consider brief research on `flock` + systemd concurrency if unfamiliar
+
+### Phase 3: Backend Domain Module + API Routes
+
+**Rationale:** With the pipeline verified, wire up the TypeScript side. This phase produces a fully functional backend — the update can be triggered via `curl` and monitored via `curl -N`.
+
+**Delivers:**
+- `src/modules/self-update/` — all five module files
+- `server.ts` modification: `UpdateChecker` booted in `main()`, `updateChecker.stop()` in shutdown
+- `globalThis.__updateStateStore` and `globalThis.__updateChecker` exposed for route handlers
+- `GET /api/version` — current SHA + state (browser reconnect poll target)
+- `POST /api/update/start` — validates no in-flight update, triggers unit, returns 202
+- `GET /api/update/status` — full state.json for UI reconnect
+- `GET /api/update/log` — SSE, `journalctl -fu charging-master-updater`, process cleanup on abort
+- `POST /api/version/check` — force-run GitHub check, 5-min server-side rate limit
+- `X-App-Version` header on all responses
+
+**Addresses features:** T3 (badge data), T4 (last-check), T5 (trigger), T6 (SSE endpoint), T11 (check now)
+**Avoids pitfalls:** Pitfall 8 (rate limit/ETag), Pitfall 9 (stale check SHA), Pitfall 12 (health check), Pitfall 15 (concurrency gate)
+**Research flag:** Standard patterns — skip phase research
+
+### Phase 4: Settings UI
+
+**Rationale:** By Phase 4 the backend is fully functional. The UI is a read-heavy consumer of Phase 3 endpoints. Build UI last so it can be tested against real data flows, not mocks.
+
+**Delivers:**
+- `/settings/updates` page (Next.js App Router server component)
+- `VersionBadge` component (imports from `@/lib/version`, client component)
+- Update-available badge on Settings nav item
+- Staged progress stepper (parses `::STAGE::` markers from SSE log stream)
+- Live log panel (monospace, auto-scroll, EventSource client)
+- Reconnect overlay: spinner + elapsed counter + explanatory copy, polls `/api/version` every 2s, `window.location.reload()` on SHA change, stores expected-new-SHA in localStorage before triggering
+- Success state (old SHA -> new SHA)
+- Failure banner (persistent, links to log, never silent)
+- "You're up to date" empty state
+- "Check now" button with client-side debounce
+- Confirmation dialog before install
+- D2/D3: Reconnect countdown + timeout hint with SSH fallback command
+- D4: Pushover on rollback (one-line)
+- D8: Copy log to clipboard
+
+**Addresses features:** T1-T13 complete, D2, D3, D4, D8
+**Avoids pitfalls:** Pitfall 10 (browser reconnect), Pitfall 12 (health gate: HTTP 200 + SHA match + DB-ready)
+**Research flag:** Standard patterns — skip phase research
 
 ### Phase Ordering Rationale
 
-- Phase 1 validates the entire IoT pipeline (MQTT -> Server -> DB) before any UI work
-- Phase 2 provides visual feedback needed to validate data quality before building algorithms on it
-- Phase 3 is the core value delivery -- only possible with correct MQTT data and visual debugging of curves
-- Phase 4 is polish that improves a working system, can be delivered incrementally
+- Phase 1 before Phase 2: the unit file must exist before `run-update.sh` can be tested via `systemctl start`
+- Phase 2 before Phase 3: backend routes depend on state.json schema being stable; stabilizing the pipeline first locks the schema
+- Phase 3 before Phase 4: UI built against real endpoints so the reconnect overlay and SSE parsing can be tested end-to-end
+- The pipeline (Phase 2) is the highest-risk component; it should be validated in isolation via SSH before any UI exists
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **Phase 3 (Charge Intelligence):** DTW subsequence matching thresholds, SOC estimation accuracy, state machine edge cases, and noise filtering all need empirical tuning with real Shelly data. Plan for an experimentation/calibration sub-phase.
+Phases needing deeper research during planning:
+- **Phase 2:** `flock` + systemd concurrency interaction has a few edge cases; worth 30 minutes of focused research if the pattern is unfamiliar
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1 (Foundation):** Custom server + MQTT + SQLite is thoroughly documented with concrete code examples in ARCHITECTURE.md
-- **Phase 2 (Real-Time Visualization):** SSE + ECharts is a standard pattern. Implementation details fully specified in research
-- **Phase 4 (Notifications and History):** Pushover is a single HTTP POST. History is standard CRUD + aggregation
+- **Phase 1:** systemd unit files and prebuild scripts are well-documented
+- **Phase 3:** follows existing module + route conventions exactly
+- **Phase 4:** follows existing SSE + React patterns exactly
+
+---
+
+## Requirements-Ready Feature List
+
+Grouped by phase for the requirements step.
+
+### Phase 1 — Infrastructure
+
+| ID | Feature | Notes |
+|----|---------|-------|
+| P1-1 | `charging-master-updater.service` systemd unit | `Type=oneshot`, no `[Install]`, written by `install.sh` |
+| P1-2 | `scripts/build/generate-version.mjs` prebuild script | Writes `src/lib/version.ts` |
+| P1-3 | `package.json` script updates | `build` and `dev` run `gen:version` first |
+| P1-4 | `.gitignore` update | Add `src/lib/version.ts` |
+| P1-5 | GitHub compatibility preflight | Fetch candidate `package.json`, check `packageManager` and lockfile version |
+| P1-6 | `timedatectl` sync check in `install.sh` | Warn if clock not synchronized |
+
+### Phase 2 — Updater Pipeline
+
+| ID | Feature | Notes |
+|----|---------|-------|
+| P2-1 | `scripts/update/run-update.sh` | Full pipeline with `trap ERR` |
+| P2-2 | Pre-flight checks | Disk space, git cleanliness, flock availability |
+| P2-3 | `rm -rf .next` before every build | Forward and rollback paths both |
+| P2-4 | `systemctl stop main` before `pnpm install` | Not after build |
+| P2-5 | `pnpm rebuild better-sqlite3` post-install | Belt-and-braces |
+| P2-6 | `::STAGE::` sentinel lines | Parseable by UI step display |
+| P2-7 | `trap ERR` rollback function | Stage 1: clean rebuild; Stage 2: tarball; Stage 3: Pushover + PANIC file |
+| P2-8 | Pre-update snapshot tarball | `/var/lib/charging-master/snapshots/<sha>-prev.tgz` |
+| P2-9 | `flock` concurrency lock | Wraps entire updater script |
+| P2-10 | `POST /api/internal/prepare-for-shutdown` | WAL checkpoint + pause writes before stop |
+| P2-11 | Health check after restart | Poll `localhost:3000/api/version` for up to 60s, verify new SHA |
+| P2-12 | `update_log` Drizzle schema | Persist last run's log for post-run display |
+
+### Phase 3 — Backend Module + API
+
+| ID | Feature | Notes |
+|----|---------|-------|
+| P3-1 | `src/modules/self-update/update-checker.ts` | 6h singleton, EventBus integration, booted in `server.ts` |
+| P3-2 | `src/modules/self-update/github-client.ts` | `fetch` + ETag + zod validation |
+| P3-3 | `src/modules/self-update/update-state-store.ts` | Atomic state.json reads/writes |
+| P3-4 | `src/modules/self-update/update-trigger.ts` | `detached: true` + `unref()` spawn |
+| P3-5 | `src/modules/self-update/journal-tailer.ts` | Per-subscriber child, SIGTERM on disconnect |
+| P3-6 | `server.ts` modification | Boot UpdateChecker, stop in shutdown |
+| P3-7 | `GET /api/version` | Fast, no external calls; `X-App-Version` header |
+| P3-8 | `POST /api/update/start` | Concurrency gate, returns 202 |
+| P3-9 | `GET /api/update/log` | SSE, process cleanup required |
+| P3-10 | `GET /api/update/status` | Full state for reconnect |
+| P3-11 | `POST /api/version/check` | Force-check, 5-min rate limit |
+| P3-12 | `X-App-Version` header on all responses | Enables client SHA-mismatch detection |
+
+### Phase 4 — Settings UI
+
+| ID | Feature | Notes |
+|----|---------|-------|
+| P4-1 | `/settings/updates` page | Server component reads version + state |
+| P4-2 | `VersionBadge` component | Imports from `@/lib/version`, no API call |
+| P4-3 | Update-available badge on Settings nav | Client component, polls `/api/version` |
+| P4-4 | Last-check timestamp | "2h ago" + absolute on hover |
+| P4-5 | Staged progress stepper | Parses `::STAGE::` from SSE stream |
+| P4-6 | Live log panel | Monospace, auto-scroll, EventSource |
+| P4-7 | Reconnect overlay | Spinner + elapsed counter + copy; polls `/api/version`; auto-reload on SHA change |
+| P4-8 | Reconnect timeout + SSH hint (>90s) | D3 — cheap, include |
+| P4-9 | Expected-new-SHA in localStorage | Set before triggering, read by overlay |
+| P4-10 | Success state (old SHA -> new SHA) | T9 |
+| P4-11 | Failure banner (persistent, links to log) | T10 |
+| P4-12 | "You're up to date" empty state | T12 |
+| P4-13 | "Check now" button with client debounce | T11 |
+| P4-14 | Pushover on rollback | D4 — one-line reuse |
+| P4-15 | Copy log to clipboard | D8 — one-line |
+| P4-16 | Confirmation dialog before install | ~10 min, prevents accidental clicks |
+
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All libraries verified current against npm/official docs. Versions confirmed March 2026 |
-| Features | HIGH | Feature set derived from clear stakeholder requirements. Dependency chain is logical and complete |
-| Architecture | HIGH | Custom server + MQTT singleton confirmed by multiple production implementations. Data model concrete with volume estimates |
-| Pitfalls | HIGH | Sourced from official docs (Shelly MQTT defaults, SQLite WAL), Next.js community issues (SSE buffering), established IoT patterns |
+| Stack | HIGH | Zero new dependencies. All choices are Node.js built-ins or already-installed packages. |
+| Features | HIGH | Patterns verified across Home Assistant, Portainer, Sonarr, Grafana. Strong convergence. |
+| Architecture | HIGH | Verified against actual source files (`server.ts`, existing SSE route). Not speculative. |
+| Pitfalls | HIGH | systemd cgroup semantics, pnpm native binding behavior, SQLite WAL are well-documented. MEDIUM only on pnpm@10 edge cases. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **DTW tuning parameters:** Confidence threshold for auto-detection (currently 20% power tolerance for quick rejection), DTW distance normalization, smoothing window size -- all need validation with real Shelly data during Phase 3
-- **Partial charge accuracy:** Subsequence DTW for partial charge detection (plugging in at 40%) is theoretically sound but has no off-the-shelf reference implementation for AC-side power monitoring. Plan for Phase 3 to include calibration time
-- **Shelly status update frequency:** Exact conditions under which Shelly publishes vs. stays silent during constant-power phases -- needs hands-on testing in Phase 1. HTTP polling supplement documented as mitigation
-- **Shelly firmware variations:** Different firmware versions may change MQTT payload structure or timing. Document and pin the tested firmware version
-- **better-sqlite3 native build on Debian 13:** Should work with build-essential, but verify on fresh LXC during Phase 1 setup
+- **Conflict B (symlink-swap vs in-place):** User must decide before Phase 2. In-place recommended for v1.2 and documented as tech debt.
+- **Conflict C (WAL drain scope):** Confirm whether charging sessions in progress should block or be interrupted before the updater stops the service.
+- **Health check implementation detail:** Does the updater shell script poll `localhost:3000/api/version` or use `systemctl is-active` + port check? HTTP poll recommended (verifies app logic, not just process existence).
+- **Log persistence strategy:** `update_log` Drizzle table vs flat file per run. Decision needed before Phase 2 schema work.
+- **D1 changelog preview:** Deferred to v1.3+ but the GitHub client already supports it. If promoted to v1.2, only requires the compare API endpoint and a collapsed commit list UI.
+
+---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [Shelly Gen2 MQTT Documentation](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Mqtt/) -- topic structure, payload format, QoS behavior
-- [Shelly Switch Component](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/) -- relay control, status fields
-- [Shelly Plug S Gen3 API](https://shelly-api-docs.shelly.cloud/gen2/Devices/Gen3/ShellyPlugSG3/) -- device-specific capabilities
-- [Drizzle ORM SQLite](https://orm.drizzle.team/docs/get-started-sqlite) -- better-sqlite3 integration, v0.45.1
-- [SQLite WAL Mode](https://www.sqlite.org/wal.html) -- concurrent access pattern
-- [mqtt.js npm](https://www.npmjs.com/package/mqtt) -- v5.15.1, TypeScript MQTT client
-- [better-sqlite3 npm](https://www.npmjs.com/package/better-sqlite3) -- v12.8.0, native bindings
-- [ECharts 6.0 Release](https://echarts.apache.org/handbook/en/basics/release-note/v6-feature/) -- streaming, intelligent dark mode
-- [Pushover API](https://pushover.net/api) -- endpoint, rate limits
+- GitHub REST rate limits docs — unauthenticated 60/h, 304 does not count against quota
+- Next.js instrumentation.ts docs — canonical process-lifetime singleton entry point
+- systemd.exec / systemctl(1) man pages — `--no-block`, cgroup semantics, `Type=oneshot`
+- Shelly Plug S Gen3 API docs — existing stack, unchanged for this milestone
+- pnpm@10 docs — `--frozen-lockfile`, `onlyBuiltDependencies`
 
 ### Secondary (MEDIUM confidence)
-- [Next.js SSE Discussion #48427](https://github.com/vercel/next.js/discussions/48427) -- SSE buffering workarounds, community reports
-- [MQTT + Next.js Architecture](https://jowwii.medium.com/building-real-time-mqtt-visualizations-with-next-js-why-i-went-with-a-7-vps-instead-of-serverless-94e3ad889bb8) -- custom server pattern validation
-- [Next.js Worker Alongside Server](https://dev.to/noclat/run-a-worker-alongside-next-js-server-using-a-single-command-5a44) -- single-process pattern
-- [SSE in Next.js App Router](https://www.pedroalonso.net/blog/sse-nextjs-real-time-notifications/) -- implementation pattern
-- [DTW for NILM](https://www.sciencedirect.com/science/article/abs/pii/S0306261917302209) -- academic validation of curve matching approach
-- [SSE streaming in Next.js 15](https://hackernoon.com/streaming-in-nextjs-15-websockets-vs-server-sent-events) -- SSE vs WebSocket comparison
-- [echarts-for-react npm](https://www.npmjs.com/package/echarts-for-react) -- v3.0.6, React wrapper
-- [ECharts streaming docs](https://deepwiki.com/apache/echarts/2.4-streaming-and-scheduling) -- memory management
+- Home Assistant, Portainer, Sonarr update UX — feature patterns from direct usage
+- ArchWiki Polkit reference — non-root trigger alternative (documented but not needed for this LXC)
+- vercel/next.js discussions #15849, #50181 — `git rev-parse HEAD` in `next.config.ts` pattern
+
+### Tertiary (LOW confidence)
+- pnpm@10 + better-sqlite3 binding edge cases — flagged as MEDIUM in PITFALLS.md §2; verify during Phase 2 on the actual LXC
 
 ---
-*Research completed: 2026-03-25*
+*Research completed: 2026-04-10*
 *Ready for roadmap: yes*

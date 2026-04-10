@@ -1,241 +1,414 @@
-# Technology Stack
+# Stack Research — v1.2 Self-Update Mechanism
 
-**Project:** Charging-Master (Smart Charging Management)
-**Researched:** 2026-03-25
+**Domain:** In-app self-update for a Next.js 15 server running under systemd on Debian 13 LXC
+**Researched:** 2026-04-10
+**Confidence:** HIGH
+
+## Scope
+
+This document covers ONLY the libraries and system tools required for the v1.2 self-update milestone. The existing stack (Next.js 15.5, React 19.2, TypeScript 5.9, better-sqlite3, Drizzle, ECharts, SSE via `ReadableStream`, Pushover via native `fetch`, systemd on Debian 13 LXC) is already validated and NOT re-researched here.
+
+**Design decisions already locked by the milestone:**
+- Update pipeline runs inside a dedicated systemd one-shot unit `charging-master-updater.service` (NOT inside the Next.js process, which would be about to restart itself)
+- GitHub polling every 6 h, unauthenticated, `<60 req/h`
+- Version source = latest commit SHA on `main` of `meintechblog/charging-master`
+- Auto-rollback to previous HEAD SHA on any failure in the update pipeline
+- App process runs as `root` inside the LXC (single-user container, already the case for the Shelly/MQTT phases) — this materially simplifies privilege handling
 
 ## Recommended Stack
 
-### Core Framework
+### New Runtime Dependencies
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| Next.js | 15.2+ | Full-stack framework | Already decided. Server Components for dashboard, API Routes for SSE endpoints, App Router | HIGH |
-| React | 19.x | UI library | Peer dependency of Next.js 15 | HIGH |
-| TypeScript | 5.9+ | Type safety | Already in use in sibling project, strict mode essential for IoT data types | HIGH |
+**None.** Every piece of the self-update feature can be built with Node.js built-ins plus one trivially optional helper. This is deliberate and is the core recommendation of this research.
 
-### Database
+| What we need | Recommended choice | Why |
+|---|---|---|
+| GitHub API client | Native `fetch` (Node 22 built-in) | Single endpoint, single verb, no pagination, no auth. A library is pure overhead. |
+| Git operations | Shell-out to system `git` via `node:child_process` | Updater runs in a dedicated systemd unit, not in the app. `git` CLI is already on the LXC (needed for the initial clone). No Node library can match `git reset --hard` semantics without surprises. |
+| systemctl trigger | `node:child_process.spawn('systemctl', ['start', '--no-block', 'charging-master-updater.service'])` | The app runs as root inside the LXC. No sudo, no polkit, no wrapper library needed. |
+| journalctl tail | `node:child_process.spawn('journalctl', ['-fu', 'charging-master-updater.service', '--output=cat'])` piped into an SSE `ReadableStream` | Already proven stack component (SSE). `--output=cat` strips timestamps we don't need; we add our own. |
+| 6 h scheduler | `setInterval` in a small singleton started from `instrumentation.ts` | Next.js 15's `instrumentation.ts` is the canonical place for process-lifetime side effects. One instance per process, survives HMR concerns because production runs `next start` without HMR. |
+| Build-time version injection | `next.config.ts` reads `git rev-parse HEAD` and `Date.now()`, exposes them via `env` and `publicRuntimeConfig`-style `NEXT_PUBLIC_*` keys | Canonical Next.js pattern. Stays statically inlined, zero runtime cost, available to both server and client. |
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| better-sqlite3 | 12.8.0 | SQLite driver | Synchronous, fastest SQLite driver for Node.js. Single-user app, no DB server needed on LXC. Native bindings = best performance for time-series data | HIGH |
-| drizzle-orm | 0.45.1 | Type-safe ORM | Already known from netzbetreiber-master. SQLite support via `drizzle-orm/better-sqlite3`. Type-safe queries, zero runtime overhead | HIGH |
-| drizzle-kit | 0.31.10 | Migrations | Schema push and migration generation. `drizzle-kit push:sqlite` for dev, `drizzle-kit generate` for production migrations | HIGH |
+### Supporting Libraries (all already present)
 
-**Why NOT libsql/Turso:** Overkill for single-user local app. better-sqlite3 is simpler, faster, and has zero network overhead.
+| Library | Version (already installed) | Role in v1.2 |
+|---|---|---|
+| `zod` | ^4.3.6 | Validate the GitHub `/commits/main` response shape and the `UpdateState` row in SQLite |
+| `better-sqlite3` | ^12.8.0 | Persist `update_state` (current SHA, last check, last known remote SHA, last update attempt, last error) |
+| `drizzle-orm` | ^0.45.1 | Schema + typed queries for the new `update_state` and `update_log` tables |
+| `server-only` | ^0.0.1 | Guard the scheduler and spawn helpers so they never get bundled into client components |
 
-**Why NOT PostgreSQL:** Requires running a DB server. SQLite is perfect for single-user, embedded, local-network apps. Zero setup on fresh LXC.
+### Optional Dev-time Helper
 
-### MQTT Communication
+| Tool | Version | Purpose | Verdict |
+|---|---|---|---|
+| `simple-git` | 3.35.2 (2026-04-06) | Promise wrapper around the `git` CLI | **Do not add.** See "What NOT to Use" for reasoning. Listed here only so the team recognizes it if someone proposes it during implementation. |
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| mqtt | 5.15.1 | MQTT client | The standard Node.js MQTT client. TypeScript rewrite (v5), supports MQTT 3.1.1 and 5.0, works in Node.js and browser. 3300+ dependents on npm | HIGH |
+## Detailed Answers to the Seven Questions
 
-**Why NOT aedes/mosca:** We connect to an existing broker (mqtt-master.local), not running our own. Client library only.
+### 1. GitHub API client
 
-**Why NOT native WebSocket MQTT:** mqtt.js handles TCP connections natively in Node.js, which is more reliable than WebSocket for server-side MQTT.
+**Recommendation:** Native `fetch` (built into Node 22). Do not add `@octokit/*`.
 
-### Real-Time Data Streaming (Server to Browser)
+- The feature uses exactly one endpoint: `GET https://api.github.com/repos/meintechblog/charging-master/commits/main`.
+- Response is a single JSON object with `sha`, `commit.author.date`, `commit.message`. Validate with `zod` (already installed).
+- **ETag/conditional requests are required for rate-limit friendliness:** unauthenticated clients get 60 req/h, but a `304 Not Modified` response does not count against the budget ([GitHub REST rate-limit docs](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). With a 6-hour poll interval we only consume ~4 req/day in the worst case anyway, but ETag caching is cheap insurance against accidentally bumping the interval and is trivially implemented:
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| Server-Sent Events (SSE) | Native | Server-to-browser push | Unidirectional (server pushes MQTT data to browser). Built into browsers via EventSource API. Works with Next.js Route Handlers via ReadableStream. No extra library needed | HIGH |
+  ```ts
+  // src/modules/update/github-client.ts
+  import 'server-only';
+  const UA = 'charging-master-update-checker/1.0';
+  type CachedEtag = { etag: string; sha: string; checkedAt: number };
+  let cache: CachedEtag | null = null; // replace with SQLite row in real impl
 
-**Decision: SSE over WebSocket because:**
+  export async function fetchLatestMainSha(): Promise<{ sha: string; notModified: boolean }> {
+    const headers: Record<string, string> = {
+      'User-Agent': UA,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    if (cache?.etag) headers['If-None-Match'] = cache.etag;
 
-1. **Unidirectional fits perfectly** -- MQTT data flows server-to-browser only. Browser sends commands via regular POST/fetch to API routes, not through the stream
-2. **Native Next.js support** -- Route Handlers + ReadableStream = SSE endpoint with zero dependencies. WebSocket requires a custom server or socket.io, breaking Next.js conventions
-3. **Auto-reconnect** -- EventSource reconnects automatically on connection drop. WebSocket needs manual reconnect logic
-4. **Simpler architecture** -- No WebSocket server, no socket.io, no protocol upgrade handling. Just HTTP
-
-**Pattern:** Next.js API Route subscribes to MQTT topics via mqtt.js, forwards messages to browser clients via SSE ReadableStream. Multiple browser tabs share the same MQTT subscription on the server.
-
-**Critical implementation detail:** In the Route Handler, set `export const runtime = 'nodejs'` and `export const dynamic = 'force-dynamic'` to prevent Next.js from buffering the stream.
-
-### Charts
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| echarts | 6.0.0 | Charting library | Best real-time capability. Streaming data support since v4. Smooth animations, dark theme built-in, overlay support for reference curves. v6 adds intelligent dark mode switching | HIGH |
-| echarts-for-react | 3.0.6 | React wrapper | Thin wrapper, provides `<ReactECharts>` component. Handles lifecycle and resize. Peer-depends on echarts | HIGH |
-
-**Why NOT recharts:** No streaming/real-time support. Designed for static data. Re-renders entire chart on update.
-
-**Why NOT Chart.js:** Weaker real-time performance. ECharts streaming pipeline is purpose-built for continuous data feeds.
-
-**Why NOT D3:** Too low-level for this use case. Would require building chart primitives from scratch.
-
-**Real-time update pattern:** Use ECharts `setOption()` with `appendData` or partial option merge. The chart instance can be accessed via ref on the React wrapper. For live charging curves, use `setOption({ series: [{ data: newPoints }] }, { replaceMerge: ['series'] })` for efficient incremental updates.
-
-### Notifications
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| Native fetch | Built-in | Pushover API calls | Pushover API is a single POST endpoint. No library needed -- `fetch()` to `https://api.pushover.net/1/messages.json` with form data. Adding a library for one HTTP call is unnecessary | HIGH |
-
-**Pushover API essentials:**
-- Endpoint: `POST https://api.pushover.net/1/messages.json`
-- Required: `token` (app API token), `user` (user key), `message` (text)
-- Optional: `title`, `priority` (-2 to 2), `sound`, `url`, `html` (1 for HTML formatting)
-- Response: HTTP 200 with `{"status": 1, "request": "..."}` on success
-- Rate limit: 10,000 messages/month per application
-
-**Why NOT pushover-notifications npm package:** Adds dependency for wrapping a single HTTP POST. A 10-line utility function does the same thing with zero dependencies.
-
-### Infrastructure
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| Node.js | 22 LTS | Runtime | LTS version, compatible with Next.js 15, better-sqlite3, mqtt.js | HIGH |
-| pnpm | 10.x | Package manager | Already used in sibling project. Fast, disk-efficient | HIGH |
-| systemd | System | Process management | Already on Debian LXC. `systemctl` for auto-start on boot. No need for PM2 | MEDIUM |
-
-### Supporting Libraries
-
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| zod | 3.x | Schema validation | Validate MQTT payloads, API inputs, config. Already known from sibling project |
-| server-only | 0.0.1 | Import guard | Prevent MQTT client code from leaking to browser bundle |
-| @types/better-sqlite3 | latest | Type definitions | Dev dependency for better-sqlite3 types |
-
-## Alternatives Considered
-
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Database | SQLite (better-sqlite3) | PostgreSQL | Overkill -- requires running a DB server for single-user app |
-| Database | SQLite (better-sqlite3) | libsql (Turso) | Network-oriented SQLite fork. Unnecessary for local-only app |
-| ORM | Drizzle ORM | Prisma | Heavier runtime, slower cold starts, less control over queries |
-| ORM | Drizzle ORM | Knex | No type-safe schema, manual type mapping |
-| MQTT | mqtt.js | MQTT over WebSocket | TCP is more reliable for server-side persistent connections |
-| Real-time | SSE | WebSocket (socket.io) | Requires custom server, bidirectional not needed, breaks Next.js conventions |
-| Real-time | SSE | Polling | Wasteful, high latency. MQTT data arrives every 1-2 seconds |
-| Charts | ECharts 6 | Recharts | No streaming support, re-renders entire chart |
-| Charts | ECharts 6 | Chart.js | Weaker real-time, less sophisticated animations |
-| Notifications | Native fetch | pushover-notifications npm | One HTTP POST doesn't justify a dependency |
-| Process mgmt | systemd | PM2 | Already have systemd on Debian, PM2 adds unnecessary layer |
-
-## Shelly S3 Plug Gen3 -- API Reference
-
-This section documents the Shelly Gen3 MQTT and HTTP API specifics needed for implementation.
-
-### MQTT Topic Structure
-
-The Shelly Plug S Gen3 uses Gen2+ API with these MQTT topics:
-
-| Topic Pattern | Direction | Purpose |
-|---------------|-----------|---------|
-| `<device_id>/status/switch:0` | Subscribe | Power measurement + switch state |
-| `<device_id>/events/rpc` | Subscribe | RPC notifications and events |
-| `<device_id>/online` | Subscribe | Connection status (`true`/`false` via LWT) |
-| `<device_id>/command/switch:0` | Publish | Control switch (`on`, `off`, `toggle`) |
-
-**Device ID format:** `shellyplugsg3-<MAC>` (e.g., `shellyplugsg3-AABBCCDDEEFF`)
-
-### Switch Status Payload (from `status/switch:0`)
-
-```json
-{
-  "id": 0,
-  "source": "switch",
-  "output": true,
-  "apower": 45.2,
-  "voltage": 230.5,
-  "current": 0.196,
-  "freq": 50.0,
-  "pf": 0.98,
-  "aenergy": {
-    "total": 1234.56,
-    "by_minute": [12.34, 11.98, 12.01],
-    "minute_ts": 1711324800
+    const res = await fetch(
+      'https://api.github.com/repos/meintechblog/charging-master/commits/main',
+      { headers, signal: AbortSignal.timeout(10_000) }
+    );
+    if (res.status === 304 && cache) return { sha: cache.sha, notModified: true };
+    if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+    const json = await res.json();
+    const sha = String(json.sha);
+    const etag = res.headers.get('etag');
+    if (etag) cache = { etag, sha, checkedAt: Date.now() };
+    return { sha, notModified: false };
   }
+  ```
+
+- Persist `etag` and `last_known_remote_sha` in the `update_state` SQLite row so they survive restarts — an in-memory cache is useless since we restart on every update.
+- Always set a `User-Agent` header; GitHub rejects unauthenticated requests without one.
+- Pin the API version via `X-GitHub-Api-Version: 2022-11-28`.
+- Use `AbortSignal.timeout()` (Node 22 built-in) so the background check can never hang forever.
+
+**Why not `@octokit/rest` (22.0.1) or `@octokit/request` (10.0.8)?** Octokit is a 300+ kB dependency optimized for authenticated, paginated, multi-endpoint usage (retries, throttling plugins, token rotation). We have one endpoint and no auth. The bundle cost, the supply-chain surface, and the mental overhead aren't justified.
+
+### 2. Git operations
+
+**Recommendation:** Shell-out to the system `git` binary via `node:child_process.spawn`. Do not add `simple-git`, `isomorphic-git`, or any other library.
+
+**Rationale for our context:**
+
+- The updater lives in `charging-master-updater.service` — a bash script or `tsx` one-shot, not the Next.js process. Process-lifecycle concerns (Next.js hot reload, React Server Components bundling) don't apply.
+- The Debian LXC already has `git` installed (it was used to clone the repo in the first place). Adding a Node wrapper installs a second git implementation or a second way to invoke the same binary.
+- The pipeline is four imperative steps with well-known flags. Wrapping them in a library obscures the shell command being executed — which is exactly the command the operator will paste into their terminal when debugging a failed update.
+
+**Canonical pipeline (for `scripts/update/run-update.ts`, executed by the systemd unit):**
+
+```bash
+# All commands run with cwd=/opt/charging-master
+PREVIOUS_SHA=$(git rev-parse HEAD)
+git fetch --depth=1 origin main                 # shallow fetch, keeps .git small
+git reset --hard origin/main                    # hard reset to remote HEAD
+pnpm install --frozen-lockfile                  # reproducible install
+pnpm build                                      # next build
+systemctl restart charging-master.service       # restart the app (updater exits here)
+```
+
+On any non-zero exit, the trap resets to `$PREVIOUS_SHA`, re-runs `pnpm install` and `pnpm build`, and exits non-zero so systemd marks the update unit as failed. The app (which by then has re-read `update_state`) shows the rollback in the UI.
+
+**Why not `simple-git` (3.35.2)?** It's a well-maintained Promise wrapper, but:
+- It still shells out to the `git` binary — it adds no capability, only an API surface.
+- It swallows stdout/stderr by default; for the SSE live log we want raw stream chunks, which `simple-git` makes awkward.
+- It adds five transitive dependencies (`@kwsites/file-exists`, `@kwsites/promise-deferred`, `@simple-git/args-pathspec`, `@simple-git/argv-parser`, `debug`) for zero functional gain.
+
+**Why not `isomorphic-git` (1.37.5)?** It's a pure-JS git implementation aimed at environments without the `git` binary (browsers, Cloudflare Workers, etc.). We have the binary. Using a JS reimplementation introduces edge cases (pack-file handling, ref update semantics) we do not want to debug at 2 a.m. during a broken deploy.
+
+### 3. systemd integration
+
+**Recommendation:** Direct `node:child_process.spawn` against `systemctl` and `journalctl`. No library.
+
+The Next.js process runs as `root` inside the LXC (single-user container, matches how the Shelly MQTT broker and the app itself are already wired), so there are **no privilege escalation concerns** — no `sudo`, no polkit rules, no wrapper units.
+
+**Triggering the updater:**
+
+```ts
+// src/modules/update/systemctl.ts
+import 'server-only';
+import { spawn } from 'node:child_process';
+
+export function triggerUpdaterUnit(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // --no-block returns immediately without waiting for the unit to finish,
+    // which is critical: the unit will restart *this* process.
+    const proc = spawn('systemctl', ['start', '--no-block', 'charging-master-updater.service']);
+    proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`systemctl exit ${code}`))));
+    proc.on('error', reject);
+  });
 }
 ```
 
-Key fields for charging management:
-- `apower` -- Active power in Watts (the primary measurement for charge curve tracking)
-- `output` -- Relay state (true = charging, false = stopped)
-- `aenergy.total` -- Total energy in Wh (for session tracking)
+`--no-block` is essential: without it, `systemctl start` waits for the unit to reach `active`, but the unit's final step restarts `charging-master.service`, killing the very process that is waiting. With `--no-block` the API route returns `202 Accepted` immediately and the UI switches to the log-tail SSE stream.
 
-### Switch Control via MQTT
+**Pitfalls for a non-root future (documented so we have the answer if the constraint changes):**
 
-Publish to `<device_id>/command/switch:0`:
-- `on` -- Turn relay on (start charging)
-- `off` -- Turn relay off (stop charging)
-- `on,3600` -- Turn on with auto-off after 3600 seconds
-- `toggle` -- Toggle current state
-- `status_update` -- Request current status
+- If the app is ever moved to a non-root user, the clean solution is polkit, not sudoers. Create `/etc/polkit-1/rules.d/50-charging-master-updater.rules`:
+  ```javascript
+  polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "charging-master-updater.service" &&
+        subject.user == "charging-master") {
+      return polkit.Result.YES;
+    }
+  });
+  ```
+  Sudoers (`NOPASSWD: /bin/systemctl start charging-master-updater.service`) also works but forces a `sudo` prefix in the spawn call and interacts badly with systemd session management ([ArchWiki polkit reference](https://wiki.archlinux.org/title/Polkit)).
+- **Do not** use a library like `systemctl` (npm) or `sd-daemon`. They either wrap the same `spawn` call or require `systemd-notify` integration we don't need.
 
-### HTTP API Fallback
+### 4. Build-time version injection
 
-For reliable switch control (MQTT QoS 0 = fire-and-forget):
-- `http://<device_ip>/rpc/Switch.Set?id=0&on=true`
-- `http://<device_ip>/rpc/Switch.Set?id=0&on=false`
-- `http://<device_ip>/rpc/Switch.GetStatus?id=0`
+**Recommendation:** Read git metadata inside `next.config.ts` at build time, expose via the `env` field with `NEXT_PUBLIC_*` keys. No generated file, no runtime tooling.
 
-### MQTT Configuration on Device
+This is the officially documented Next.js pattern and has been stable across Next 13/14/15 ([Next.js environment variables guide](https://nextjs.org/docs/pages/guides/environment-variables), [vercel/next.js discussion #15849](https://github.com/vercel/next.js/discussions/15849)). The values are statically inlined into both the server bundle and the client bundle at `next build` time.
 
-Enable via Shelly web UI or API:
-- MQTT must be explicitly enabled (disabled by default)
-- Set broker: `mqtt-master.local:1883`
-- Enable "Generic status update over MQTT" for periodic status pushes
-- Enable "RPC status notifications over MQTT" for event-driven updates
+```ts
+// next.config.ts
+import type { NextConfig } from 'next';
+import { execSync } from 'node:child_process';
 
-### Data Sampling Rate
+function gitSha(): string {
+  try {
+    return execSync('git rev-parse HEAD', { cwd: __dirname, encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
-Shelly publishes status updates when values change significantly (not at fixed intervals). For consistent sampling during charge curve recording, combine MQTT notifications with periodic HTTP polling (`Switch.GetStatus`) every 5-10 seconds as backup.
+function gitShaShort(): string {
+  return gitSha().slice(0, 7);
+}
+
+const buildTime = new Date().toISOString();
+
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  transpilePackages: ['echarts', 'zrender'],
+  env: {
+    NEXT_PUBLIC_COMMIT_SHA: gitSha(),
+    NEXT_PUBLIC_COMMIT_SHA_SHORT: gitShaShort(),
+    NEXT_PUBLIC_BUILD_TIME: buildTime,
+  },
+};
+
+export default nextConfig;
+```
+
+Usage anywhere in the codebase:
+
+```ts
+const currentSha = process.env.NEXT_PUBLIC_COMMIT_SHA!;
+const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME!;
+```
+
+**Why this over the alternatives:**
+
+- **Generated `src/generated/version.ts` via a prebuild script:** works, but adds a `prebuild` step to `package.json`, a file to `.gitignore`, and a second source of truth. The `next.config.ts` approach is one file and runs automatically at every `next build`.
+- **Reading `.git/HEAD` at runtime:** fragile (the file can be a ref or a detached HEAD), ties the running server to an untracked filesystem location, and is pointless because the very next `next build` will overwrite it.
+- **`next-build-id` package:** sets `BUILD_ID` but doesn't expose the SHA to application code. We need the SHA in the UI and in the API's `/api/version` response, not just in the Next.js internals.
+
+**Critical detail:** because these are `NEXT_PUBLIC_*` variables, they are inlined at build time. The app MUST be rebuilt (`pnpm build`) on every update — which is already part of the updater pipeline. Reading `process.env.NEXT_PUBLIC_COMMIT_SHA` at runtime after a rebuild returns the new value correctly because Next.js rebuilds the server bundle as well.
+
+### 5. Scheduling the 6 h background check
+
+**Recommendation:** `setInterval` in a module started from Next.js's `instrumentation.ts`. No cron library, no systemd timer.
+
+```ts
+// instrumentation.ts (Next.js 15 official entry point for process-lifetime code)
+export async function register() {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  const { startUpdateChecker } = await import('./src/modules/update/scheduler');
+  startUpdateChecker();
+}
+```
+
+```ts
+// src/modules/update/scheduler.ts
+import 'server-only';
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+let handle: NodeJS.Timeout | null = null;
+
+export function startUpdateChecker() {
+  if (handle) return;                       // idempotent; survives HMR in dev
+  runCheck().catch(() => {});               // run once at boot
+  handle = setInterval(() => { runCheck().catch(() => {}); }, SIX_HOURS_MS);
+  handle.unref();                           // don't block process exit
+}
+
+async function runCheck() { /* fetch GitHub, update SQLite row */ }
+```
+
+**Why this beats the alternatives:**
+
+- **`node-cron` (4.2.1) or `croner` (9.6.1):** cron expressions are overkill for a fixed 6-hour interval. `setInterval(fn, 6 * 3600_000)` is clearer and has zero dependencies. Croner is genuinely excellent (zero deps, DST-aware, the best cron library for Node), but we'd only use one feature (fire every 6 h), which `setInterval` already does.
+- **systemd timer:** would move scheduling out of the app, but then needs IPC (HTTP call back to the app, or direct SQLite writes from a second process) to report results to the UI. Pure complication.
+- **Next.js route lifecycle / middleware:** routes don't have lifecycle in the "background worker" sense. Running a check inside a route handler only works if the route is called — which defeats the purpose.
+- **`instrumentation.ts` specifically:** Next.js 15 runs this exactly once per server process at startup ([Next.js instrumentation docs](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation)). In production (`next start` or the custom `tsx server.ts` start script this project uses) there is no HMR, so the `if (handle) return` guard is belt-and-braces only.
+
+**Single-instance correctness:** the app runs as exactly one systemd-managed Node process. We do not need distributed locking. The `handle` guard plus systemd's single-instance guarantee is sufficient.
+
+### 6. Log streaming via SSE
+
+**Recommendation:** `spawn('journalctl', ['-fu', 'charging-master-updater.service', '--output=cat', '--lines=100'])` piped into a `ReadableStream` that a Route Handler returns as `text/event-stream`. Reuse the SSE stack that already exists for live charging curves.
+
+```ts
+// src/app/api/update/log/route.ts
+import { spawn } from 'node:child_process';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: Request) {
+  const encoder = new TextEncoder();
+  const proc = spawn('journalctl', [
+    '-fu', 'charging-master-updater.service',
+    '--output=cat',
+    '--lines=100',
+    '--no-pager',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const send = (chunk: Buffer) => {
+        for (const line of chunk.toString('utf8').split('\n')) {
+          if (line) controller.enqueue(encoder.encode(`data: ${line}\n\n`));
+        }
+      };
+      proc.stdout.on('data', send);
+      proc.stderr.on('data', send);
+      proc.on('close', () => {
+        controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
+        controller.close();
+      });
+      request.signal.addEventListener('abort', () => {
+        proc.kill('SIGTERM');                         // critical: no zombie journalctl
+        controller.close();
+      });
+    },
+    cancel() { proc.kill('SIGTERM'); },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+```
+
+**Key correctness points (the pitfalls that bite people):**
+
+- **Process cleanup on disconnect:** `request.signal.addEventListener('abort', …)` plus `cancel()` in the stream. Without both, a browser refresh leaves a zombie `journalctl -f` running forever. Test this with `ps aux | grep journalctl` after closing the browser tab.
+- **`--output=cat`:** strips journald's `<timestamp> <host> <unit>:` prefix so the UI shows clean log lines. If the operator wants timestamps, format them client-side from the SSE event time.
+- **`--lines=100`:** shows the tail of the last run immediately on connect, so opening the page mid-update still works.
+- **Backpressure:** `ReadableStream` + Node streams handle this natively; `journalctl` respects SIGPIPE. We don't need a third-party stream library.
+- **`runtime = 'nodejs'`:** `spawn` is not available on the Edge runtime. Must be declared explicitly.
+- **`dynamic = 'force-dynamic'`:** prevents Next.js from trying to static-optimize the route.
+- **`X-Accel-Buffering: no`:** defensive header for any reverse proxy (nginx, Caddy) in front of the LXC. Not needed today (the app is reached directly on `:3000`) but free insurance.
+
+**Why not a library?** `tail-file`, `tail-stream`, `journalctl-parser` all exist. None is necessary: we tail a journald unit (not a file), and we don't parse — we relay raw lines. A library would be dead weight.
+
+### 7. What NOT to add — explicit "do not use" list
+
+| Package | Why it's tempting | Why it's wrong for this project |
+|---|---|---|
+| **`electron-updater`** | Famous "in-app updater" name | It's Electron-only (Squirrel, delta updates, code signing). We're a long-running Next.js server, not a desktop app. Completely irrelevant. |
+| **`update-notifier`** | Sounds like exactly our feature | Built for CLI tools to nag users to `npm install -g foo@latest` on startup. No pipeline, no rollback, no git, no systemd integration. |
+| **`pm2`** | "Zero-downtime reloads and auto-restart" | We already have systemd doing exactly that. PM2 layered on systemd is two process supervisors fighting each other. The milestone explicitly uses `systemctl restart`. |
+| **`pm2-runtime`** | Variant of the above for containers | Same reason. |
+| **`forever`** | Alternative to PM2 | Unmaintained (last release 2020). Same layering problem. |
+| **`@octokit/rest` / `@octokit/request`** | "Official" GitHub client | 300+ kB for one unauthenticated GET. Native `fetch` does the job in 20 lines. |
+| **`simple-git`** | Clean Promise API over git | Wraps the same binary we'd spawn directly; hides stdout/stderr we need for the SSE log; five transitive deps for zero capability gain. |
+| **`isomorphic-git`** | Pure-JS git, no binary needed | We already have the git binary on the LXC. Pure-JS git introduces pack-file edge cases and performance cliffs we don't want during a broken-deploy panic. |
+| **`nodegit`** | Native libgit2 bindings | Heavy native build step, frequently breaks on Node major upgrades, no advantage over shelling out. |
+| **`node-cron` / `cron` / `croner`** | "Industry standard" scheduler | Overkill for a single fixed 6-hour interval. `setInterval` is clearer and dependency-free. |
+| **`agenda`, `bree`, `bull`** | Job queue libraries | Require Redis/Mongo or a worker thread model. We have one scheduled task. Wrong scale. |
+| **`systemctl`** (the npm package) | Named like what we want | Tiny unmaintained wrapper around `child_process.exec('systemctl …')`. Adds nothing. |
+| **`node-systemd` / `sd-daemon`** | systemd integration | For writing services that notify systemd about readiness (`sd_notify`). Unrelated to triggering other units. |
+| **`tail-stream`, `tail-file`, `read-last-lines`** | Log tailing | We tail a journald unit, not a file. `journalctl -f` is the right tool. |
+| **`execa`** (9.6.1) | Nicer `child_process` ergonomics | We spawn exactly three commands (`systemctl`, `journalctl`, optionally `git`) in well-known shapes. Native `node:child_process` is fine and one less supply-chain dep. |
+| **`dotenv`** | Common env-loading helper | Next.js already loads `.env*` files natively. Adding dotenv creates dual-loading bugs. |
+| **`next-runtime-env`** | "Runtime" env vars for Next.js | Only needed when you can't rebuild between env changes. Our updater always rebuilds, so build-time `env` injection (section 4) is strictly better. |
 
 ## Installation
 
+The answer for this milestone is refreshingly boring:
+
 ```bash
-# Core dependencies
-pnpm add next@15 react@19 react-dom@19 mqtt@5 echarts@6 echarts-for-react@3 drizzle-orm better-sqlite3 zod server-only
-
-# Dev dependencies
-pnpm add -D typescript@5.9 @types/node @types/react @types/react-dom @types/better-sqlite3 drizzle-kit eslint eslint-config-next tsx
+# Nothing to install for v1.2.
+# All required tools are either (a) already in package.json or
+# (b) part of the Debian base system (git, systemctl, journalctl).
 ```
 
-## Project Structure
+Systemd unit to create (configuration, not code — included here because it's part of "stack"):
 
+```ini
+# /etc/systemd/system/charging-master-updater.service
+[Unit]
+Description=Charging-Master self-update pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/charging-master
+ExecStart=/opt/charging-master/scripts/update/run-update.sh
+StandardOutput=journal
+StandardError=journal
+# Inherit environment (PATH etc.) from the system; do not set User=
+# because the app and updater both run as root in this LXC.
+
+[Install]
+# Intentionally no [Install] section — this unit is never enabled,
+# it is only triggered on demand by `systemctl start`.
 ```
-src/
-  app/
-    page.tsx                          # Dashboard
-    api/
-      stream/route.ts                 # SSE endpoint (MQTT -> browser)
-      devices/route.ts                # Device CRUD
-      profiles/route.ts               # Charge profiles CRUD
-      sessions/route.ts               # Charging sessions
-  components/
-    charge-chart.tsx                   # ECharts real-time chart
-    device-card.tsx                    # Active device card
-    dashboard.tsx                      # Main dashboard layout
-  lib/
-    mqtt/
-      client.ts                       # Singleton MQTT client (server-only)
-      shelly.ts                       # Shelly-specific topic parsing
-    db/
-      client.ts                       # Drizzle + better-sqlite3
-      schema.ts                       # Drizzle schema
-    notifications/
-      pushover.ts                     # Pushover utility (native fetch)
-    charging/
-      curve-matching.ts               # Charge curve comparison
-      soc-estimator.ts                # SOC estimation from power data
-  db/
-    migrations/                       # Drizzle migrations
-```
+
+## Integration Points with the Existing Stack
+
+| Touch point | Existing file / module | What the self-update feature adds |
+|---|---|---|
+| `next.config.ts` | already present, 8 lines | +15 lines for `env` block reading git SHA + build time |
+| `instrumentation.ts` | does not exist yet | new file, ~10 lines, boots the 6 h scheduler |
+| `src/db/schema.ts` (Drizzle) | existing SQLite schema | + `update_state` table (singleton row) and `update_log` table (append-only) |
+| `src/modules/update/` | does not exist | new module: `github-client.ts`, `scheduler.ts`, `systemctl.ts`, `state.ts` |
+| `src/app/api/version/route.ts` | does not exist | reads `process.env.NEXT_PUBLIC_COMMIT_SHA` + build time; used by the post-restart browser poll |
+| `src/app/api/update/check/route.ts` | does not exist | force-runs a GitHub check on demand (UI "check now" button) |
+| `src/app/api/update/trigger/route.ts` | does not exist | spawns `systemctl start --no-block charging-master-updater.service` |
+| `src/app/api/update/log/route.ts` | does not exist | SSE stream of `journalctl -fu charging-master-updater` |
+| `src/app/(settings)/update/page.tsx` | does not exist | UI: current version, last check, update-available badge, update button, live log viewer |
+| `scripts/update/run-update.sh` | does not exist | the bash pipeline (git fetch/reset/install/build/restart) with rollback trap |
+
+## Flags for the Downstream Roadmap
+
+1. **`next.config.ts` git call must be fault-tolerant** — the `execSync('git rev-parse HEAD')` call runs during `next build`. If the updater is invoked in a detached worktree or mid-rebase, we want `'unknown'` instead of a build failure. The code above handles this with a try/catch.
+2. **The `--no-block` flag in `systemctl start` is load-bearing.** Omit it and the API route hangs, the HTTP client times out, and the UI thinks the update failed even though it succeeded. Add a test that asserts the spawn args include `--no-block`.
+3. **Rebuild is mandatory because `NEXT_PUBLIC_*` is build-time.** The updater must run `pnpm build` — skipping the build step would leave the UI reporting the old SHA even though `git reset` already moved HEAD. The pipeline must fail loudly if `pnpm build` is skipped.
+4. **Process cleanup on SSE disconnect is the #1 log-tailing foot-gun.** The implementation must handle `request.signal.abort` AND the `ReadableStream` `cancel()` callback, and must `proc.kill('SIGTERM')` in both. Add a smoke test that opens and closes an SSE connection 10 times and then counts `journalctl` processes.
+5. **Rollback must include rebuild.** Resetting the git SHA back is necessary but not sufficient — the previous `.next/` build artefacts from before the update have been overwritten by the failed `pnpm build`. The rollback trap in `run-update.sh` must re-run `pnpm install && pnpm build` against the old SHA before `systemctl restart`.
+6. **ETag persistence lives in SQLite, not memory.** The app restarts during every update, so in-memory ETag caches are useless. Store the ETag in `update_state` next to `last_known_remote_sha`.
+7. **GitHub call always sets `User-Agent` and `X-GitHub-Api-Version`.** Missing `User-Agent` gives a 403; missing API version means GitHub can silently change the response shape.
 
 ## Sources
 
-- [mqtt.js npm package](https://www.npmjs.com/package/mqtt) -- v5.15.1, verified March 2026
-- [mqtt.js GitHub](https://github.com/mqttjs/MQTT.js) -- TypeScript rewrite, MQTT 5.0 support
-- [Shelly Plug S Gen3 API docs](https://shelly-api-docs.shelly.cloud/gen2/Devices/Gen3/ShellyPlugSG3/)
-- [Shelly MQTT Component docs](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Mqtt)
-- [Shelly Switch Component docs](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/)
-- [Drizzle ORM SQLite docs](https://orm.drizzle.team/docs/get-started-sqlite) -- v0.45.1
-- [better-sqlite3 npm](https://www.npmjs.com/package/better-sqlite3) -- v12.8.0
-- [Apache ECharts 6.0 release](https://echarts.apache.org/handbook/en/basics/release-note/v6-feature/)
-- [echarts-for-react npm](https://www.npmjs.com/package/echarts-for-react) -- v3.0.6
-- [Pushover API documentation](https://pushover.net/api)
-- [Next.js SSE discussion](https://github.com/vercel/next.js/discussions/48427)
-- [SSE streaming in Next.js 15](https://hackernoon.com/streaming-in-nextjs-15-websockets-vs-server-sent-events)
+- [GitHub REST rate limits docs](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api) — confirms unauthenticated 60 req/h and that `304 Not Modified` does not consume budget
+- [Next.js environment variables guide](https://nextjs.org/docs/pages/guides/environment-variables) — canonical `NEXT_PUBLIC_*` inlining at build time
+- [vercel/next.js discussion #15849 — "Where to get my github commit SHA for sentry setup"](https://github.com/vercel/next.js/discussions/15849) — authoritative pattern for reading `git rev-parse HEAD` in `next.config.ts`
+- [vercel/next.js discussion #50181 — access build timestamps and git hash](https://github.com/vercel/next.js/discussions/50181) — same pattern, different motivation
+- [mqtt.js / Shelly unchanged — see existing STACK decisions in CLAUDE.md]
+- [npm: simple-git 3.35.2](https://www.npmjs.com/package/simple-git) — verified version and dep tree via `npm view simple-git` on 2026-04-10
+- [npm: @octokit/rest 22.0.1](https://www.npmjs.com/package/@octokit/rest) — verified version on 2026-04-10
+- [npm: isomorphic-git 1.37.5](https://www.npmjs.com/package/isomorphic-git) — verified version on 2026-04-10
+- [npm: croner 9.6.1](https://www.npmjs.com/package/croner) — verified version on 2026-04-10
+- [npm: node-cron 4.2.1](https://www.npmjs.com/package/node-cron) — verified version on 2026-04-10
+- [ArchWiki: Polkit](https://wiki.archlinux.org/title/Polkit) — reference for the (currently unneeded) non-root systemd trigger pattern
+- [systemd.exec / systemctl(1) man pages] — `--no-block` semantics for `systemctl start`
