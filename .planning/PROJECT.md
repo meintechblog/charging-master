@@ -8,16 +8,19 @@ Eine Web-App, die Ladevorgaenge von Akkus (E-Bike, iPad, etc.) ueber Shelly S3 P
 
 Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt — kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
 
-## Current Milestone: v1.1 MQTT raus, HTTP rein
+## Current Milestone: v1.2 Self-Update
 
-**Goal:** MQTT komplett entfernen und durch direkte HTTP-Kommunikation mit Shelly Plugs ersetzen — einfacher, zuverlässiger, kein Broker nötig.
+**Goal:** In-App-Update-Mechanismus, der neue Versionen aus dem GitHub-Repo automatisch erkennt und auf Knopfdruck einspielt — mit sauberem Restart und Auto-Rollback bei Fehler.
 
 **Target features:**
-- HTTP-Polling-Service als primäre Datenquelle (ersetzt MqttService)
-- Relay-Steuerung per Shelly HTTP API (statt MQTT publish)
-- Netzwerk-Scan für automatische Shelly-Erkennung (statt MQTT discovery)
-- MQTT-Abhängigkeiten komplett entfernen (mqtt.js, Broker-Config, MQTT-Settings UI)
-- Bestehende Funktionalität bleibt erhalten (EventBus, SSE, Charts, Charge-Monitor)
+- Versions-Awareness: App kennt ihren eigenen Commit-SHA und Build-Zeitpunkt
+- Background-Check alle 6h gegen GitHub API (`/repos/meintechblog/charging-master/commits/main`)
+- UI-Indicator in Settings: aktuelle Version, letzter Check, "Update verfügbar"-Badge
+- Update-Button stößt dedizierte `charging-master-updater.service` systemd-Unit an
+- Updater-Pipeline: git fetch/reset → pnpm install → pnpm build → systemctl restart
+- Auto-Rollback auf vorherigen HEAD-SHA bei Fehler in beliebigem Schritt
+- Live-Log des laufenden Updates in der UI (SSE-Stream aus journalctl)
+- Browser-Reconnect nach Restart: UI pollt `/api/version` bis neue Version antwortet, dann Auto-Reload
 
 ## Requirements
 
@@ -87,7 +90,7 @@ Frischer Debian LXC Container unter charging-master.local. Zugang: `ssh root@cha
 - **Kommunikation**: HTTP-API direkt zu Shelly Plugs (kein Broker noetig)
 - **Datenbank**: SQLite (kein DB-Server, Single-User, Performance)
 - **Design**: Modernes Dark Theme, sexy Echtzeit-Charts
-- **Netzwerk**: Lokales Netz, kein Internet-Zugang noetig
+- **Netzwerk**: Lokales Netz fuer Shelly-Kommunikation; Internet-Zugang fuer GitHub/npm zum Self-Update erforderlich
 - **Single-User**: Keine Authentifizierung
 - **Charts**: Apache ECharts — Echtzeit-Streaming, Smooth Animations, Overlay-Support
 
@@ -120,4 +123,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-09 — Milestone v1.1 started*
+*Last updated: 2026-04-10 — Milestone v1.2 started*
