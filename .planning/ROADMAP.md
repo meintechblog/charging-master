@@ -183,7 +183,12 @@ Plans:
   4. `trap ERR` triggers a two-stage rollback on any failure: Stage 1 does `git reset --hard <rollback-sha>` **followed by** `pnpm install --frozen-lockfile` and a full `rm -rf .next` + `pnpm build` before restart; if Stage 1 fails, Stage 2 extracts the pre-update tarball from `.update-state/snapshots/<old-sha>.tar.gz` and restarts
   5. After `systemctl start`, the script polls `http://localhost:3000/api/version` for up to 60s and only declares success if HTTP 200 returns with `sha === target-sha` AND `dbHealthy === true`; any other result triggers rollback and writes `rollback_happened=true` to `state.json`
   6. Pushover notification is sent from the shell script on both successful update (old SHA → new SHA) and failed update (which rollback stage ran, error message), and every run writes a row to `update_runs` with `start_at`, `end_at`, `from_sha`, `to_sha`, `status`, and `error`
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Drain endpoint (POST /api/internal/prepare-for-shutdown) + HttpPollingService.stopPolling() no-arg overload
+- [ ] 09-02-PLAN.md — run-update.sh pipeline + charging-master-updater.service + install.sh deployment updates
+- [ ] 09-03-PLAN.md — dry-run-helpers.sh dev harness + human verification of preflight/snapshot/drain/health_probe
 
 ### Phase 10: UI Integration & Restart Handoff
 **Goal**: A single click in the Settings UI carries the user through the entire update experience -- confirmation, live log, restart blackout, reconnect, success banner -- with rollback failures made loud and unmistakable on the next page load
@@ -213,5 +218,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. Device Discovery & MQTT Removal | v1.1 | 2/2 | Complete | - |
 | 7. Version Foundation & State Persistence | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
-| 9. Updater Pipeline & systemd Unit | v1.2 | 0/0 | Not started | - |
+| 9. Updater Pipeline & systemd Unit | v1.2 | 0/3 | Planned | - |
 | 10. UI Integration & Restart Handoff | v1.2 | 0/0 | Not started | - |
