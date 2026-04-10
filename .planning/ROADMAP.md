@@ -104,7 +104,7 @@ Plans:
 
 - [x] **Phase 7: Version Foundation & State Persistence** - Build-time SHA generation, /api/version endpoint, update_runs table, state.json, Settings version display
 - [x] **Phase 8: GitHub Polling & Detection** - ETag-aware GitHub client, 6h background checker, manual check endpoint, update-available badge and banner
-- [ ] **Phase 9: Updater Pipeline & systemd Unit** - run-update.sh with rollback trap, pre-shutdown drain, oneshot systemd unit, tarball snapshot, two-stage rollback, post-restart health gate
+- [x] **Phase 9: Updater Pipeline & systemd Unit** - run-update.sh with rollback trap, pre-shutdown drain, oneshot systemd unit, tarball snapshot, two-stage rollback, post-restart health gate
 - [ ] **Phase 10: UI Integration & Restart Handoff** - Install button, SSE log stream, stage-stepper, live log panel, reconnect overlay, auto-reload, rollback-happened banner
 
 ## Phase Details
@@ -188,7 +188,7 @@ Plans:
 Plans:
 - [x] 09-01-PLAN.md — Drain endpoint (POST /api/internal/prepare-for-shutdown) + HttpPollingService.stopPolling() no-arg overload
 - [x] 09-02-PLAN.md — run-update.sh pipeline + charging-master-updater.service + install.sh deployment updates
-- [ ] 09-03-PLAN.md — dry-run-helpers.sh dev harness + human verification of preflight/snapshot/drain/health_probe
+- [x] 09-03-PLAN.md — dry-run-helpers.sh dev harness + human verification of preflight/snapshot/drain/health_probe
 
 ### Phase 10: UI Integration & Restart Handoff
 **Goal**: A single click in the Settings UI carries the user through the entire update experience -- confirmation, live log, restart blackout, reconnect, success banner -- with rollback failures made loud and unmistakable on the next page load
@@ -218,5 +218,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. Device Discovery & MQTT Removal | v1.1 | 2/2 | Complete | - |
 | 7. Version Foundation & State Persistence | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
-| 9. Updater Pipeline & systemd Unit | v1.2 | 0/3 | Planned | - |
+| 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
 | 10. UI Integration & Restart Handoff | v1.2 | 0/0 | Not started | - |

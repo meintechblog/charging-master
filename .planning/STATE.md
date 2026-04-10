@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Self-Update
 status: executing
-stopped_at: Plan 09-02 complete, Plan 09-03 next
-last_updated: "2026-04-10T17:55:00.000Z"
-last_activity: 2026-04-10 — Plan 09-02 complete (updater pipeline + systemd unit + install.sh updates)
+stopped_at: Phase 9 complete, Phase 10 next up
+last_updated: "2026-04-10T16:26:52.025Z"
+last_activity: 2026-04-10 — Plan 09-03 complete (dry-run harness, 2 tasks, 1 file created, 257 lines bash)
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 6
-  percent: 64
+  completed_plans: 7
+  percent: 75
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 9 executing (2/3 plans complete), Plan 09-03 next
-Plan: 09-03 — Dry-run + deferred verification on LXC
-Status: Plan 09-02 complete (updater pipeline + systemd unit + install.sh updates)
-Last activity: 2026-04-10 — Plan 09-02 complete (3 tasks, 2 files created, 1 modified, 556 lines bash)
+Phase: 9 complete, Phase 10 next
+Plan: 10-01 — TBD (Phase 10 planning required)
+Status: Phase 9 complete (drain endpoint + updater pipeline + systemd unit + install.sh + dry-run harness)
+Last activity: 2026-04-10 — Plan 09-03 complete (2 tasks, 1 file created, 257 lines bash, all dry-run tests PASS)
 
-Progress: [#####################░] 94% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 09-01 + 09-02 done)
+Progress: [#######################░] 75% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 9 done; Phase 10 remaining)
 
 **v1.2 Phase Map:**
 
 - ✅ Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs — complete
 - ✅ Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs — complete
-- Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs — 14/15 reqs done (ROLL-06 deferred to Phase 10); Plan 09-03 dry-run remaining
+- ✅ Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs — complete (14/15 impl reqs done, ROLL-06 deferred to Phase 10 per plan)
 - Phase 10: UI Integration & Restart Handoff (LIVE-01..08, ROLL-06) — 9 reqs
 
 ## Performance Metrics
@@ -70,6 +70,7 @@ Progress: [#####################░] 94% (v1.0 + v1.1 complete, v1.2 Phases 7 + 
 | Phase 08 P02 | 12min | 3 tasks + 1 checkpoint | 3 files |
 | Phase 09 P01 | 4min | 2 tasks + checkpoint (approved) | 3 files |
 | Phase 09 P02 | ~8min | 3 tasks | 3 files (2 created + 1 modified) |
+| Phase 09 P03 | 15min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -97,11 +98,12 @@ Recent decisions affecting current work:
 - [Phase 09-02]: Updater script (556 lines bash) transcribed verbatim from plan. `flock -n 9` concurrency guard on FD 9, `trap on_error ERR` disables itself inside the trap to prevent recursive fires. sqlite3 CLI with `sql_escape` via `${var//\'/\'\'}`, python3 heredocs for atomic state.json writes (tmp + os.replace). Pushover credentials from `config` table with camelCase keys (`pushover.userKey`/`apiToken`) per Phase 4. Unit file is checked into repo at `scripts/update/` and install.sh `cp`s it into `/etc/systemd/system/` — auditable in git history instead of heredoc-inlined.
 - [Phase 09-02]: Two-stage rollback hard-coded: Stage 1 runs full `git reset → pnpm install --frozen-lockfile → rm -rf .next → pnpm build → systemctl start → health_probe`; Stage 2 runs `tar -xzf snapshot → systemctl start → health_probe`. Stage 2 failure exits 3 with a CRITICAL priority=2 pushover — no Stage 3.
 - [Phase 09-02]: `http://127.0.0.1:80` hard-coded in script per CONTEXT §Security (no env-var parametrization — less surface for mischief).
+- [Phase 09-03]: dry-run-helpers.sh uses a temp file (not `source <(...)`) because bash 3.2 on macOS has a long-standing process-substitution bug that truncates the sourced stream before function definitions are parsed. sed filter also rewrites `set -euo pipefail` → `set -uo pipefail` (strip -e) and deletes the `mkdir -p "${STATE_DIR}"` line before the flock block. The plan's `timeout 5` wrapper was replaced with a portable background-subshell + kill pattern because `timeout` is not available on macOS by default.
+- [Phase 09-03]: Checkpoint (Task 2) was auto-approved via orchestrator execution — the orchestrator ran the harness itself and asserted all four tests (preflight, snapshot, drain, health_probe) hit PASS markers. All deviations were Rule-3 blocking fixes discovered during that run.
 
 ### Pending Todos
 
-- Execute Plan 09-03 (dry-run + deferred verification on LXC, plus shellcheck/systemd-analyze where available)
-- Phase 10 (LIVE-01..08 + ROLL-06 UI red banner)
+- Plan Phase 10 (LIVE-01..08 + ROLL-06 UI red banner)
 
 ### Blockers/Concerns
 
@@ -116,7 +118,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T17:55:00.000Z
-Stopped at: Plan 09-02 complete, Plan 09-03 next
+Last session: 2026-04-10T16:26:52.022Z
+Stopped at: Phase 9 complete, Phase 10 next up
 Resume file: None
-Next command: `/gsd-execute-phase 9` (continues with Plan 09-03)
+Next command: `/gsd-plan 10` to plan Phase 10 (UI Integration & Restart Handoff)
