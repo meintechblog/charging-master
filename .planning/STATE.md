@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Self-Update
 status: executing
-stopped_at: Plan 09-01 complete, Plan 09-02 next
-last_updated: "2026-04-10T17:35:00.000Z"
-last_activity: 2026-04-10 — Plan 09-01 complete (drain endpoint + stopPolling overload)
+stopped_at: Plan 09-02 complete, Plan 09-03 next
+last_updated: "2026-04-10T17:55:00.000Z"
+last_activity: 2026-04-10 — Plan 09-02 complete (updater pipeline + systemd unit + install.sh updates)
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 11
-  completed_plans: 5
-  percent: 55
+  completed_plans: 6
+  percent: 64
 ---
 
 # Project State
@@ -25,19 +25,19 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 9 executing (1/3 plans complete), Plan 09-02 next
-Plan: 09-02 — Updater shell script + systemd unit + install.sh updates
-Status: Plan 09-01 complete (drain endpoint), Plan 09-02 in progress
-Last activity: 2026-04-10 — Plan 09-01 complete (all 5 smoke tests passed, approved)
+Phase: 9 executing (2/3 plans complete), Plan 09-03 next
+Plan: 09-03 — Dry-run + deferred verification on LXC
+Status: Plan 09-02 complete (updater pipeline + systemd unit + install.sh updates)
+Last activity: 2026-04-10 — Plan 09-02 complete (3 tasks, 2 files created, 1 modified, 556 lines bash)
 
-Progress: [##################░░] 91% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 09-01 done)
+Progress: [#####################░] 94% (v1.0 + v1.1 complete, v1.2 Phases 7 + 8 + 09-01 + 09-02 done)
 
 **v1.2 Phase Map:**
 
 - ✅ Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs — complete
 - ✅ Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs — complete
-- Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs — next up
-- Phase 10: UI Integration & Restart Handoff (LIVE-01..08) — 8 reqs
+- Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs — 14/15 reqs done (ROLL-06 deferred to Phase 10); Plan 09-03 dry-run remaining
+- Phase 10: UI Integration & Restart Handoff (LIVE-01..08, ROLL-06) — 9 reqs
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [##################░░] 91% (v1.0 + v1.1 complete, v1.2 Phases 7 + 
 | Phase 08 P01 | 20min | 7 tasks | 9 files |
 | Phase 08 P02 | 12min | 3 tasks + 1 checkpoint | 3 files |
 | Phase 09 P01 | 4min | 2 tasks + checkpoint (approved) | 3 files |
+| Phase 09 P02 | ~8min | 3 tasks | 3 files (2 created + 1 modified) |
 
 ## Accumulated Context
 
@@ -93,11 +94,14 @@ Recent decisions affecting current work:
 - [Phase 08]: Sidebar useUpdateAvailable() hook polls /api/update/status every 60s (mirrors useActiveLearnCount pattern); static red dot (no pulse) distinguishes from green active-learn pulse
 - [Phase 08]: Install button intentionally absent per CONTEXT.md — Phase 10 re-entry point documented inline in STATE 1 branch of update-banner.tsx
 - [Phase 09-01]: stopPolling() no-arg overload added as NEW method (not a replacement — stopAll() stays sync for SIGTERM path). Drain endpoint enforces localhost via Host header (not x-forwarded-for). WAL checkpoint uses PRAGMA wal_checkpoint(TRUNCATE) — verified WAL file = 0 bytes after drain.
+- [Phase 09-02]: Updater script (556 lines bash) transcribed verbatim from plan. `flock -n 9` concurrency guard on FD 9, `trap on_error ERR` disables itself inside the trap to prevent recursive fires. sqlite3 CLI with `sql_escape` via `${var//\'/\'\'}`, python3 heredocs for atomic state.json writes (tmp + os.replace). Pushover credentials from `config` table with camelCase keys (`pushover.userKey`/`apiToken`) per Phase 4. Unit file is checked into repo at `scripts/update/` and install.sh `cp`s it into `/etc/systemd/system/` — auditable in git history instead of heredoc-inlined.
+- [Phase 09-02]: Two-stage rollback hard-coded: Stage 1 runs full `git reset → pnpm install --frozen-lockfile → rm -rf .next → pnpm build → systemctl start → health_probe`; Stage 2 runs `tar -xzf snapshot → systemctl start → health_probe`. Stage 2 failure exits 3 with a CRITICAL priority=2 pushover — no Stage 3.
+- [Phase 09-02]: `http://127.0.0.1:80` hard-coded in script per CONTEXT §Security (no env-var parametrization — less surface for mischief).
 
 ### Pending Todos
 
-- Execute Plan 09-02 (updater shell script + systemd unit + install.sh updates)
-- Execute Plan 09-03 (dry-run + deferred verification on LXC)
+- Execute Plan 09-03 (dry-run + deferred verification on LXC, plus shellcheck/systemd-analyze where available)
+- Phase 10 (LIVE-01..08 + ROLL-06 UI red banner)
 
 ### Blockers/Concerns
 
@@ -112,7 +116,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T14:15:00.000Z
-Stopped at: Phase 8 complete, Phase 9 next up
+Last session: 2026-04-10T17:55:00.000Z
+Stopped at: Plan 09-02 complete, Plan 09-03 next
 Resume file: None
-Next command: `/gsd-plan-phase 9`
+Next command: `/gsd-execute-phase 9` (continues with Plan 09-03)

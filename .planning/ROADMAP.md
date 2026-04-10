@@ -186,8 +186,8 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — Drain endpoint (POST /api/internal/prepare-for-shutdown) + HttpPollingService.stopPolling() no-arg overload
-- [ ] 09-02-PLAN.md — run-update.sh pipeline + charging-master-updater.service + install.sh deployment updates
+- [x] 09-01-PLAN.md — Drain endpoint (POST /api/internal/prepare-for-shutdown) + HttpPollingService.stopPolling() no-arg overload
+- [x] 09-02-PLAN.md — run-update.sh pipeline + charging-master-updater.service + install.sh deployment updates
 - [ ] 09-03-PLAN.md — dry-run-helpers.sh dev harness + human verification of preflight/snapshot/drain/health_probe
 
 ### Phase 10: UI Integration & Restart Handoff

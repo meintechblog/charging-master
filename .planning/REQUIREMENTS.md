@@ -110,12 +110,12 @@ All 34 requirements shipped. See traceability below.
 
 ### Update Execution (EXEC)
 
-- [ ] **EXEC-01**: Install-Button startet Updater via `systemctl start --no-block charging-master-updater.service`
-- [ ] **EXEC-02**: Updater-Pipeline läuft in dieser Reihenfolge: tarball-snapshot → POST /prepare-for-shutdown → systemctl stop → git fetch + reset → pnpm install --frozen-lockfile → pnpm build → systemctl start → health-probe
-- [ ] **EXEC-03**: Pre-Update Tarball-Snapshot wird nach `.update-state/snapshots/<old-sha>.tar.gz` geschrieben
+- [x] **EXEC-01**: Install-Button startet Updater via `systemctl start --no-block charging-master-updater.service`
+- [x] **EXEC-02**: Updater-Pipeline läuft in dieser Reihenfolge: tarball-snapshot → POST /prepare-for-shutdown → systemctl stop → git fetch + reset → pnpm install --frozen-lockfile → pnpm build → systemctl start → health-probe
+- [x] **EXEC-03**: Pre-Update Tarball-Snapshot wird nach `.update-state/snapshots/<old-sha>.tar.gz` geschrieben
 - [x] **EXEC-04**: POST /api/internal/prepare-for-shutdown macht `PRAGMA wal_checkpoint(TRUNCATE)` und stoppt HttpPollingService graceful
-- [ ] **EXEC-05**: flock verhindert parallele Update-Läufe (Button-Doppelklick, gleichzeitiger Auto-Check)
-- [ ] **EXEC-06**: Pre-Flight-Check verifiziert Disk-Space (>500MB frei), pnpm-Version und Node-Version vor Start
+- [x] **EXEC-05**: flock verhindert parallele Update-Läufe (Button-Doppelklick, gleichzeitiger Auto-Check)
+- [x] **EXEC-06**: Pre-Flight-Check verifiziert Disk-Space (>500MB frei), pnpm-Version und Node-Version vor Start
 
 ### Live Feedback (LIVE)
 
@@ -130,18 +130,18 @@ All 34 requirements shipped. See traceability below.
 
 ### Rollback & Recovery (ROLL)
 
-- [ ] **ROLL-01**: Updater-Script hat `trap ERR` das bei jedem fehlgeschlagenen Schritt Rollback auslöst
-- [ ] **ROLL-02**: Rollback-Stufe 1: git reset --hard <rollback-sha> → pnpm install → pnpm build → systemctl start
-- [ ] **ROLL-03**: Rollback-Stufe 2 (wenn Stufe 1 fehlschlägt): Tarball-Snapshot extrahieren, dann restart
-- [ ] **ROLL-04**: Health-Probe nach Restart: bis zu 60s `/api/version` pollen; bei Fail Rollback triggern
-- [ ] **ROLL-05**: Rollback-Status wird in `.update-state/state.json` persistiert (damit UI beim nächsten Laden informieren kann)
+- [x] **ROLL-01**: Updater-Script hat `trap ERR` das bei jedem fehlgeschlagenen Schritt Rollback auslöst
+- [x] **ROLL-02**: Rollback-Stufe 1: git reset --hard <rollback-sha> → pnpm install → pnpm build → systemctl start
+- [x] **ROLL-03**: Rollback-Stufe 2 (wenn Stufe 1 fehlschlägt): Tarball-Snapshot extrahieren, dann restart
+- [x] **ROLL-04**: Health-Probe nach Restart: bis zu 60s `/api/version` pollen; bei Fail Rollback triggern
+- [x] **ROLL-05**: Rollback-Status wird in `.update-state/state.json` persistiert (damit UI beim nächsten Laden informieren kann)
 - [ ] **ROLL-06**: UI zeigt beim nächsten Seitenaufruf roten Banner "Update fehlgeschlagen, auf Version X zurückgerollt" wenn Rollback passiert ist
-- [ ] **ROLL-07**: Pushover-Benachrichtigung wird vom Updater-Script bei erfolgreichem und fehlgeschlagenem Update gesendet
+- [x] **ROLL-07**: Pushover-Benachrichtigung wird vom Updater-Script bei erfolgreichem und fehlgeschlagenem Update gesendet
 
 ### Infrastructure (INFR)
 
-- [ ] **INFR-01**: Neue systemd-Unit `charging-master-updater.service` (Type=oneshot) installiert von install.sh
-- [ ] **INFR-02**: Shell-Script `scripts/update/run-update.sh` enthält die komplette Update-Pipeline mit Rollback-Logik
+- [x] **INFR-01**: Neue systemd-Unit `charging-master-updater.service` (Type=oneshot) installiert von install.sh
+- [x] **INFR-02**: Shell-Script `scripts/update/run-update.sh` enthält die komplette Update-Pipeline mit Rollback-Logik
 - [x] **INFR-03**: Drizzle-Schema `update_runs` Tabelle loggt jeden Versuch (start_at, end_at, from_sha, to_sha, status, error)
 - [x] **INFR-04**: `.update-state/state.json` hält aktuellen SHA, Rollback-SHA, ETag, letzten Check, Update-Status
 
@@ -214,10 +214,11 @@ All 34 requirements shipped. See traceability below.
 | INFR-03 | Phase 7 | Complete |
 | INFR-04 | Phase 7 | Complete |
 | DETE-01..06 | Phase 8 | Complete |
-| EXEC-01..06 | Phase 9 | Pending |
-| ROLL-01..07 | Phase 9 | Pending |
-| INFR-01 | Phase 9 | Pending |
-| INFR-02 | Phase 9 | Pending |
+| EXEC-01..06 | Phase 9 | Complete |
+| ROLL-01..05, ROLL-07 | Phase 9 | Complete |
+| ROLL-06 | Phase 10 | Pending (UI banner reads state.json flag) |
+| INFR-01 | Phase 9 | Complete |
+| INFR-02 | Phase 9 | Complete |
 | LIVE-01..08 | Phase 10 | Pending |
 
 **Coverage:**
@@ -227,4 +228,4 @@ All 34 requirements shipped. See traceability below.
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-10 — Phase 8 complete (DETE-01..06 + all VERS/INFR-03/04 done)*
+*Last updated: 2026-04-10 — Plan 09-02 complete (EXEC-01..03, EXEC-05, EXEC-06, ROLL-01..05, ROLL-07, INFR-01, INFR-02 done)*
