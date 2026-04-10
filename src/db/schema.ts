@@ -122,3 +122,22 @@ export const sessionEvents = sqliteTable('session_events', {
   state: text('state').notNull(),
   timestamp: integer('timestamp').notNull(),
 });
+
+// --- Phase 7: Self-update audit log ---
+
+export const updateRuns = sqliteTable('update_runs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  startAt: integer('start_at', { mode: 'timestamp_ms' }).notNull(),
+  endAt: integer('end_at', { mode: 'timestamp_ms' }),
+  fromSha: text('from_sha').notNull(),
+  toSha: text('to_sha'),
+  status: text('status', {
+    enum: ['running', 'success', 'failed', 'rolled_back'] as const,
+  }).notNull(),
+  stage: text('stage'),
+  errorMessage: text('error_message'),
+  rollbackStage: text('rollback_stage'),
+});
+
+export type UpdateRunRow = typeof updateRuns.$inferSelect;
+export type NewUpdateRunRow = typeof updateRuns.$inferInsert;
