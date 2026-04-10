@@ -153,7 +153,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 07-01-PLAN.md — Version generation script, Drizzle update_runs migration, self-update module (types + UpdateStateStore with atomic writes)
+- [x] 07-01-PLAN.md — Version generation script, Drizzle update_runs migration, self-update module (types + UpdateStateStore with atomic writes)
 - [ ] 07-02-PLAN.md — GET /api/version with DB health probe, UpdateStateStore.init() boot wiring, VersionBadge on Settings page
 
 ### Phase 8: GitHub Polling & Detection

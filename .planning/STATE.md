@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Self-Update
-status: roadmap_complete
-stopped_at: Roadmap v1.2 complete, Phase 7 next up
-last_updated: "2026-04-10T00:00:00.000Z"
-last_activity: 2026-04-10
+milestone: v1.1
+milestone_name: MQTT raus, HTTP rein
+status: completed
+stopped_at: Completed 07-01-PLAN.md (Phase 7 wave 1)
+last_updated: "2026-04-10T12:42:14.114Z"
+last_activity: 2026-04-10 — Roadmap v1.2 mapped Phases 7-10
 progress:
-  total_phases: 4
+  total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -33,6 +33,7 @@ Last activity: 2026-04-10 — Roadmap v1.2 mapped Phases 7-10
 Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 planning)
 
 **v1.2 Phase Map:**
+
 - Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs
 - Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs
 - Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs
@@ -63,6 +64,7 @@ Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 plannin
 - Trend: Stable
 
 *Updated after each plan completion*
+| Phase 07 P01 | 3.5min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -79,6 +81,7 @@ Recent decisions affecting current work:
 - [v1.2 Roadmap]: Phase 9 can develop in parallel with Phase 8 but must deploy before Phase 10 (UI depends on the pipeline + SSE log endpoint existing)
 - [v1.2 Roadmap]: Two-stage rollback: Stage 1 = git reset + pnpm install + pnpm build + restart; Stage 2 = tarball extract + restart (escape hatch if Stage 1 itself fails)
 - [v1.2 Roadmap]: Post-restart health probe (HTTP 200 + SHA match + DB healthy) is the anti-"silent success" gate
+- [Phase 07]: Phase 7 foundation laid: generated version.ts (git-ignored), updateRuns Drizzle table + migration, UpdateStateStore with atomic tmp+rename writes; drizzle/ un-ignored bug fix
 
 ### Pending Todos
 
@@ -97,7 +100,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-10T00:00:00.000Z
-Stopped at: Roadmap v1.2 complete (Phases 7-10 mapped, 35/35 requirements covered)
-Resume file: .planning/ROADMAP.md
+Last session: 2026-04-10T12:42:14.111Z
+Stopped at: Completed 07-01-PLAN.md (Phase 7 wave 1)
+Resume file: None
 Next command: `/gsd-plan-phase 7`

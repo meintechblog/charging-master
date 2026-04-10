@@ -94,8 +94,8 @@ All 34 requirements shipped. See traceability below.
 
 ### Version Awareness (VERS)
 
-- [ ] **VERS-01**: App kennt ihren aktuellen Commit-SHA (aus `src/lib/version.ts`, generiert per Prebuild-Script)
-- [ ] **VERS-02**: App kennt ihren Build-Zeitpunkt (ISO timestamp, in derselben generierten Datei)
+- [x] **VERS-01**: App kennt ihren aktuellen Commit-SHA (aus `src/lib/version.ts`, generiert per Prebuild-Script)
+- [x] **VERS-02**: App kennt ihren Build-Zeitpunkt (ISO timestamp, in derselben generierten Datei)
 - [ ] **VERS-03**: GET /api/version liefert SHA (short + full), Build-Time, Rollback-SHA und Health-Status (DB probe)
 - [ ] **VERS-04**: Settings-Seite zeigt aktuelle Version prominent (short SHA sichtbar, full SHA auf Hover/Kopieren)
 
@@ -142,8 +142,8 @@ All 34 requirements shipped. See traceability below.
 
 - [ ] **INFR-01**: Neue systemd-Unit `charging-master-updater.service` (Type=oneshot) installiert von install.sh
 - [ ] **INFR-02**: Shell-Script `scripts/update/run-update.sh` enthält die komplette Update-Pipeline mit Rollback-Logik
-- [ ] **INFR-03**: Drizzle-Schema `update_runs` Tabelle loggt jeden Versuch (start_at, end_at, from_sha, to_sha, status, error)
-- [ ] **INFR-04**: `.update-state/state.json` hält aktuellen SHA, Rollback-SHA, ETag, letzten Check, Update-Status
+- [x] **INFR-03**: Drizzle-Schema `update_runs` Tabelle loggt jeden Versuch (start_at, end_at, from_sha, to_sha, status, error)
+- [x] **INFR-04**: `.update-state/state.json` hält aktuellen SHA, Rollback-SHA, ETag, letzten Check, Update-Status
 
 ## v2 Requirements (Deferred)
 
@@ -211,8 +211,8 @@ All 34 requirements shipped. See traceability below.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | VERS-01..04 | Phase 7 | Pending |
-| INFR-03 | Phase 7 | Pending |
-| INFR-04 | Phase 7 | Pending |
+| INFR-03 | Phase 7 | Complete |
+| INFR-04 | Phase 7 | Complete |
 | DETE-01..06 | Phase 8 | Pending |
 | EXEC-01..06 | Phase 9 | Pending |
 | ROLL-01..07 | Phase 9 | Pending |
