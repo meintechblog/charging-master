@@ -103,7 +103,7 @@ All 34 requirements shipped. See traceability below.
 
 - [x] **DETE-01**: Background-Check pollt alle 6h `GET /repos/meintechblog/charging-master/commits/main` über ETag-fähigen Client
 - [x] **DETE-02**: Check persistiert ETag in SQLite, nutzt `If-None-Match` für 304-Responses (kein Rate-Limit-Verbrauch)
-- [ ] **DETE-03**: Update-Verfügbarkeit erscheint als Badge im Settings-Nav-Eintrag
+- [x] **DETE-03**: Update-Verfügbarkeit erscheint als Badge im Settings-Nav-Eintrag
 - [x] **DETE-04**: "Jetzt prüfen" Button in Settings triggert sofortigen Check (mit Mindest-Cooldown 5 Min)
 - [x] **DETE-05**: Settings zeigt Zeitpunkt des letzten Checks und Ergebnis
 - [x] **DETE-06**: Verfügbares Update zeigt neuen SHA, Commit-Message, Autor und Commit-Datum
@@ -210,10 +210,10 @@ All 34 requirements shipped. See traceability below.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VERS-01..04 | Phase 7 | Pending |
+| VERS-01..04 | Phase 7 | Complete |
 | INFR-03 | Phase 7 | Complete |
 | INFR-04 | Phase 7 | Complete |
-| DETE-01..06 | Phase 8 | Pending |
+| DETE-01..06 | Phase 8 | Complete |
 | EXEC-01..06 | Phase 9 | Pending |
 | ROLL-01..07 | Phase 9 | Pending |
 | INFR-01 | Phase 9 | Pending |
@@ -227,4 +227,4 @@ All 34 requirements shipped. See traceability below.
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-10 — v1.2 roadmap mapped (Phases 7-10)*
+*Last updated: 2026-04-10 — Phase 8 complete (DETE-01..06 + all VERS/INFR-03/04 done)*

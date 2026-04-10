@@ -103,7 +103,7 @@ Plans:
 **Milestone Goal:** In-App-Update-Mechanismus, der neue Versionen aus dem GitHub-Repo automatisch erkennt und auf Knopfdruck einspielt -- mit sauberem Restart und Auto-Rollback bei Fehler.
 
 - [x] **Phase 7: Version Foundation & State Persistence** - Build-time SHA generation, /api/version endpoint, update_runs table, state.json, Settings version display
-- [ ] **Phase 8: GitHub Polling & Detection** - ETag-aware GitHub client, 6h background checker, manual check endpoint, update-available badge and banner
+- [x] **Phase 8: GitHub Polling & Detection** - ETag-aware GitHub client, 6h background checker, manual check endpoint, update-available badge and banner
 - [ ] **Phase 9: Updater Pipeline & systemd Unit** - run-update.sh with rollback trap, pre-shutdown drain, oneshot systemd unit, tarball snapshot, two-stage rollback, post-restart health gate
 - [ ] **Phase 10: UI Integration & Restart Handoff** - Install button, SSE log stream, stage-stepper, live log panel, reconnect overlay, auto-reload, rollback-happened banner
 
@@ -165,8 +165,12 @@ Plans:
   2. When the remote SHA differs from the baked-in `CURRENT_SHA`, an update-available badge appears on the Settings nav entry and a banner on `/settings/updates` shows the new SHA, commit message, author, and commit date
   3. A "Jetzt prüfen" button in Settings triggers an immediate check and is rate-limited server-side to at most once every 5 minutes
   4. The Settings page displays the timestamp of the last check and its outcome (up-to-date, update available, error)
-**Plans:** TBD
+**Plans:** 2 plans
 **UI hint**: yes
+
+Plans:
+- [x] 08-01-PLAN.md — Self-update types, ETag-aware GitHubClient, UpdateChecker singleton, /api/update/status and /api/update/check routes, server.ts boot wiring
+- [x] 08-02-PLAN.md — UpdateBanner client component with 5 render states, server-side initial fetch, sidebar red dot via useUpdateAvailable() hook
 
 ### Phase 9: Updater Pipeline & systemd Unit
 **Goal**: A single `systemctl start --no-block charging-master-updater.service` safely fetches, installs, builds, restarts and verifies the new version -- and auto-rolls-back to a working state on any failure, with every step observable via `journalctl`
@@ -208,6 +212,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. HTTP Communication | v1.1 | 2/2 | Complete | - |
 | 6. Device Discovery & MQTT Removal | v1.1 | 2/2 | Complete | - |
 | 7. Version Foundation & State Persistence | v1.2 | 2/2 | Complete | 2026-04-10 |
-| 8. GitHub Polling & Detection | v1.2 | 0/0 | Not started | - |
+| 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 9. Updater Pipeline & systemd Unit | v1.2 | 0/0 | Not started | - |
 | 10. UI Integration & Restart Handoff | v1.2 | 0/0 | Not started | - |
