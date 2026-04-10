@@ -210,18 +210,21 @@ All 34 requirements shipped. See traceability below.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VERS-01..04 | TBD | Pending |
-| DETE-01..06 | TBD | Pending |
-| EXEC-01..06 | TBD | Pending |
-| LIVE-01..08 | TBD | Pending |
-| ROLL-01..07 | TBD | Pending |
-| INFR-01..04 | TBD | Pending |
+| VERS-01..04 | Phase 7 | Pending |
+| INFR-03 | Phase 7 | Pending |
+| INFR-04 | Phase 7 | Pending |
+| DETE-01..06 | Phase 8 | Pending |
+| EXEC-01..06 | Phase 9 | Pending |
+| ROLL-01..07 | Phase 9 | Pending |
+| INFR-01 | Phase 9 | Pending |
+| INFR-02 | Phase 9 | Pending |
+| LIVE-01..08 | Phase 10 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 34 total, 34 complete
 - v1.1 requirements: 14 total, 14 complete
-- v1.2 requirements: 35 total, 0 mapped (awaiting roadmap)
+- v1.2 requirements: 35 total, 35 mapped (Phase 7: 6, Phase 8: 6, Phase 9: 15, Phase 10: 8)
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-10 — v1.2 Self-Update requirements added*
+*Last updated: 2026-04-10 — v1.2 roadmap mapped (Phases 7-10)*

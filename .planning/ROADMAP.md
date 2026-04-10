@@ -3,7 +3,8 @@
 ## Milestones
 
 - v1.0 MVP - Phases 1-4 (shipped 2026-04-09)
-- v1.1 MQTT raus, HTTP rein - Phases 5-6 (in progress)
+- v1.1 MQTT raus, HTTP rein - Phases 5-6 (complete)
+- v1.2 Self-Update - Phases 7-10 (planning)
 
 ## Phases
 
@@ -90,12 +91,21 @@ Plans:
 
 </details>
 
-### v1.1 MQTT raus, HTTP rein (In Progress)
+### v1.1 MQTT raus, HTTP rein (Complete)
 
 **Milestone Goal:** MQTT komplett entfernen und durch direkte HTTP-Kommunikation mit Shelly Plugs ersetzen -- einfacher, zuverlaessiger, kein Broker noetig.
 
-- [ ] **Phase 5: HTTP Communication** - HTTP polling service for power data, HTTP relay control, replacing the MQTT data path
-- [ ] **Phase 6: Device Discovery & MQTT Removal** - Network scan for Shelly discovery, complete removal of all MQTT code and dependencies
+- [x] **Phase 5: HTTP Communication** - HTTP polling service for power data, HTTP relay control, replacing the MQTT data path
+- [x] **Phase 6: Device Discovery & MQTT Removal** - Network scan for Shelly discovery, complete removal of all MQTT code and dependencies
+
+### v1.2 Self-Update (Planning)
+
+**Milestone Goal:** In-App-Update-Mechanismus, der neue Versionen aus dem GitHub-Repo automatisch erkennt und auf Knopfdruck einspielt -- mit sauberem Restart und Auto-Rollback bei Fehler.
+
+- [ ] **Phase 7: Version Foundation & State Persistence** - Build-time SHA generation, /api/version endpoint, update_runs table, state.json, Settings version display
+- [ ] **Phase 8: GitHub Polling & Detection** - ETag-aware GitHub client, 6h background checker, manual check endpoint, update-available badge and banner
+- [ ] **Phase 9: Updater Pipeline & systemd Unit** - run-update.sh with rollback trap, pre-shutdown drain, oneshot systemd unit, tarball snapshot, two-stage rollback, post-restart health gate
+- [ ] **Phase 10: UI Integration & Restart Handoff** - Install button, SSE log stream, stage-stepper, live log panel, reconnect overlay, auto-reload, rollback-happened banner
 
 ## Phase Details
 
@@ -130,10 +140,60 @@ Plans:
 - [x] 06-01-PLAN.md — HTTP subnet scanner, discovery API rewrite, discovery UI with scan button, IP required for registration
 - [x] 06-02-PLAN.md — Complete MQTT removal: delete module/routes/settings/globals/package dependency
 
+### Phase 7: Version Foundation & State Persistence
+**Goal**: The running app knows exactly which commit it is, exposes that over HTTP for health checks, and has durable cross-process state plumbing ready for the updater pipeline -- all without touching systemd yet
+**Depends on**: Phase 6
+**Requirements**: VERS-01, VERS-02, VERS-03, VERS-04, INFR-03, INFR-04
+**Success Criteria** (what must be TRUE):
+  1. `pnpm build` (and `pnpm dev`) regenerates `src/lib/version.ts` with the current short SHA, full SHA, and ISO build timestamp -- and that file is git-ignored
+  2. `GET /api/version` returns `{ sha, shaShort, buildTime, rollbackSha, dbHealthy }` in under 50ms, with `dbHealthy` reflecting a live SQLite probe
+  3. The Settings page shows the short SHA prominently; hovering reveals the full SHA and copies to clipboard on click
+  4. A fresh `.update-state/state.json` is created on first boot and can be read/written atomically via `UpdateStateStore` (tmp-file + rename), and Drizzle migrations create the `update_runs` table
+**Plans:** TBD
+**UI hint**: yes
+
+### Phase 8: GitHub Polling & Detection
+**Goal**: The app autonomously knows when a new commit lands on `main`, surfaces that awareness in the UI, and lets the user force an immediate check -- all without consuming GitHub's rate limit budget
+**Depends on**: Phase 7
+**Requirements**: DETE-01, DETE-02, DETE-03, DETE-04, DETE-05, DETE-06
+**Success Criteria** (what must be TRUE):
+  1. An `UpdateChecker` singleton booted from `server.ts main()` polls `GET /repos/meintechblog/charging-master/commits/main` every 6 hours and persists the returned ETag in `state.json`; subsequent polls send `If-None-Match` and correctly handle 304 (no rate-limit consumption)
+  2. When the remote SHA differs from the baked-in `CURRENT_SHA`, an update-available badge appears on the Settings nav entry and a banner on `/settings/updates` shows the new SHA, commit message, author, and commit date
+  3. A "Jetzt prüfen" button in Settings triggers an immediate check and is rate-limited server-side to at most once every 5 minutes
+  4. The Settings page displays the timestamp of the last check and its outcome (up-to-date, update available, error)
+**Plans:** TBD
+**UI hint**: yes
+
+### Phase 9: Updater Pipeline & systemd Unit
+**Goal**: A single `systemctl start --no-block charging-master-updater.service` safely fetches, installs, builds, restarts and verifies the new version -- and auto-rolls-back to a working state on any failure, with every step observable via `journalctl`
+**Depends on**: Phase 7 (can develop in parallel with Phase 8; must deploy before Phase 10)
+**Requirements**: EXEC-01, EXEC-02, EXEC-03, EXEC-04, EXEC-05, EXEC-06, ROLL-01, ROLL-02, ROLL-03, ROLL-04, ROLL-05, ROLL-06, ROLL-07, INFR-01, INFR-02
+**Success Criteria** (what must be TRUE):
+  1. `install.sh` installs `/etc/systemd/system/charging-master-updater.service` as a `Type=oneshot` sibling unit, and `systemctl start --no-block charging-master-updater.service` returns instantly (verified by the triggering API route not blocking)
+  2. `scripts/update/run-update.sh` runs the full pipeline in order (pre-flight checks → tarball snapshot → `POST /api/internal/prepare-for-shutdown` → `systemctl stop` → `git fetch` + `git reset --hard` → `pnpm install --frozen-lockfile` → `rm -rf .next` + `pnpm build` → `systemctl start` → health-probe) with `flock` preventing concurrent runs, and pre-flight fails fast if <500MB disk, wrong pnpm/Node, or dirty git tree
+  3. `POST /api/internal/prepare-for-shutdown` completes a `PRAGMA wal_checkpoint(TRUNCATE)` and gracefully stops `HttpPollingService` before the script proceeds to `systemctl stop` -- verified by no new writes hitting the DB between checkpoint and stop
+  4. `trap ERR` triggers a two-stage rollback on any failure: Stage 1 does `git reset --hard <rollback-sha>` **followed by** `pnpm install --frozen-lockfile` and a full `rm -rf .next` + `pnpm build` before restart; if Stage 1 fails, Stage 2 extracts the pre-update tarball from `.update-state/snapshots/<old-sha>.tar.gz` and restarts
+  5. After `systemctl start`, the script polls `http://localhost:3000/api/version` for up to 60s and only declares success if HTTP 200 returns with `sha === target-sha` AND `dbHealthy === true`; any other result triggers rollback and writes `rollback_happened=true` to `state.json`
+  6. Pushover notification is sent from the shell script on both successful update (old SHA → new SHA) and failed update (which rollback stage ran, error message), and every run writes a row to `update_runs` with `start_at`, `end_at`, `from_sha`, `to_sha`, `status`, and `error`
+**Plans:** TBD
+
+### Phase 10: UI Integration & Restart Handoff
+**Goal**: A single click in the Settings UI carries the user through the entire update experience -- confirmation, live log, restart blackout, reconnect, success banner -- with rollback failures made loud and unmistakable on the next page load
+**Depends on**: Phase 7, Phase 8, Phase 9
+**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04, LIVE-05, LIVE-06, LIVE-07, LIVE-08
+**Success Criteria** (what must be TRUE):
+  1. The Install button opens a confirmation modal; on confirm it POSTs to the trigger endpoint, stores the expected target SHA in localStorage, and the UI immediately switches to the stage-stepper + live-log view
+  2. `GET /api/update/log` streams `journalctl -fu charging-master-updater` live via SSE, and its `journalctl` child process is reliably killed on **both** `request.signal.abort` AND the ReadableStream `cancel()` callback (verified by no orphan `journalctl` processes after the user closes the tab)
+  3. The stage-stepper advances through Snapshot → Drain → Stop → Fetch → Install → Build → Start → Verify as the updater emits `::STAGE::` sentinel lines, and the live-log panel auto-scrolls with monospace terminal styling
+  4. When the SSE connection drops during restart, a reconnect overlay appears and polls `/api/version` every 2s; on SHA-change the page auto-reloads and shows a green success banner with old-SHA → new-SHA; after 90s without SHA change it shows an error with an SSH hint to run `journalctl -u charging-master-updater`
+  5. If `state.json` has `rollback_happened=true` on the next page load, a persistent red banner appears saying "Update fehlgeschlagen, auf Version X zurückgerollt" with a link to the run log, and the banner can be dismissed (which clears the flag)
+**Plans:** TBD
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -141,5 +201,9 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Real-Time Visualization | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 3. Charge Intelligence | v1.0 | 5/5 | Complete | 2026-04-09 |
 | 4. Notifications & History | v1.0 | 3/3 | Complete | 2026-04-09 |
-| 5. HTTP Communication | v1.1 | 0/2 | Not started | - |
-| 6. Device Discovery & MQTT Removal | v1.1 | 0/2 | Not started | - |
+| 5. HTTP Communication | v1.1 | 2/2 | Complete | - |
+| 6. Device Discovery & MQTT Removal | v1.1 | 2/2 | Complete | - |
+| 7. Version Foundation & State Persistence | v1.2 | 0/0 | Not started | - |
+| 8. GitHub Polling & Detection | v1.2 | 0/0 | Not started | - |
+| 9. Updater Pipeline & systemd Unit | v1.2 | 0/0 | Not started | - |
+| 10. UI Integration & Restart Handoff | v1.2 | 0/0 | Not started | - |

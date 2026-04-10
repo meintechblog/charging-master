@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Self-Update
-status: defining_requirements
-stopped_at: Milestone v1.2 started
+status: roadmap_complete
+stopped_at: Roadmap v1.2 complete, Phase 7 next up
 last_updated: "2026-04-10T00:00:00.000Z"
 last_activity: 2026-04-10
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,16 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt -- kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
-**Current focus:** Milestone v1.2 -- Self-Update (defining requirements)
+**Current focus:** Milestone v1.2 -- Self-Update (roadmap complete, ready for Phase 7 planning)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 7 — Version Foundation & State Persistence (next up)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-10 — Milestone v1.2 started
+Status: Roadmap complete, ready for `/gsd-plan-phase 7`
+Last activity: 2026-04-10 — Roadmap v1.2 mapped Phases 7-10
 
-Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 starting)
+Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 planning)
+
+**v1.2 Phase Map:**
+- Phase 7: Version Foundation & State Persistence (VERS-01..04, INFR-03, INFR-04) — 6 reqs
+- Phase 8: GitHub Polling & Detection (DETE-01..06) — 6 reqs
+- Phase 9: Updater Pipeline & systemd Unit (EXEC-01..06, ROLL-01..07, INFR-01, INFR-02) — 15 reqs
+- Phase 10: UI Integration & Restart Handoff (LIVE-01..08) — 8 reqs
 
 ## Performance Metrics
 
@@ -65,14 +71,18 @@ Progress: [################░░░░] 80% (v1.0 + v1.1 complete, v1.2 startin
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [v1.1 Roadmap]: 2-phase structure -- Phase 5 (HTTP polling + relay) then Phase 6 (discovery + MQTT cleanup)
-- [v1.1 Roadmap]: Existing MqttService.startHttpPolling code can be extracted into standalone HttpPollingService
-- [v1.1 Roadmap]: EventBus and SSE endpoint stay unchanged -- only the data source changes
-- [v1.1 Roadmap]: relay-controller.ts HTTP fallback becomes primary path
+- [v1.2 Roadmap]: 4-phase structure -- Phase 7 (version foundation + state) → Phase 8 (GitHub polling) → Phase 9 (updater pipeline + systemd) → Phase 10 (UI integration)
+- [v1.2 Roadmap]: In-place git-reset update strategy (NOT symlink-swap); tarball snapshot is the rollback escape hatch
+- [v1.2 Roadmap]: WAL checkpoint via `POST /api/internal/prepare-for-shutdown` is mandatory before `systemctl stop` (correctness concern for active charge sessions)
+- [v1.2 Roadmap]: `charging-master-updater.service` as `Type=oneshot` sibling unit; triggered via `systemctl start --no-block` (solves the parent-kill problem)
+- [v1.2 Roadmap]: Generated `src/lib/version.ts` (git-ignored) is single source of truth for server + client; NOT `NEXT_PUBLIC_*` env vars
+- [v1.2 Roadmap]: Phase 9 can develop in parallel with Phase 8 but must deploy before Phase 10 (UI depends on the pipeline + SSE log endpoint existing)
+- [v1.2 Roadmap]: Two-stage rollback: Stage 1 = git reset + pnpm install + pnpm build + restart; Stage 2 = tarball extract + restart (escape hatch if Stage 1 itself fails)
+- [v1.2 Roadmap]: Post-restart health probe (HTTP 200 + SHA match + DB healthy) is the anti-"silent success" gate
 
 ### Pending Todos
 
-None yet.
+- Plan Phase 7 via `/gsd-plan-phase 7`
 
 ### Blockers/Concerns
 
@@ -87,6 +97,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-09T22:55:58.857Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-device-discovery-mqtt-removal/06-CONTEXT.md
+Last session: 2026-04-10T00:00:00.000Z
+Stopped at: Roadmap v1.2 complete (Phases 7-10 mapped, 35/35 requirements covered)
+Resume file: .planning/ROADMAP.md
+Next command: `/gsd-plan-phase 7`
