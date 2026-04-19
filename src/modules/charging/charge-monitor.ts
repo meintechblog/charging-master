@@ -505,7 +505,14 @@ export class ChargeMonitor {
   }
 
   private updateSocTracking(plugId: string, reading: PowerReading): void {
-    const startEnergy = this.sessionStartEnergy.get(plugId) ?? reading.totalEnergy;
+    // Lazy-init the baseline so resumed sessions (which skip the 'detecting'
+    // transition that normally sets sessionStartEnergy) still get a stable
+    // anchor for their Wh delta. Without this, currentWh stays 0 forever.
+    let startEnergy = this.sessionStartEnergy.get(plugId);
+    if (startEnergy === undefined) {
+      startEnergy = reading.totalEnergy;
+      this.sessionStartEnergy.set(plugId, startEnergy);
+    }
     const currentWh = reading.totalEnergy - startEnergy;
     this.sessionWh.set(plugId, currentWh);
 
