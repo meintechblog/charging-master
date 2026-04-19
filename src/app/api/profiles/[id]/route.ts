@@ -61,8 +61,13 @@ export async function GET(
     .where(eq(chargeSessions.profileId, profileId))
     .get();
   const sessionCount = sessionCountRow?.c ?? 0;
-  const cyclesUsed = profile.capacityWh && profile.capacityWh > 0
-    ? totalDeliveredWh / profile.capacityWh
+  // Prefer the measured reference-curve total Wh as "per cycle" because it
+  // already reflects real-world charging losses end-to-end. Fall back to
+  // user-entered capacityWh (which is net battery capacity, underestimates
+  // cycles when charging losses are significant).
+  const perCycleWh = curve?.totalEnergyWh ?? profile.capacityWh;
+  const cyclesUsed = perCycleWh && perCycleWh > 0
+    ? totalDeliveredWh / perCycleWh
     : null;
 
   return Response.json({
