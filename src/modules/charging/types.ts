@@ -51,4 +51,7 @@ export interface ChargeStateEvent {
   estimatedSoc?: number;
   targetSoc?: number;
   sessionId?: number;
+  // True once detection buffer hit MAX_DETECTION_READINGS without a match.
+  // UI uses this to distinguish "still detecting" from "detection failed".
+  detectionExhausted?: boolean;
 }

@@ -59,8 +59,10 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
       dismissedUnknownRef.current = false;
     }
 
-    // Show unknown device dialog when detecting without a match (only if not dismissed)
-    if (event.state === 'detecting' && !event.profileId && !dismissedUnknownRef.current) {
+    // Only surface UnknownDeviceDialog after the detection buffer is exhausted
+    // (MAX_DETECTION_READINGS without match). Before that, the banner's own
+    // "Gerät wird erkannt..." spinner communicates in-progress detection.
+    if (event.state === 'detecting' && event.detectionExhausted && !event.profileId && !dismissedUnknownRef.current) {
       setShowUnknown(true);
     } else if (event.state !== 'detecting' || event.profileId) {
       setShowUnknown(false);

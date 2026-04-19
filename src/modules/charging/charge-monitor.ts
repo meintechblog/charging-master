@@ -265,9 +265,10 @@ export class ChargeMonitor {
         this.tryMatch(plugId, buffer, timestamp);
       }
 
-      // If still detecting after max readings, emit unknown device
+      // Once detection exhausts buffer without match, emit with detectionExhausted
+      // flag so UI switches from "detecting..." spinner to UnknownDeviceDialog.
       if (buffer.length >= MAX_DETECTION_READINGS && machine.state === 'detecting') {
-        this.emitChargeEvent(plugId, 'detecting');
+        this.emitChargeEvent(plugId, 'detecting', true);
       }
     }
 
@@ -519,7 +520,7 @@ export class ChargeMonitor {
     }
   }
 
-  private emitChargeEvent(plugId: string, state: ChargeState): void {
+  private emitChargeEvent(plugId: string, state: ChargeState, detectionExhausted = false): void {
     const machine = this.machines.get(plugId);
     const match = this.matchData.get(plugId);
     const sessionId = this.sessionIds.get(plugId);
@@ -533,6 +534,7 @@ export class ChargeMonitor {
       estimatedSoc: machine?.estimatedSoc,
       targetSoc: machine?.targetSoc,
       sessionId,
+      detectionExhausted,
     };
 
     this.eventBus.emitChargeState(event);
