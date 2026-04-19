@@ -530,12 +530,15 @@ export class ChargeMonitor {
       this.sessionStartEnergy.set(plugId, startEnergy);
       this.sessionPriorEnergyWh.delete(plugId);
     }
-    // socBaseline separately tracks the anchor for SOC math (shifts on
-    // estimatedSoc overrides so the SOC value retargets cleanly). If it's
-    // missing (e.g. freshly-resumed session), default to session start.
+    // socBaseline anchors SOC math; shifts on estimatedSoc overrides so SOC
+    // retargets cleanly. On resume (or any other first-access) it MUST default
+    // to the CURRENT reading.totalEnergy, not to startEnergy — because
+    // match.estimatedStartSoc reflects the last-known SOC, not the SOC at
+    // session start. Anchoring here keeps socWh = 0 initially so SOC doesn't
+    // jump forward by the entire session's accumulated energy.
     let socBaseline = this.socBaselineEnergy.get(plugId);
     if (socBaseline === undefined) {
-      socBaseline = startEnergy;
+      socBaseline = reading.totalEnergy;
       this.socBaselineEnergy.set(plugId, socBaseline);
     }
 
@@ -753,15 +756,19 @@ export class ChargeMonitor {
       this.sessionWh.set(session.plugId, session.energyWh ?? 0);
       this.sessionStartedAt.set(session.plugId, session.startedAt);
       if (session.startTotalEnergy != null) {
-        // Authoritative: totalEnergy at session start. sessionWh from here on
-        // is computed directly via reading.totalEnergy - sessionStartEnergy.
+        // Display anchor: totalEnergy at session start. sessionWh from here on
+        // is computed as reading.totalEnergy - sessionStartEnergy.
         this.sessionStartEnergy.set(session.plugId, session.startTotalEnergy);
-        this.socBaselineEnergy.set(session.plugId, session.startTotalEnergy);
       } else {
-        // Legacy fallback for pre-migration sessions (like session 5):
-        // recover the anchor from the last-saved energyWh delta.
+        // Legacy fallback for pre-migration sessions: recover the session
+        // anchor from the last-saved energyWh delta on first reading.
         this.sessionPriorEnergyWh.set(session.plugId, session.energyWh ?? 0);
       }
+      // NOTE: socBaselineEnergy is intentionally NOT set here. On resume,
+      // match.estimatedStartSoc is the LAST known SOC (not the session start
+      // SOC), so socBaseline must anchor at the NEXT reading's totalEnergy so
+      // socWh starts at 0 and SOC tracks forward from the saved value. The
+      // lazy-init in updateSocTracking handles this correctly.
 
       // Restore learn tracking maps from DB for learning sessions
       if (session.state === 'learning') {
