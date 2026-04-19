@@ -59,4 +59,8 @@ export interface ChargeStateEvent {
   // Estimated seconds until estimatedSoc reaches targetSoc at current draw.
   // Only populated during charging/countdown with a matched profile.
   etaSeconds?: number;
+  // Wh consumed in the current session so far.
+  energyChargedWh?: number;
+  // Wh still needed to reach targetSoc from current estimated SOC.
+  energyRemainingWh?: number;
 }

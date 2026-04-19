@@ -25,7 +25,15 @@ type SessionState = {
   sessionId?: number;
   elapsedMs?: number;
   etaSeconds?: number;
+  energyChargedWh?: number;
+  energyRemainingWh?: number;
 };
+
+function formatWh(wh: number | undefined): string {
+  if (wh == null || !Number.isFinite(wh)) return '--';
+  if (wh < 10) return `${wh.toFixed(1)} Wh`;
+  return `${Math.round(wh)} Wh`;
+}
 
 function formatDuration(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '--';
@@ -80,7 +88,12 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   useEffect(() => {
     fetch('/api/profiles')
       .then((res) => res.json())
-      .then((data: { profiles: Profile[] }) => setProfiles(data.profiles ?? []))
+      .then((data: Profile[] | { profiles: Profile[] }) => {
+        // /api/profiles returns an array directly; UnknownDeviceDialog
+        // callers may also have assumed a wrapped shape — accept both.
+        const list = Array.isArray(data) ? data : (data.profiles ?? []);
+        setProfiles(list);
+      })
       .catch(() => {});
   }, []);
 
@@ -95,6 +108,8 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
       sessionId: event.sessionId,
       elapsedMs: event.elapsedMs,
       etaSeconds: event.etaSeconds,
+      energyChargedWh: event.energyChargedWh,
+      energyRemainingWh: event.energyRemainingWh,
     });
 
     // Reset dismissed flag when transitioning from idle to a new detection
@@ -259,175 +274,182 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
 
   // Active states: matched, charging, countdown
   const isCountdown = session.state === 'countdown';
+  const accent = isCountdown ? 'border-amber-500' : 'border-blue-500';
+  const fill = isCountdown ? 'bg-amber-400' : 'bg-blue-500';
+  const progressPct = session.estimatedSoc != null && session.targetSoc != null
+    ? Math.min(100, (session.estimatedSoc / session.targetSoc) * 100)
+    : 0;
 
   return (
-    <div className="bg-neutral-800 border-l-4 border-blue-500 rounded-lg p-4">
-      <PlugIdentity plugName={plugName} plugIp={plugIp} />
-      {/* Header info */}
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="text-sm font-medium text-neutral-100">
-            {session.profileName ?? 'Unbekannt'} erkannt
-            {session.confidence != null && (
-              <span className="text-neutral-400 ml-1">
-                ({Math.round(session.confidence * 100)} % Konfidenz)
-              </span>
-            )}
-          </p>
-          <p className="text-xs text-neutral-400 mt-0.5">
-            Ladevorgang gestartet, Ziel: {session.targetSoc ?? '--'}%
-          </p>
-          {(session.elapsedMs != null || session.etaSeconds != null) && (
-            <p className="text-xs text-neutral-500 mt-1 tabular-nums flex gap-3">
-              {session.elapsedMs != null && (
-                <span>
-                  Läuft seit <span className="text-neutral-300">{formatDuration(session.elapsedMs / 1000)}</span>
-                </span>
-              )}
-              {session.etaSeconds != null && session.etaSeconds > 0 && (
-                <span>
-                  Noch ca. <span className="text-neutral-300">{formatDuration(session.etaSeconds)}</span>
-                </span>
-              )}
-            </p>
-          )}
-        </div>
-
-        {/* Abort button */}
+    <div className={`bg-neutral-900/80 border ${accent.replace('border-', 'border-')} border-t-0 rounded-b-lg px-5 py-4 -mt-px`}>
+      {/* Row 1: plug identity (compact) + abort */}
+      <div className="flex items-center justify-between">
+        <PlugIdentity plugName={plugName} plugIp={plugIp} />
         <button
           onClick={handleAbort}
-          className="text-xs text-red-400 hover:text-red-300 transition-colors whitespace-nowrap"
+          className="text-xs text-neutral-500 hover:text-red-400 transition-colors whitespace-nowrap"
         >
-          {confirmAbort ? 'Wirklich abbrechen?' : 'Abbrechen'}
+          {confirmAbort ? 'Wirklich abbrechen?' : '× Abbrechen'}
         </button>
       </div>
 
-      {/* SOC display */}
-      <div className="flex items-center gap-4 mb-3">
-        {isCountdown && session.estimatedSoc != null && session.targetSoc != null ? (
+      {/* Row 2: profile name + optional confidence subtitle */}
+      <div className="mt-1 mb-4">
+        <div className="text-base font-semibold text-neutral-100">
+          {session.profileName ?? 'Unbekannt'}
+        </div>
+        {session.confidence != null && session.confidence > 0 && session.confidence < 1 && (
+          <div className="text-[11px] text-neutral-500 mt-0.5">
+            {Math.round(session.confidence * 100)} % Konfidenz
+          </div>
+        )}
+      </div>
+
+      {/* Row 3: big SOC number + progress bar + target marker */}
+      {isCountdown && session.estimatedSoc != null && session.targetSoc != null ? (
+        <div className="mb-4">
           <CountdownDisplay
             estimatedSoc={session.estimatedSoc}
             targetSoc={session.targetSoc}
           />
-        ) : (
-          <>
-            {/* Large SOC text */}
-            <span className="text-3xl font-bold text-neutral-100 tabular-nums">
-              {session.estimatedSoc ?? '--'}%
+        </div>
+      ) : (
+        <div className="mb-4">
+          <div className="flex items-baseline gap-2 mb-2 tabular-nums">
+            <span className="text-4xl font-bold text-neutral-100">
+              {session.estimatedSoc ?? '--'}
             </span>
+            <span className="text-lg text-neutral-500">%</span>
+            <span className="ml-auto text-xs text-neutral-500">
+              Ziel {session.targetSoc ?? '--'} %
+            </span>
+          </div>
+          <div className="relative h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${fill} rounded-full transition-all duration-1000 ease-linear`}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+      )}
 
-            {/* Progress bar */}
-            {session.estimatedSoc != null && session.targetSoc != null && (
-              <div className="flex-1 h-2 bg-neutral-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
-                  style={{
-                    width: `${Math.min(100, (session.estimatedSoc / session.targetSoc) * 100)}%`,
-                  }}
-                />
-              </div>
-            )}
-          </>
+      {/* Row 4: metrics strip — Wh charged · Wh remaining · elapsed · eta */}
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-neutral-400 tabular-nums">
+        {session.energyChargedWh != null && (
+          <span>
+            <span className="text-neutral-200">{formatWh(session.energyChargedWh)}</span>
+            <span className="text-neutral-500 ml-1">geladen</span>
+          </span>
+        )}
+        {session.energyRemainingWh != null && session.energyRemainingWh > 0 && (
+          <span>
+            <span className="text-neutral-200">{formatWh(session.energyRemainingWh)}</span>
+            <span className="text-neutral-500 ml-1">fehlen</span>
+          </span>
+        )}
+        {session.elapsedMs != null && (
+          <span>
+            <span className="text-neutral-500">seit</span>{' '}
+            <span className="text-neutral-200">{formatDuration(session.elapsedMs / 1000)}</span>
+          </span>
+        )}
+        {session.etaSeconds != null && session.etaSeconds > 0 && (
+          <span>
+            <span className="text-neutral-500">noch ca.</span>{' '}
+            <span className="text-neutral-200">{formatDuration(session.etaSeconds)}</span>
+          </span>
         )}
       </div>
 
-      {/* Override controls */}
-      <div className="flex flex-col gap-2 border-t border-neutral-700 pt-3">
-        {/* Current SOC override — rebases tracking baseline to user-supplied value */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500 shrink-0">Aktueller SOC:</span>
-          {!editingSoc ? (
-            <button
-              onClick={() => {
-                setEditingSoc(true);
-                setSocInput(String(session.estimatedSoc ?? 0));
+      {/* Row 5: inline controls — lazy-expand per group */}
+      <div className="mt-3 pt-3 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-500">
+        {/* SOC korrigieren */}
+        {!editingSoc ? (
+          <button
+            onClick={() => {
+              setEditingSoc(true);
+              setSocInput(String(session.estimatedSoc ?? 0));
+              setSocError(null);
+            }}
+            className="text-neutral-400 hover:text-blue-400 transition-colors underline-offset-2 hover:underline"
+          >
+            SOC korrigieren
+          </button>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmitEstimatedSoc(socInput);
+            }}
+            className="flex items-center gap-1"
+          >
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={socInput}
+              onChange={(e) => {
+                setSocInput(e.target.value);
                 setSocError(null);
               }}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              {session.estimatedSoc ?? '--'}% korrigieren
-            </button>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleSubmitEstimatedSoc(socInput);
-              }}
-              className="flex items-center gap-1"
-            >
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={socInput}
-                onChange={(e) => {
-                  setSocInput(e.target.value);
-                  setSocError(null);
-                }}
-                autoFocus
-                className="w-16 px-2 py-0.5 text-xs bg-neutral-900 border border-neutral-700 rounded text-neutral-100 focus:outline-none focus:border-blue-500"
-              />
-              <span className="text-xs text-neutral-500">%</span>
-              <button
-                type="submit"
-                className="px-2 py-0.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
-              >
-                OK
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingSoc(false);
-                  setSocInput('');
-                  setSocError(null);
-                }}
-                className="px-2 py-0.5 text-xs text-neutral-500 hover:text-neutral-300"
-              >
-                x
-              </button>
-              {socError && <span className="text-xs text-red-400 ml-1">{socError}</span>}
-            </form>
-          )}
-        </div>
-
-        {/* Profile override */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500 shrink-0">Profil ändern:</span>
-          {!showProfileDropdown ? (
+              autoFocus
+              className="w-14 px-2 py-0.5 bg-neutral-950 border border-neutral-700 rounded text-neutral-100 focus:outline-none focus:border-blue-500"
+            />
+            <span>%</span>
             <button
-              onClick={() => setShowProfileDropdown(true)}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              type="submit"
+              className="px-2 py-0.5 bg-blue-500 hover:bg-blue-600 text-white rounded"
             >
-              {session.profileName ?? 'Keins'}
+              OK
             </button>
-          ) : (
-            <div className="flex gap-1 flex-wrap">
-              {profiles.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => handleOverrideProfile(p.id)}
-                  className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                    p.id === session.profileId
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-neutral-700 text-neutral-300 hover:bg-neutral-600'
-                  }`}
-                >
-                  {p.name}
-                </button>
-              ))}
-              <button
-                onClick={() => setShowProfileDropdown(false)}
-                className="px-2 py-0.5 text-xs text-neutral-500 hover:text-neutral-300"
-              >
-                x
-              </button>
-            </div>
-          )}
-        </div>
+            <button
+              type="button"
+              onClick={() => { setEditingSoc(false); setSocInput(''); setSocError(null); }}
+              className="text-neutral-500 hover:text-neutral-300 px-1"
+            >
+              ×
+            </button>
+            {socError && <span className="text-red-400 ml-1">{socError}</span>}
+          </form>
+        )}
 
-        {/* SOC override */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500 shrink-0">Ziel-SOC:</span>
+        {/* Profile change */}
+        <span className="text-neutral-700">·</span>
+        {!showProfileDropdown ? (
+          <button
+            onClick={() => setShowProfileDropdown(true)}
+            className="text-neutral-400 hover:text-blue-400 transition-colors underline-offset-2 hover:underline"
+          >
+            Profil ändern
+          </button>
+        ) : (
+          <div className="flex gap-1 flex-wrap">
+            {profiles.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => handleOverrideProfile(p.id)}
+                className={`px-2 py-0.5 rounded ${
+                  p.id === session.profileId
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+            <button
+              onClick={() => setShowProfileDropdown(false)}
+              className="text-neutral-500 hover:text-neutral-300 px-1"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Target SOC */}
+        <span className="text-neutral-700">·</span>
+        <div className="flex items-center gap-1">
+          <span>Ziel</span>
           <SocButtons
             value={session.targetSoc ?? 80}
             onChange={handleOverrideSoc}

@@ -37,6 +37,7 @@ export class ChargeMonitor {
   private sessionStartEnergy = new Map<string, number>();
   private sessionStartedAt = new Map<string, number>();
   private sessionEtaSeconds = new Map<string, number>();
+  private sessionEnergyRemainingWh = new Map<string, number>();
   private matchData = new Map<string, MatchResult>();
   private learnReadingCount = new Map<string, number>();
   private learnCumulativeWh = new Map<string, number>();
@@ -530,13 +531,19 @@ export class ChargeMonitor {
     const soc = estimateSoc(currentWh, curve.totalEnergyWh, match.estimatedStartSoc);
     machine.estimatedSoc = soc;
 
-    // ETA: remaining energy to reach targetSoc at current power draw.
-    // Falls back to undefined (not emitted) when draw is near zero.
+    // Remaining energy to reach targetSoc. Always computed (even at apower=0)
+    // so the banner can still show "X Wh fehlen" when a charger pauses.
     const targetSoc = machine.targetSoc;
-    if (reading.apower > 1 && targetSoc > soc) {
+    if (targetSoc > soc) {
       const remainingWh = curve.totalEnergyWh * (targetSoc - soc) / 100;
-      this.sessionEtaSeconds.set(plugId, Math.max(0, Math.round(remainingWh / reading.apower * 3600)));
+      this.sessionEnergyRemainingWh.set(plugId, Math.max(0, remainingWh));
+      if (reading.apower > 1) {
+        this.sessionEtaSeconds.set(plugId, Math.max(0, Math.round(remainingWh / reading.apower * 3600)));
+      } else {
+        this.sessionEtaSeconds.delete(plugId);
+      }
     } else {
+      this.sessionEnergyRemainingWh.delete(plugId);
       this.sessionEtaSeconds.delete(plugId);
     }
 
@@ -621,6 +628,8 @@ export class ChargeMonitor {
       detectionExhausted,
       elapsedMs: startedAt !== undefined ? Date.now() - startedAt : undefined,
       etaSeconds,
+      energyChargedWh: this.sessionWh.get(plugId),
+      energyRemainingWh: this.sessionEnergyRemainingWh.get(plugId),
     };
 
     this.eventBus.emitChargeState(event);
@@ -645,6 +654,7 @@ export class ChargeMonitor {
     this.sessionStartEnergy.delete(plugId);
     this.sessionStartedAt.delete(plugId);
     this.sessionEtaSeconds.delete(plugId);
+    this.sessionEnergyRemainingWh.delete(plugId);
     this.matchData.delete(plugId);
   }
 

@@ -23,7 +23,10 @@ export function UnknownDeviceDialog({ plugId, sessionId, onClose }: UnknownDevic
   useEffect(() => {
     fetch('/api/profiles')
       .then((res) => res.json())
-      .then((data: { profiles: Profile[] }) => setProfiles(data.profiles ?? []))
+      .then((data: Profile[] | { profiles: Profile[] }) => {
+        const list = Array.isArray(data) ? data : (data.profiles ?? []);
+        setProfiles(list);
+      })
       .catch(() => {});
   }, []);
 
