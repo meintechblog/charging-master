@@ -2,15 +2,26 @@
 
 import { ChargeBanner } from '@/components/charging/charge-banner';
 
-type DashboardChargeBannersProps = {
-  plugIds: string[];
+type PlugInfo = {
+  id: string;
+  name: string;
+  ipAddress: string | null;
 };
 
-export function DashboardChargeBanners({ plugIds }: DashboardChargeBannersProps) {
+type DashboardChargeBannersProps = {
+  plugs: PlugInfo[];
+};
+
+export function DashboardChargeBanners({ plugs }: DashboardChargeBannersProps) {
   return (
     <div className="space-y-2">
-      {plugIds.map((id) => (
-        <ChargeBanner key={id} plugId={id} />
+      {plugs.map((plug) => (
+        <ChargeBanner
+          key={plug.id}
+          plugId={plug.id}
+          plugName={plug.name}
+          plugIp={plug.ipAddress ?? undefined}
+        />
       ))}
     </div>
   );

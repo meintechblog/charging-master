@@ -11,6 +11,8 @@ type Profile = { id: number; name: string };
 
 type ChargeBannerProps = {
   plugId: string;
+  plugName?: string;
+  plugIp?: string;
 };
 
 type SessionState = {
@@ -26,7 +28,32 @@ type SessionState = {
 const ACTIVE_STATES = new Set(['matched', 'charging', 'countdown', 'detecting']);
 const COMPLETE_STATES = new Set(['complete', 'stopping']);
 
-export function ChargeBanner({ plugId }: ChargeBannerProps) {
+function PlugIdentity({ plugName, plugIp }: { plugName?: string; plugIp?: string }) {
+  if (!plugName && !plugIp) return null;
+  return (
+    <div className="flex items-center gap-1.5 mb-2 text-xs text-neutral-500">
+      <svg
+        className="h-3 w-3 text-neutral-500"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M9 2v6M15 2v6" />
+        <path d="M5 8h14v4a7 7 0 0 1-14 0z" />
+        <path d="M12 15v7" />
+      </svg>
+      {plugName && <span className="text-neutral-300 font-medium truncate">{plugName}</span>}
+      {plugIp && (
+        <span className="text-neutral-600 font-mono text-[10px]">· {plugIp}</span>
+      )}
+    </div>
+  );
+}
+
+export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   const [session, setSession] = useState<SessionState | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
@@ -179,6 +206,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
     return (
       <>
         <div className="bg-neutral-800 border-l-4 border-neutral-500 rounded-r-lg p-4 mb-4">
+          <PlugIdentity plugName={plugName} plugIp={plugIp} />
           <div className="flex items-center gap-2">
             <svg
               className="animate-spin h-4 w-4 text-neutral-400"
@@ -208,6 +236,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
   if (COMPLETE_STATES.has(session.state)) {
     return (
       <div className="bg-neutral-800 border-l-4 border-green-500 rounded-r-lg p-4 mb-4">
+        <PlugIdentity plugName={plugName} plugIp={plugIp} />
         <p className="text-sm text-green-400">
           Ladevorgang abgeschlossen bei {session.estimatedSoc ?? '--'}%
         </p>
@@ -220,6 +249,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
 
   return (
     <div className="bg-neutral-800 border-l-4 border-blue-500 rounded-r-lg p-4 mb-4">
+      <PlugIdentity plugName={plugName} plugIp={plugIp} />
       {/* Header info */}
       <div className="flex items-start justify-between mb-3">
         <div>

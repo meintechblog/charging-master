@@ -43,7 +43,13 @@ export default async function HomePage() {
       ) : (
         <>
           {/* Charge banners for all plugs (self-manage via SSE) */}
-          <DashboardChargeBanners plugIds={plugsWithOutput.map((p) => p.id)} />
+          <DashboardChargeBanners
+            plugs={plugsWithOutput.map((p) => ({
+              id: p.id,
+              name: p.name,
+              ipAddress: p.ipAddress,
+            }))}
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {plugsWithOutput.map((plug) => (

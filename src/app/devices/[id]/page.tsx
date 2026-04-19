@@ -66,7 +66,7 @@ export default async function PlugDetailPage({
       </div>
 
       {/* Charge Banner */}
-      <PlugChargeBanner plugId={id} />
+      <PlugChargeBanner plugId={id} plugName={plug.name} plugIp={plug.ipAddress ?? undefined} />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
