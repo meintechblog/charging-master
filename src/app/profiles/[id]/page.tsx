@@ -33,6 +33,9 @@ type ProfileData = {
   priceEur: number | null;
   priceUpdatedAt: number | null;
   targetSoc: number;
+  cyclesUsed: number | null;
+  totalDeliveredWh: number;
+  sessionCount: number;
   hasCurve: boolean;
   curve: {
     id: number;
@@ -243,7 +246,22 @@ export default function ProfileDetailPage() {
     attrs.push({ icon: <IconCalendar />, label: 'Kaufdatum', value: new Date(profile.purchaseDate).toLocaleDateString('de-DE') });
   }
   if (profile.estimatedCycles) {
-    attrs.push({ icon: <IconRepeat />, label: 'Geschätzte Zyklen', value: String(profile.estimatedCycles) });
+    const max = profile.estimatedCycles;
+    if (profile.cyclesUsed != null) {
+      const used = profile.cyclesUsed;
+      const pct = Math.min(100, (used / max) * 100);
+      attrs.push({
+        icon: <IconRepeat />,
+        label: 'Ladezyklen',
+        value: `${used.toFixed(1)} / ${max}  ·  ${pct.toFixed(1)} %`,
+      });
+    } else {
+      attrs.push({
+        icon: <IconRepeat />,
+        label: 'Max. Ladezyklen',
+        value: `${max} (Kapazität fehlt für Nutzungsrechnung)`,
+      });
+    }
   }
   if (profile.priceEur != null) {
     attrs.push({ icon: <IconEuro />, label: 'Preis', value: `${profile.priceEur.toFixed(2)} €`, accent: 'text-green-400' });

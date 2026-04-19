@@ -194,7 +194,7 @@ export function ProfileForm({
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Geschätzte Ladezyklen</label>
+        <label className={LABEL_CLASS}>Max. Ladezyklen (Herstellerangabe)</label>
         <input
           type="number"
           value={estimatedCycles}
@@ -204,6 +204,9 @@ export function ProfileForm({
           min={0}
           disabled={disabled}
         />
+        <p className="text-[11px] text-neutral-500 mt-1">
+          Zyklen bis spürbare Degradation laut Hersteller. Verbrauchte Zyklen werden aus der Session-Historie live berechnet.
+        </p>
       </div>
 
       <div>

@@ -1,6 +1,6 @@
 import { db } from '@/db/client';
 import { deviceProfiles, referenceCurves, socBoundaries, priceHistory, chargeSessions } from '@/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 
@@ -43,6 +43,28 @@ export async function GET(
     .orderBy(desc(priceHistory.recordedAt))
     .all();
 
+  // Cycles-used estimate from session history: sum of delivered energy across
+  // all sessions that referenced this profile, divided by the user-entered
+  // capacity. "1 cycle" = enough energy to fully charge from 0-100 %.
+  const totalDeliveredRow = db
+    .select({ total: sql<number>`COALESCE(SUM(${chargeSessions.energyWh}), 0)` })
+    .from(chargeSessions)
+    .where(and(
+      eq(chargeSessions.profileId, profileId),
+      sql`${chargeSessions.state} IN ('complete', 'charging', 'countdown', 'stopping', 'matched')`,
+    ))
+    .get();
+  const totalDeliveredWh = totalDeliveredRow?.total ?? 0;
+  const sessionCountRow = db
+    .select({ c: sql<number>`COUNT(*)` })
+    .from(chargeSessions)
+    .where(eq(chargeSessions.profileId, profileId))
+    .get();
+  const sessionCount = sessionCountRow?.c ?? 0;
+  const cyclesUsed = profile.capacityWh && profile.capacityWh > 0
+    ? totalDeliveredWh / profile.capacityWh
+    : null;
+
   return Response.json({
     ...profile,
     hasCurve: !!curve,
@@ -56,6 +78,9 @@ export async function GET(
     } : null,
     socBoundaries: boundaries,
     priceHistory: prices,
+    cyclesUsed,
+    totalDeliveredWh,
+    sessionCount,
   });
 }
 
