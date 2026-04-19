@@ -1,5 +1,5 @@
 import { db } from '@/db/client';
-import { deviceProfiles, referenceCurves, socBoundaries, priceHistory } from '@/db/schema';
+import { deviceProfiles, referenceCurves, socBoundaries, priceHistory, chargeSessions } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
@@ -178,6 +178,14 @@ export async function DELETE(
   if (!existing) {
     return Response.json({ error: 'not_found' }, { status: 404 });
   }
+
+  // Detach from any charge_sessions that still reference this profile. Keeping
+  // the session history is more useful than cascade-deleting it; the sessions
+  // just show up without a profile name afterwards.
+  db.update(chargeSessions)
+    .set({ profileId: null })
+    .where(eq(chargeSessions.profileId, profileId))
+    .run();
 
   db.delete(deviceProfiles).where(eq(deviceProfiles.id, profileId)).run();
 
