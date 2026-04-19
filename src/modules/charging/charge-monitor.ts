@@ -35,6 +35,8 @@ export class ChargeMonitor {
   private lastRelayOff = new Map<string, number>();
   private sessionIds = new Map<string, number>();
   private sessionStartEnergy = new Map<string, number>();
+  private sessionStartedAt = new Map<string, number>();
+  private sessionEtaSeconds = new Map<string, number>();
   private matchData = new Map<string, MatchResult>();
   private learnReadingCount = new Map<string, number>();
   private learnCumulativeWh = new Map<string, number>();
@@ -322,17 +324,19 @@ export class ChargeMonitor {
 
     switch (to) {
       case 'detecting': {
+        const now = Date.now();
         // Create new charge session
         const sessionRow = db.insert(chargeSessions).values({
           plugId,
           state: 'detecting',
-          startedAt: Date.now(),
-          createdAt: Date.now(),
+          startedAt: now,
+          createdAt: now,
         }).returning().get();
 
         this.sessionIds.set(plugId, sessionRow.id);
         this.detectionBuffers.set(plugId, []);
         this.sessionStartEnergy.set(plugId, reading.totalEnergy);
+        this.sessionStartedAt.set(plugId, now);
         this.sessionWh.set(plugId, 0);
         this.emitChargeEvent(plugId, 'detecting');
         break;
@@ -487,6 +491,16 @@ export class ChargeMonitor {
     const soc = estimateSoc(currentWh, curve.totalEnergyWh, match.estimatedStartSoc);
     machine.estimatedSoc = soc;
 
+    // ETA: remaining energy to reach targetSoc at current power draw.
+    // Falls back to undefined (not emitted) when draw is near zero.
+    const targetSoc = machine.targetSoc;
+    if (reading.apower > 1 && targetSoc > soc) {
+      const remainingWh = curve.totalEnergyWh * (targetSoc - soc) / 100;
+      this.sessionEtaSeconds.set(plugId, Math.max(0, Math.round(remainingWh / reading.apower * 3600)));
+    } else {
+      this.sessionEtaSeconds.delete(plugId);
+    }
+
     // Update session in DB
     const sessionId = this.sessionIds.get(plugId);
     if (sessionId) {
@@ -553,6 +567,8 @@ export class ChargeMonitor {
     const machine = this.machines.get(plugId);
     const match = this.matchData.get(plugId);
     const sessionId = this.sessionIds.get(plugId);
+    const startedAt = this.sessionStartedAt.get(plugId);
+    const etaSeconds = this.sessionEtaSeconds.get(plugId);
 
     const event: ChargeStateEvent = {
       plugId,
@@ -564,6 +580,8 @@ export class ChargeMonitor {
       targetSoc: machine?.targetSoc,
       sessionId,
       detectionExhausted,
+      elapsedMs: startedAt !== undefined ? Date.now() - startedAt : undefined,
+      etaSeconds,
     };
 
     this.eventBus.emitChargeState(event);
@@ -586,6 +604,8 @@ export class ChargeMonitor {
     this.detectionBuffers.delete(plugId);
     this.sessionWh.delete(plugId);
     this.sessionStartEnergy.delete(plugId);
+    this.sessionStartedAt.delete(plugId);
+    this.sessionEtaSeconds.delete(plugId);
     this.matchData.delete(plugId);
   }
 
@@ -650,6 +670,7 @@ export class ChargeMonitor {
 
       this.sessionIds.set(session.plugId, session.id);
       this.sessionWh.set(session.plugId, session.energyWh ?? 0);
+      this.sessionStartedAt.set(session.plugId, session.startedAt);
 
       // Restore learn tracking maps from DB for learning sessions
       if (session.state === 'learning') {

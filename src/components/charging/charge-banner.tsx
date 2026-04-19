@@ -23,7 +23,19 @@ type SessionState = {
   estimatedSoc?: number;
   targetSoc?: number;
   sessionId?: number;
+  elapsedMs?: number;
+  etaSeconds?: number;
 };
+
+function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '--';
+  const s = Math.round(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
 
 const ACTIVE_STATES = new Set(['matched', 'charging', 'countdown', 'detecting']);
 const COMPLETE_STATES = new Set(['complete', 'stopping']);
@@ -82,6 +94,8 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
       estimatedSoc: event.estimatedSoc,
       targetSoc: event.targetSoc,
       sessionId: event.sessionId,
+      elapsedMs: event.elapsedMs,
+      etaSeconds: event.etaSeconds,
     });
 
     // Reset dismissed flag when transitioning from idle to a new detection
@@ -264,6 +278,20 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
           <p className="text-xs text-neutral-400 mt-0.5">
             Ladevorgang gestartet, Ziel: {session.targetSoc ?? '--'}%
           </p>
+          {(session.elapsedMs != null || session.etaSeconds != null) && (
+            <p className="text-xs text-neutral-500 mt-1 tabular-nums flex gap-3">
+              {session.elapsedMs != null && (
+                <span>
+                  Läuft seit <span className="text-neutral-300">{formatDuration(session.elapsedMs / 1000)}</span>
+                </span>
+              )}
+              {session.etaSeconds != null && session.etaSeconds > 0 && (
+                <span>
+                  Noch ca. <span className="text-neutral-300">{formatDuration(session.etaSeconds)}</span>
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         {/* Abort button */}

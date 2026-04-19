@@ -54,4 +54,9 @@ export interface ChargeStateEvent {
   // True once detection buffer hit MAX_DETECTION_READINGS without a match.
   // UI uses this to distinguish "still detecting" from "detection failed".
   detectionExhausted?: boolean;
+  // Milliseconds since session.startedAt (wall-clock elapsed charging time).
+  elapsedMs?: number;
+  // Estimated seconds until estimatedSoc reaches targetSoc at current draw.
+  // Only populated during charging/countdown with a matched profile.
+  etaSeconds?: number;
 }
