@@ -83,7 +83,7 @@ export async function PUT(
     return Response.json({ error: 'invalid_session_id' }, { status: 400 });
   }
 
-  let body: { profileId?: number; targetSoc?: number };
+  let body: { profileId?: number; targetSoc?: number; estimatedSoc?: number };
   try {
     body = await request.json();
   } catch {
@@ -128,20 +128,43 @@ export async function PUT(
     updates.targetSoc = body.targetSoc;
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (body.estimatedSoc !== undefined) {
+    if (
+      typeof body.estimatedSoc !== 'number' ||
+      !Number.isInteger(body.estimatedSoc) ||
+      body.estimatedSoc < 0 ||
+      body.estimatedSoc > 100
+    ) {
+      return Response.json(
+        { error: 'invalid_estimated_soc', expected: 'integer 0-100' },
+        { status: 400 }
+      );
+    }
+    // ChargeMonitor.overrideSession rebases energy baseline + DB state
+    // atomically; we don't write estimatedSoc into `updates` here to avoid
+    // two separate writes racing against the next power reading.
+  }
+
+  if (
+    Object.keys(updates).length === 0 &&
+    body.estimatedSoc === undefined
+  ) {
     return Response.json({ error: 'no_updates_provided' }, { status: 400 });
   }
 
-  db.update(chargeSessions)
-    .set(updates)
-    .where(eq(chargeSessions.id, sessionId))
-    .run();
+  if (Object.keys(updates).length > 0) {
+    db.update(chargeSessions)
+      .set(updates)
+      .where(eq(chargeSessions.id, sessionId))
+      .run();
+  }
 
   // Notify ChargeMonitor of override
   if (globalThis.__chargeMonitor) {
     globalThis.__chargeMonitor.overrideSession(sessionId, {
       profileId: body.profileId,
       targetSoc: body.targetSoc,
+      estimatedSoc: body.estimatedSoc,
     });
   }
 

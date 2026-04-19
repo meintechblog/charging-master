@@ -77,9 +77,12 @@ export class ChargeMonitor {
   }
 
   /**
-   * Override an active session's profile or target SOC.
+   * Override an active session's profile, target SOC, or current estimated SOC.
    */
-  overrideSession(sessionId: number, opts: { profileId?: number; targetSoc?: number }): void {
+  overrideSession(
+    sessionId: number,
+    opts: { profileId?: number; targetSoc?: number; estimatedSoc?: number }
+  ): void {
     // Find the plug for this session
     let targetPlugId: string | null = null;
     for (const [plugId, sid] of this.sessionIds.entries()) {
@@ -117,6 +120,32 @@ export class ChargeMonitor {
           existingMatch.profileName = profile.name;
         }
       }
+    }
+
+    if (opts.estimatedSoc !== undefined) {
+      // Rebase SOC tracking: anchor start-SOC to user-provided value and
+      // shift the energy baseline forward by the Wh already consumed so far,
+      // so the NEXT reading yields currentWh ≈ 0. updateSocTracking() then
+      // computes soc = startSoc + (currentWh / remaining) * (100 - startSoc)
+      // from that zero baseline and tracks forward correctly.
+      machine.estimatedSoc = opts.estimatedSoc;
+
+      const existingMatch = this.matchData.get(targetPlugId);
+      if (existingMatch) {
+        existingMatch.estimatedStartSoc = opts.estimatedSoc;
+      }
+
+      const consumedWh = this.sessionWh.get(targetPlugId) ?? 0;
+      const oldStart = this.sessionStartEnergy.get(targetPlugId);
+      if (oldStart !== undefined) {
+        this.sessionStartEnergy.set(targetPlugId, oldStart + consumedWh);
+      }
+      this.sessionWh.set(targetPlugId, 0);
+
+      db.update(chargeSessions)
+        .set({ estimatedSoc: opts.estimatedSoc, energyWh: 0 })
+        .where(eq(chargeSessions.id, sessionId))
+        .run();
     }
 
     // Emit updated state so SSE clients reflect the change
