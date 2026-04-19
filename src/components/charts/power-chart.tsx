@@ -133,6 +133,17 @@ export function PowerChart({ plugId, initialWindow, initialData, onWindowChange,
   const [yAutoScale, setYAutoScale] = useState(false);
   const initialDataLoadedRef = useRef(false);
 
+  // Sync windowKey when parent toggles initialWindow (e.g. when a charge
+  // session starts and we want to default to "Max" span for that session).
+  useEffect(() => {
+    if (initialWindow && initialWindow !== windowKey) {
+      setWindowKey(initialWindow);
+      clear();
+      initialDataLoadedRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialWindow]);
+
   // Static mode: use initialData directly, no sliding window
   useEffect(() => {
     if (isStatic && initialData && initialData.length > 0) {

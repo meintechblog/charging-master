@@ -18,8 +18,12 @@ type PlugDetailChartProps = {
 
 export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChartProps) {
   const [initialData, setInitialData] = useState<Array<[number, number]> | null>(null);
-  const [windowKey, setWindowKey] = useState<WindowKey>('15m');
+  // effectiveWindow forces 'max' while a session is active so sliding-window
+  // trimming doesn't hide pre-15-min data; otherwise user's picker wins.
+  const [userWindow, setUserWindow] = useState<WindowKey>('15m');
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  const windowKey: WindowKey = sessionStartedAt != null ? 'max' : userWindow;
+  const setWindowKey = setUserWindow;
   const [referenceData, setReferenceData] = useState<Array<[number, number]> | undefined>(undefined);
   const fetchedRef = useRef<string | null>(null);
   const sessionRef = useRef<{ profileId?: number; startedAt?: number } | null>(null);
