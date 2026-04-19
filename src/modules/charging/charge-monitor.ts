@@ -690,12 +690,16 @@ export class ChargeMonitor {
             const profile = db.select().from(deviceProfiles)
               .where(eq(deviceProfiles.id, session.profileId)).get();
             if (profile) {
+              // estimatedStartSoc must reflect the LAST known SOC, not 0.
+              // Otherwise updateSocTracking's first call recomputes
+              // soc = estimateSoc(0, totalWh, 0) = 0 and clobbers the saved
+              // value, wiping out any prior "SOC korrigieren" correction.
               const match: MatchResult = {
                 profileId: profile.id,
                 profileName: profile.name,
-                confidence: session.detectionConfidence ?? 0,
+                confidence: session.detectionConfidence ?? 1,
                 curveOffsetSeconds: session.curveOffsetSeconds ?? 0,
-                estimatedStartSoc: 0,
+                estimatedStartSoc: session.estimatedSoc ?? 0,
               };
               this.matchData.set(session.plugId, match);
             }
