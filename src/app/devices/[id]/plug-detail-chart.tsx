@@ -18,7 +18,7 @@ type PlugDetailChartProps = {
 
 export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChartProps) {
   const [initialData, setInitialData] = useState<Array<[number, number]> | null>(null);
-  const [windowKey, setWindowKey] = useState<WindowKey>('15m');
+  const [windowKey, setWindowKey] = useState<WindowKey>('max');
   const [referenceData, setReferenceData] = useState<Array<[number, number]> | undefined>(undefined);
   const fetchedRef = useRef<string | null>(null);
   const sessionRef = useRef<{ profileId?: number; startedAt?: number } | null>(null);

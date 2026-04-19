@@ -117,26 +117,6 @@ function buildChartOption(data: Array<[number, number]>, referenceData?: Array<[
     },
     dataZoom: [
       { type: 'inside', xAxisIndex: 0 },
-      {
-        type: 'slider',
-        xAxisIndex: 0,
-        bottom: 10,
-        height: 40,
-        borderColor: '#404040',
-        fillerColor: 'rgba(59,130,246,0.2)',
-        backgroundColor: '#1a1a1a',
-        dataBackground: {
-          lineStyle: { color: '#3b82f6', width: 1 },
-          areaStyle: { color: 'rgba(59,130,246,0.15)' },
-        },
-        selectedDataBackground: {
-          lineStyle: { color: '#3b82f6', width: 1.5 },
-          areaStyle: { color: 'rgba(59,130,246,0.3)' },
-        },
-        handleStyle: { color: '#3b82f6', borderColor: '#3b82f6' },
-        textStyle: { color: '#737373' },
-        moveHandleStyle: { color: '#3b82f6' },
-      },
     ],
     series,
     animation: true,
