@@ -32,6 +32,9 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [showUnknown, setShowUnknown] = useState(false);
+  const [editingSoc, setEditingSoc] = useState(false);
+  const [socInput, setSocInput] = useState<string>('');
+  const [socError, setSocError] = useState<string | null>(null);
   const dismissedUnknownRef = useRef(false);
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -111,6 +114,34 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
         });
       } catch {
         // Ignore
+      }
+    },
+    [session?.sessionId]
+  );
+
+  const handleSubmitEstimatedSoc = useCallback(
+    async (raw: string) => {
+      if (!session?.sessionId) return;
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+        setSocError('0 - 100');
+        return;
+      }
+      setSocError(null);
+      try {
+        const res = await fetch(`/api/charging/sessions/${session.sessionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ estimatedSoc: parsed }),
+        });
+        if (!res.ok) {
+          setSocError('Fehler');
+          return;
+        }
+        setEditingSoc(false);
+        setSocInput('');
+      } catch {
+        setSocError('Fehler');
       }
     },
     [session?.sessionId]
@@ -245,6 +276,63 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
 
       {/* Override controls */}
       <div className="flex flex-col gap-2 border-t border-neutral-700 pt-3">
+        {/* Current SOC override — rebases tracking baseline to user-supplied value */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-neutral-500 shrink-0">Aktueller SOC:</span>
+          {!editingSoc ? (
+            <button
+              onClick={() => {
+                setEditingSoc(true);
+                setSocInput(String(session.estimatedSoc ?? 0));
+                setSocError(null);
+              }}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              {session.estimatedSoc ?? '--'}% korrigieren
+            </button>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSubmitEstimatedSoc(socInput);
+              }}
+              className="flex items-center gap-1"
+            >
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={socInput}
+                onChange={(e) => {
+                  setSocInput(e.target.value);
+                  setSocError(null);
+                }}
+                autoFocus
+                className="w-16 px-2 py-0.5 text-xs bg-neutral-900 border border-neutral-700 rounded text-neutral-100 focus:outline-none focus:border-blue-500"
+              />
+              <span className="text-xs text-neutral-500">%</span>
+              <button
+                type="submit"
+                className="px-2 py-0.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
+              >
+                OK
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingSoc(false);
+                  setSocInput('');
+                  setSocError(null);
+                }}
+                className="px-2 py-0.5 text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                x
+              </button>
+              {socError && <span className="text-xs text-red-400 ml-1">{socError}</span>}
+            </form>
+          )}
+        </div>
+
         {/* Profile override */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-neutral-500 shrink-0">Profil ändern:</span>
