@@ -63,10 +63,13 @@ export default async function PlugDetailPage({
           }`}
           title={plug.online ? 'Online' : 'Offline'}
         />
+        {plug.ipAddress && (
+          <span className="text-xs text-neutral-500 font-mono">{plug.ipAddress}</span>
+        )}
       </div>
 
-      {/* Charge Banner */}
-      <PlugChargeBanner plugId={id} plugName={plug.name} plugIp={plug.ipAddress ?? undefined} />
+      {/* Charge Banner — plug identity is already rendered in the header above */}
+      <PlugChargeBanner plugId={id} />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
