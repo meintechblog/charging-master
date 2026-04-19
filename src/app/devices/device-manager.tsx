@@ -21,8 +21,31 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
   const router = useRouter();
   const [showManual, setShowManual] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
 
   const registeredIds = registeredPlugs.map((p) => p.id);
+
+  async function handleRename(id: string) {
+    const trimmed = renameInput.trim();
+    if (!trimmed) return;
+    setSavingRename(true);
+    try {
+      const res = await fetch('/api/devices', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: trimmed }),
+      });
+      if (res.ok) {
+        setRenamingId(null);
+        setRenameInput('');
+        router.refresh();
+      }
+    } finally {
+      setSavingRename(false);
+    }
+  }
 
   async function handleAddFromDiscovery(deviceId: string, ip: string) {
     const res = await fetch('/api/devices', {
@@ -99,18 +122,66 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
                 key={plug.id}
                 className="bg-neutral-800 rounded-md p-3 flex items-center justify-between"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <span
-                    className={`w-2 h-2 rounded-full ${
+                    className={`w-2 h-2 rounded-full shrink-0 ${
                       plug.online ? 'bg-green-500' : 'bg-red-500'
                     }`}
                   />
-                  <div>
-                    <div className="text-sm text-neutral-100">{plug.name}</div>
-                    <div className="text-xs text-neutral-500 font-mono">{plug.id}</div>
+                  <div className="min-w-0 flex-1">
+                    {renamingId === plug.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void handleRename(plug.id);
+                        }}
+                        className="flex items-center gap-1"
+                      >
+                        <input
+                          type="text"
+                          value={renameInput}
+                          onChange={(e) => setRenameInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              setRenamingId(null);
+                              setRenameInput('');
+                            }
+                          }}
+                          autoFocus
+                          disabled={savingRename}
+                          className="px-2 py-0.5 text-sm bg-neutral-900 border border-neutral-700 rounded text-neutral-100 focus:outline-none focus:border-blue-500 w-full max-w-xs"
+                        />
+                        <button
+                          type="submit"
+                          disabled={savingRename || !renameInput.trim()}
+                          className="px-2 py-0.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50"
+                        >
+                          OK
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRenamingId(null); setRenameInput(''); }}
+                          className="text-xs text-neutral-500 hover:text-neutral-300 px-1"
+                        >
+                          ×
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm text-neutral-100 truncate">{plug.name}</div>
+                        <button
+                          onClick={() => { setRenamingId(plug.id); setRenameInput(plug.name); }}
+                          className="text-xs text-neutral-500 hover:text-blue-400 transition-colors shrink-0"
+                          title="Umbenennen"
+                        >
+                          Umbenennen
+                        </button>
+                      </div>
+                    )}
+                    <div className="text-xs text-neutral-500 font-mono truncate">{plug.id}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   <span className={`text-xs ${plug.enabled ? 'text-green-400' : 'text-neutral-500'}`}>
                     {plug.enabled ? 'Aktiv' : 'Deaktiviert'}
                   </span>
