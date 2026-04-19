@@ -18,14 +18,18 @@ type PlugDetailChartProps = {
 
 export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChartProps) {
   const [initialData, setInitialData] = useState<Array<[number, number]> | null>(null);
-  const [windowKey, setWindowKey] = useState<WindowKey>('max');
+  const [windowKey, setWindowKey] = useState<WindowKey>('15m');
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const [referenceData, setReferenceData] = useState<Array<[number, number]> | undefined>(undefined);
   const fetchedRef = useRef<string | null>(null);
   const sessionRef = useRef<{ profileId?: number; startedAt?: number } | null>(null);
 
-  const fetchHistory = useCallback(async (pId: string, wk: WindowKey) => {
+  const fetchHistory = useCallback(async (pId: string, wk: WindowKey, since?: number) => {
     try {
-      const res = await fetch(`/api/devices/${pId}/readings?window=${wk}`);
+      const url = since != null
+        ? `/api/devices/${pId}/readings?since=${since}`
+        : `/api/devices/${pId}/readings?window=${wk}`;
+      const res = await fetch(url);
       if (!res.ok) {
         setInitialData([]);
         return;
@@ -38,12 +42,20 @@ export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChar
   }, []);
 
   useEffect(() => {
-    const key = `${plugId}:${windowKey}`;
+    // When a charge session is active, scope the chart to its startedAt;
+    // otherwise respect the user's selected window.
+    const key = sessionStartedAt != null
+      ? `${plugId}:session:${sessionStartedAt}`
+      : `${plugId}:${windowKey}`;
     if (fetchedRef.current === key) return;
     fetchedRef.current = key;
     setInitialData(null);
-    fetchHistory(plugId, windowKey);
-  }, [plugId, windowKey, fetchHistory]);
+    if (sessionStartedAt != null) {
+      fetchHistory(plugId, windowKey, sessionStartedAt);
+    } else {
+      fetchHistory(plugId, windowKey);
+    }
+  }, [plugId, windowKey, sessionStartedAt, fetchHistory]);
 
   // Reference curve: fetch and align when charge session is active
   const fetchCurve = useCallback(async (profileId: number, sessionStartedAt: number) => {
@@ -71,22 +83,26 @@ export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChar
 
       const isActive = event.state === 'matched' || event.state === 'charging' || event.state === 'countdown';
 
-      if (isActive && event.profileId && event.sessionId) {
-        // Only fetch curve if profile changed
+      if (isActive && event.sessionId) {
+        // Fetch startedAt once per session to (a) scope the chart x-range
+        // and (b) align the reference curve. Cached in sessionRef.
         if (sessionRef.current?.profileId !== event.profileId) {
-          // Fetch active session to get startedAt
           fetch(`/api/charging/sessions/${event.sessionId}`)
             .then((res) => res.json())
-            .then((data: { session?: { startedAt: number } }) => {
-              const startedAt = data.session?.startedAt ?? Date.now();
+            .then((data: { startedAt?: number; session?: { startedAt: number } }) => {
+              const startedAt = data.startedAt ?? data.session?.startedAt ?? Date.now();
               sessionRef.current = { profileId: event.profileId, startedAt };
-              fetchCurve(event.profileId!, startedAt);
+              setSessionStartedAt(startedAt);
+              if (enableReferenceCurve && event.profileId) {
+                fetchCurve(event.profileId, startedAt);
+              }
             })
             .catch(() => {});
         }
       } else if (event.state === 'complete' || event.state === 'idle' || event.state === 'aborted') {
-        // Clear reference data when session ends
+        // Clear session scope + reference data when session ends
         setReferenceData(undefined);
+        setSessionStartedAt(null);
         sessionRef.current = null;
       }
     },

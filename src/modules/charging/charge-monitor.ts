@@ -42,6 +42,10 @@ export class ChargeMonitor {
   // reads currentWh = 0 immediately after a correction. Distinct from sessionStartEnergy
   // which stays anchored at session start and drives the user-visible "Wh geladen".
   private socBaselineEnergy = new Map<string, number>();
+  // Cumulative Wh saved to DB before the last service restart. On the first reading
+  // after resume we use this to recover sessionStartEnergy so "Wh geladen" doesn't
+  // snap back to 0 every time the service restarts.
+  private sessionPriorEnergyWh = new Map<string, number>();
   private matchData = new Map<string, MatchResult>();
   private learnReadingCount = new Map<string, number>();
   private learnCumulativeWh = new Map<string, number>();
@@ -512,13 +516,17 @@ export class ChargeMonitor {
   }
 
   private updateSocTracking(plugId: string, reading: PowerReading): void {
-    // Lazy-init the session anchor so resumed sessions (which skip the
-    // 'detecting' transition that normally sets sessionStartEnergy) still
-    // get a stable baseline. Without this, sessionWh stays 0 forever.
+    // Lazy-init the session anchor so resumed sessions still get a stable
+    // baseline. If we have a priorEnergyWh from DB (from before the restart),
+    // walk it back from reading.totalEnergy to recover the TRUE session start;
+    // otherwise anchor at NOW and accept that this session's display Wh will
+    // count from here forward.
     let startEnergy = this.sessionStartEnergy.get(plugId);
     if (startEnergy === undefined) {
-      startEnergy = reading.totalEnergy;
+      const prior = this.sessionPriorEnergyWh.get(plugId) ?? 0;
+      startEnergy = reading.totalEnergy - prior;
       this.sessionStartEnergy.set(plugId, startEnergy);
+      this.sessionPriorEnergyWh.delete(plugId);
     }
     // socBaseline separately tracks the anchor for SOC math (shifts on
     // estimatedSoc overrides so the SOC value retargets cleanly). If it's
@@ -672,6 +680,7 @@ export class ChargeMonitor {
     this.sessionEtaSeconds.delete(plugId);
     this.sessionEnergyRemainingWh.delete(plugId);
     this.socBaselineEnergy.delete(plugId);
+    this.sessionPriorEnergyWh.delete(plugId);
     this.matchData.delete(plugId);
   }
 
@@ -741,6 +750,7 @@ export class ChargeMonitor {
       this.sessionIds.set(session.plugId, session.id);
       this.sessionWh.set(session.plugId, session.energyWh ?? 0);
       this.sessionStartedAt.set(session.plugId, session.startedAt);
+      this.sessionPriorEnergyWh.set(session.plugId, session.energyWh ?? 0);
 
       // Restore learn tracking maps from DB for learning sessions
       if (session.state === 'learning') {
