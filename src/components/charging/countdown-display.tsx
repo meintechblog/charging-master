@@ -6,25 +6,24 @@ type CountdownDisplayProps = {
 };
 
 export function CountdownDisplay({ estimatedSoc, targetSoc }: CountdownDisplayProps) {
-  const remaining = Math.max(0, targetSoc - estimatedSoc);
-  const windowStart = targetSoc - 5;
-  const progress = Math.max(0, Math.min(1, (estimatedSoc - windowStart) / 5));
+  // Progress toward the target — NOT the narrow 5% countdown window. At
+  // 77/80 the ring should read as ~96% full, not 40%.
+  const progress = targetSoc > 0 ? Math.max(0, Math.min(1, estimatedSoc / targetSoc)) : 0;
 
-  // Color transition from blue-500 to green-500 on the progress ring.
+  // Ring blends blue → green as SOC approaches target.
   const r = Math.round(59 + (34 - 59) * progress);
   const g = Math.round(130 + (197 - 130) * progress);
   const b = Math.round(246 + (94 - 246) * progress);
   const strokeColor = `rgb(${r},${g},${b})`;
 
-  const size = 160;
-  const radius = 68;
+  const size = 192;
+  const radius = 84;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
   return (
-    <div className="flex items-center gap-5">
-      {/* Circular progress with big current SOC inside */}
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
+    <div className="flex justify-center">
+      <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="animate-pulse-slow">
           <circle
             cx={size / 2}
@@ -32,7 +31,7 @@ export function CountdownDisplay({ estimatedSoc, targetSoc }: CountdownDisplayPr
             r={radius}
             fill="none"
             stroke="#262626"
-            strokeWidth="8"
+            strokeWidth="10"
           />
           <circle
             cx={size / 2}
@@ -40,7 +39,7 @@ export function CountdownDisplay({ estimatedSoc, targetSoc }: CountdownDisplayPr
             r={radius}
             fill="none"
             stroke={strokeColor}
-            strokeWidth="8"
+            strokeWidth="10"
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
@@ -49,26 +48,13 @@ export function CountdownDisplay({ estimatedSoc, targetSoc }: CountdownDisplayPr
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-5xl font-bold text-neutral-100 tabular-nums leading-none">
+          <span className="text-7xl font-bold text-neutral-100 tabular-nums leading-none">
             {estimatedSoc}
+            <span className="text-3xl text-neutral-500 ml-1">%</span>
           </span>
-          <span className="text-xs text-neutral-500 mt-1">% aktuell</span>
-        </div>
-      </div>
-
-      {/* Target + remaining stat */}
-      <div className="flex flex-col gap-2 min-w-0">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-0.5">
-            verbleibend
-          </div>
-          <div className="text-4xl font-semibold text-neutral-100 tabular-nums leading-none">
-            {remaining}
-            <span className="text-xl text-neutral-500 ml-1">%</span>
-          </div>
-        </div>
-        <div className="text-xs text-neutral-500">
-          Ziel: <span className="text-neutral-300 tabular-nums">{targetSoc} %</span>
+          <span className="text-xs text-neutral-500 mt-2 tabular-nums">
+            Ziel {targetSoc} %
+          </span>
         </div>
       </div>
     </div>
