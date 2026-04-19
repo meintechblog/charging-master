@@ -227,7 +227,7 @@ export function ChargeBanner({ plugId }: ChargeBannerProps) {
             {session.profileName ?? 'Unbekannt'} erkannt
             {session.confidence != null && (
               <span className="text-neutral-400 ml-1">
-                ({session.confidence}% Confidence)
+                ({Math.round(session.confidence * 100)} % Konfidenz)
               </span>
             )}
           </p>
