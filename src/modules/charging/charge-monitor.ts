@@ -111,15 +111,26 @@ export class ChargeMonitor {
       const profile = db.select().from(deviceProfiles).where(eq(deviceProfiles.id, opts.profileId)).get();
       if (profile) {
         db.update(chargeSessions)
-          .set({ profileId: opts.profileId })
+          .set({ profileId: opts.profileId, targetSoc: machine.targetSoc })
           .where(eq(chargeSessions.id, sessionId))
           .run();
 
-        // Update match data
+        // Update or synthesize match data so updateSocTracking() can resume.
+        // Synthesis is required when a session was resumed without a profile
+        // (e.g. after a restart with a bug-clobbered DB row) — without a
+        // match entry, SOC tracking would early-return forever.
         const existingMatch = this.matchData.get(targetPlugId);
         if (existingMatch) {
           existingMatch.profileId = opts.profileId;
           existingMatch.profileName = profile.name;
+        } else {
+          this.matchData.set(targetPlugId, {
+            profileId: profile.id,
+            profileName: profile.name,
+            confidence: 1.0,
+            curveOffsetSeconds: 0,
+            estimatedStartSoc: machine.estimatedSoc,
+          });
         }
       }
     }
@@ -437,6 +448,27 @@ export class ChargeMonitor {
       const sessionId = this.sessionIds.get(plugId);
       if (machine && sessionId) {
         machine.setMatch(result, sessionId, Date.now());
+
+        // Persist match to DB directly — handleTransition('detecting','matched')
+        // is skipped because setMatch mutates state synchronously from inside
+        // handlePowerReading after newState was already captured. Without this
+        // write, profile_id / target_soc / detection_confidence never land in
+        // the DB, and resume-after-restart loses the match entirely.
+        const profile = db.select().from(deviceProfiles)
+          .where(eq(deviceProfiles.id, result.profileId)).get();
+        if (profile) {
+          machine.targetSoc = profile.targetSoc;
+        }
+        db.update(chargeSessions).set({
+          state: 'matched',
+          profileId: result.profileId,
+          detectionConfidence: result.confidence,
+          curveOffsetSeconds: result.curveOffsetSeconds,
+          targetSoc: machine.targetSoc,
+          estimatedSoc: result.estimatedStartSoc,
+        }).where(eq(chargeSessions.id, sessionId)).run();
+
+        this.emitChargeEvent(plugId, 'matched');
       }
     }
   }
