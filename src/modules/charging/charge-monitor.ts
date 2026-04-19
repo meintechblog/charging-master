@@ -38,6 +38,10 @@ export class ChargeMonitor {
   private sessionStartedAt = new Map<string, number>();
   private sessionEtaSeconds = new Map<string, number>();
   private sessionEnergyRemainingWh = new Map<string, number>();
+  // SOC-math baseline: shifts forward on estimatedSoc overrides so updateSocTracking
+  // reads currentWh = 0 immediately after a correction. Distinct from sessionStartEnergy
+  // which stays anchored at session start and drives the user-visible "Wh geladen".
+  private socBaselineEnergy = new Map<string, number>();
   private matchData = new Map<string, MatchResult>();
   private learnReadingCount = new Map<string, number>();
   private learnCumulativeWh = new Map<string, number>();
@@ -137,11 +141,11 @@ export class ChargeMonitor {
     }
 
     if (opts.estimatedSoc !== undefined) {
-      // Rebase SOC tracking: anchor start-SOC to user-provided value and
-      // shift the energy baseline forward by the Wh already consumed so far,
-      // so the NEXT reading yields currentWh ≈ 0. updateSocTracking() then
-      // computes soc = startSoc + (currentWh / remaining) * (100 - startSoc)
-      // from that zero baseline and tracks forward correctly.
+      // Rebase the SOC math baseline (socBaselineEnergy) to the current plug
+      // totalEnergy so the next reading computes currentWh-for-soc ≈ 0 and
+      // updateSocTracking tracks forward from the user's value. The SEPARATE
+      // sessionStartEnergy / sessionWh stay anchored at session creation and
+      // keep the "Wh geladen" display stable across corrections.
       machine.estimatedSoc = opts.estimatedSoc;
 
       const existingMatch = this.matchData.get(targetPlugId);
@@ -149,15 +153,16 @@ export class ChargeMonitor {
         existingMatch.estimatedStartSoc = opts.estimatedSoc;
       }
 
-      const consumedWh = this.sessionWh.get(targetPlugId) ?? 0;
-      const oldStart = this.sessionStartEnergy.get(targetPlugId);
-      if (oldStart !== undefined) {
-        this.sessionStartEnergy.set(targetPlugId, oldStart + consumedWh);
+      const oldBaseline = this.socBaselineEnergy.get(targetPlugId);
+      const sessionStart = this.sessionStartEnergy.get(targetPlugId);
+      const totalConsumed = this.sessionWh.get(targetPlugId) ?? 0;
+      if (oldBaseline !== undefined && sessionStart !== undefined) {
+        // New baseline = session start + all consumption so far
+        this.socBaselineEnergy.set(targetPlugId, sessionStart + totalConsumed);
       }
-      this.sessionWh.set(targetPlugId, 0);
 
       db.update(chargeSessions)
-        .set({ estimatedSoc: opts.estimatedSoc, energyWh: 0 })
+        .set({ estimatedSoc: opts.estimatedSoc })
         .where(eq(chargeSessions.id, sessionId))
         .run();
     }
@@ -348,6 +353,7 @@ export class ChargeMonitor {
         this.sessionIds.set(plugId, sessionRow.id);
         this.detectionBuffers.set(plugId, []);
         this.sessionStartEnergy.set(plugId, reading.totalEnergy);
+        this.socBaselineEnergy.set(plugId, reading.totalEnergy);
         this.sessionStartedAt.set(plugId, now);
         this.sessionWh.set(plugId, 0);
         this.emitChargeEvent(plugId, 'detecting');
@@ -506,16 +512,26 @@ export class ChargeMonitor {
   }
 
   private updateSocTracking(plugId: string, reading: PowerReading): void {
-    // Lazy-init the baseline so resumed sessions (which skip the 'detecting'
-    // transition that normally sets sessionStartEnergy) still get a stable
-    // anchor for their Wh delta. Without this, currentWh stays 0 forever.
+    // Lazy-init the session anchor so resumed sessions (which skip the
+    // 'detecting' transition that normally sets sessionStartEnergy) still
+    // get a stable baseline. Without this, sessionWh stays 0 forever.
     let startEnergy = this.sessionStartEnergy.get(plugId);
     if (startEnergy === undefined) {
       startEnergy = reading.totalEnergy;
       this.sessionStartEnergy.set(plugId, startEnergy);
     }
-    const currentWh = reading.totalEnergy - startEnergy;
-    this.sessionWh.set(plugId, currentWh);
+    // socBaseline separately tracks the anchor for SOC math (shifts on
+    // estimatedSoc overrides so the SOC value retargets cleanly). If it's
+    // missing (e.g. freshly-resumed session), default to session start.
+    let socBaseline = this.socBaselineEnergy.get(plugId);
+    if (socBaseline === undefined) {
+      socBaseline = startEnergy;
+      this.socBaselineEnergy.set(plugId, socBaseline);
+    }
+
+    const sessionWh = reading.totalEnergy - startEnergy;   // display: total charged
+    const socWh = reading.totalEnergy - socBaseline;       // math: since last override
+    this.sessionWh.set(plugId, sessionWh);
 
     const machine = this.machines.get(plugId);
     if (!machine) return;
@@ -528,7 +544,7 @@ export class ChargeMonitor {
       .where(eq(referenceCurves.profileId, match.profileId)).get();
     if (!curve) return;
 
-    const soc = estimateSoc(currentWh, curve.totalEnergyWh, match.estimatedStartSoc);
+    const soc = estimateSoc(socWh, curve.totalEnergyWh, match.estimatedStartSoc);
     machine.estimatedSoc = soc;
 
     // Remaining energy to reach targetSoc. Always computed (even at apower=0)
@@ -552,7 +568,7 @@ export class ChargeMonitor {
     if (sessionId) {
       db.update(chargeSessions).set({
         estimatedSoc: soc,
-        energyWh: currentWh,
+        energyWh: sessionWh,
       }).where(eq(chargeSessions.id, sessionId)).run();
     }
 
@@ -655,6 +671,7 @@ export class ChargeMonitor {
     this.sessionStartedAt.delete(plugId);
     this.sessionEtaSeconds.delete(plugId);
     this.sessionEnergyRemainingWh.delete(plugId);
+    this.socBaselineEnergy.delete(plugId);
     this.matchData.delete(plugId);
   }
 
