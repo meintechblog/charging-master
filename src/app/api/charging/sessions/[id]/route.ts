@@ -70,6 +70,42 @@ export async function GET(
   });
 }
 
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params;
+  const sessionId = parseInt(id, 10);
+
+  if (isNaN(sessionId)) {
+    return Response.json({ error: 'invalid_session_id' }, { status: 400 });
+  }
+
+  const session = db
+    .select({ id: chargeSessions.id, state: chargeSessions.state })
+    .from(chargeSessions)
+    .where(eq(chargeSessions.id, sessionId))
+    .get();
+
+  if (!session) {
+    return Response.json({ error: 'session_not_found' }, { status: 404 });
+  }
+
+  // Refuse to delete sessions that are still live — would orphan runtime state.
+  const active = ['detecting', 'matched', 'charging', 'countdown', 'learning'];
+  if (active.includes(session.state)) {
+    return Response.json(
+      { error: 'session_active', state: session.state },
+      { status: 409 }
+    );
+  }
+
+  // session_readings + session_events cascade via ON DELETE CASCADE (schema.ts).
+  db.delete(chargeSessions).where(eq(chargeSessions.id, sessionId)).run();
+
+  return Response.json({ ok: true, id: sessionId });
+}
+
 const VALID_TARGET_SOC = new Set([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
 
 export async function PUT(

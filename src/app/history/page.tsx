@@ -109,6 +109,22 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [selectedPlugId, setSelectedPlugId] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  async function handleDelete(sessionId: number) {
+    setDeletingId(sessionId);
+    try {
+      const res = await fetch(`/api/charging/sessions/${sessionId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+        setTotal((t) => Math.max(0, t - 1));
+      }
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
+  }
 
   const fetchSessions = useCallback(async () => {
     setLoading(true);
@@ -191,6 +207,7 @@ export default function HistoryPage() {
                 <th className="text-right px-4 py-3 text-neutral-400 font-medium">Dauer</th>
                 <th className="text-right px-4 py-3 text-neutral-400 font-medium">Energie</th>
                 <th className="text-right px-4 py-3 text-neutral-400 font-medium">SOC</th>
+                <th className="text-right px-4 py-3 text-neutral-400 font-medium w-20"></th>
               </tr>
             </thead>
             <tbody>
@@ -222,6 +239,36 @@ export default function HistoryPage() {
                   </td>
                   <td className="px-4 py-3 text-neutral-300 text-right">
                     {s.estimatedSoc != null ? `${s.estimatedSoc}%` : '-'}
+                  </td>
+                  <td
+                    className="px-4 py-3 text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {confirmDeleteId === s.id ? (
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => handleDelete(s.id)}
+                          disabled={deletingId === s.id}
+                          className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                        >
+                          {deletingId === s.id ? '...' : 'OK'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-xs text-neutral-500 hover:text-neutral-300"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(s.id)}
+                        className="text-xs text-neutral-500 hover:text-red-400 transition-colors"
+                        title="Löschen"
+                      >
+                        Löschen
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

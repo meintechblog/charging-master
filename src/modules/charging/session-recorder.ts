@@ -19,6 +19,9 @@ export class SessionRecorder {
   private activeSessionStartTimes = new Map<string, number>();
   private activeSessionIds = new Map<string, number>();
   private readingCount = new Map<string, number>();
+  // Last state persisted per session — suppresses duplicate sessionEvents rows
+  // when ChargeMonitor emits multiple times in the same state.
+  private lastLoggedState = new Map<number, string>();
   private chargeHandler: (event: ChargeStateEvent) => void;
   private powerHandler: (reading: PowerReading) => void;
 
@@ -81,6 +84,7 @@ export class SessionRecorder {
         this.insertSessionEvent(sessionId, state);
       }
       // Clean up tracking maps
+      if (sessionId != null) this.lastLoggedState.delete(sessionId);
       this.activeSessionIds.delete(plugId);
       this.activeSessionStartTimes.delete(plugId);
       this.readingCount.delete(plugId);
@@ -111,6 +115,11 @@ export class SessionRecorder {
   }
 
   private insertSessionEvent(sessionId: number, state: string) {
+    // Deduplicate: only log state TRANSITIONS, not every event at the same state.
+    const prev = this.lastLoggedState.get(sessionId);
+    if (prev === state) return;
+    this.lastLoggedState.set(sessionId, state);
+
     db.insert(sessionEvents).values({
       sessionId,
       state,
