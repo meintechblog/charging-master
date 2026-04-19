@@ -1,7 +1,6 @@
 import { db } from '@/db/client';
 import { plugs, powerReadings } from '@/db/schema';
 import { desc, eq } from 'drizzle-orm';
-import { PlugCard } from '@/components/devices/plug-card';
 import { DashboardChargeBanners } from '@/components/charging/dashboard-charge-banners';
 import Link from 'next/link';
 
@@ -42,20 +41,18 @@ export default async function HomePage() {
         </div>
       ) : (
         <>
-          {/* Charge banners for all plugs (self-manage via SSE) */}
+          {/* Plugs grouped with their active charge banner */}
           <DashboardChargeBanners
             plugs={plugsWithOutput.map((p) => ({
               id: p.id,
               name: p.name,
               ipAddress: p.ipAddress,
+              online: p.online,
+              enabled: p.enabled,
+              lastSeen: p.lastSeen,
+              output: p.output,
             }))}
           />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {plugsWithOutput.map((plug) => (
-              <PlugCard key={plug.id} plug={plug} />
-            ))}
-          </div>
         </>
       )}
     </div>

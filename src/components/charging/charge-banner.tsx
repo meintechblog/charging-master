@@ -218,7 +218,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   if (session.state === 'detecting') {
     return (
       <>
-        <div className="bg-neutral-800 border-l-4 border-neutral-500 rounded-r-lg p-4 mb-4">
+        <div className="bg-neutral-800 border-l-4 border-neutral-500 rounded-lg p-4">
           <PlugIdentity plugName={plugName} plugIp={plugIp} />
           <div className="flex items-center gap-2">
             <svg
@@ -248,7 +248,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   // Complete / stopping state - success banner
   if (COMPLETE_STATES.has(session.state)) {
     return (
-      <div className="bg-neutral-800 border-l-4 border-green-500 rounded-r-lg p-4 mb-4">
+      <div className="bg-neutral-800 border-l-4 border-green-500 rounded-lg p-4">
         <PlugIdentity plugName={plugName} plugIp={plugIp} />
         <p className="text-sm text-green-400">
           Ladevorgang abgeschlossen bei {session.estimatedSoc ?? '--'}%
@@ -261,7 +261,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   const isCountdown = session.state === 'countdown';
 
   return (
-    <div className="bg-neutral-800 border-l-4 border-blue-500 rounded-r-lg p-4 mb-4">
+    <div className="bg-neutral-800 border-l-4 border-blue-500 rounded-lg p-4">
       <PlugIdentity plugName={plugName} plugIp={plugIp} />
       {/* Header info */}
       <div className="flex items-start justify-between mb-3">
