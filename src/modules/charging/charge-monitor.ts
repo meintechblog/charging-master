@@ -346,12 +346,14 @@ export class ChargeMonitor {
     switch (to) {
       case 'detecting': {
         const now = Date.now();
-        // Create new charge session
+        // Persist the Shelly aenergy.total snapshot so we can always recompute
+        // displayed Wh = currentTotalEnergy - startTotalEnergy across restarts.
         const sessionRow = db.insert(chargeSessions).values({
           plugId,
           state: 'detecting',
           startedAt: now,
           createdAt: now,
+          startTotalEnergy: reading.totalEnergy,
         }).returning().get();
 
         this.sessionIds.set(plugId, sessionRow.id);
@@ -750,7 +752,16 @@ export class ChargeMonitor {
       this.sessionIds.set(session.plugId, session.id);
       this.sessionWh.set(session.plugId, session.energyWh ?? 0);
       this.sessionStartedAt.set(session.plugId, session.startedAt);
-      this.sessionPriorEnergyWh.set(session.plugId, session.energyWh ?? 0);
+      if (session.startTotalEnergy != null) {
+        // Authoritative: totalEnergy at session start. sessionWh from here on
+        // is computed directly via reading.totalEnergy - sessionStartEnergy.
+        this.sessionStartEnergy.set(session.plugId, session.startTotalEnergy);
+        this.socBaselineEnergy.set(session.plugId, session.startTotalEnergy);
+      } else {
+        // Legacy fallback for pre-migration sessions (like session 5):
+        // recover the anchor from the last-saved energyWh delta.
+        this.sessionPriorEnergyWh.set(session.plugId, session.energyWh ?? 0);
+      }
 
       // Restore learn tracking maps from DB for learning sessions
       if (session.state === 'learning') {

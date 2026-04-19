@@ -102,6 +102,10 @@ export const chargeSessions = sqliteTable('charge_sessions', {
   stoppedAt: integer('stopped_at'),
   stopReason: text('stop_reason'),
   energyWh: real('energy_wh'),
+  // Shelly aenergy.total snapshot at session start. Immutable after write.
+  // sessionWh_display = latest(totalEnergy) - startTotalEnergy, so display
+  // Wh stays correct across service restarts AND SOC corrections.
+  startTotalEnergy: real('start_total_energy'),
   dtwScore: real('dtw_score'),
   createdAt: integer('created_at').notNull(),
 });
