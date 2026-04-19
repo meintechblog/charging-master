@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: Self-Update
 status: completed
 stopped_at: Phase 10 complete, milestone v1.2 ready for verification
-last_updated: "2026-04-10T16:57:30.000Z"
-last_activity: 2026-04-10 — Plan 10-02 complete (3 tasks + auto-verified checkpoint, 4 client components created, UpdateBanner extended with FlowState machine + rollback banner; milestone v1.2 self-update code-complete)
+last_updated: "2026-04-19T18:40:00.000Z"
+last_activity: 2026-04-19 — v1.2.1 post-milestone polish (21 commits, live iPad charging session): redesigned ChargeBanner, split sessionStartEnergy vs socBaselineEnergy, added charge_sessions.start_total_energy column, fixed SOC resume math, scoped chart to active session, replaced dashboard banner with inline PlugCard indicator
 progress:
   total_phases: 4
   completed_phases: 4
@@ -119,10 +119,11 @@ None.
 |---|-------------|------|--------|-----------|
 | 260409-awk | Create one-line installer script (install.sh) | 2026-04-09 | df1042c | [260409-awk](./quick/260409-awk-create-one-line-installer-script-install/) |
 | 260409-b9z | Extend install.sh with create-lxc mode | 2026-04-09 | dd97532 | [260409-b9z](./quick/260409-b9z-extend-install-sh-with-create-lxc-mode-f/) |
+| 260419-charge-ux | v1.2.1 post-milestone polish: ChargeBanner redesign, SOC/Wh math rework (split sessionStart vs socBaseline), start_total_energy schema col, chart session scoping, dashboard inline indicator, countdown ring proportional to SOC | 2026-04-19 | ec54570..228bf06 (21 commits) | — inline, no quick/ dir |
 
 ## Session Continuity
 
-Last session: 2026-04-10T16:57:30.000Z
-Stopped at: Phase 10 complete, milestone v1.2 ready for verification
+Last session: 2026-04-19T18:40:00.000Z
+Stopped at: v1.2.1 charge-banner/SOC/Wh polish deployed to LXC charging-master.local; live iPad session 5 running
 Resume file: None
-Next command: `/gsd-verify-phase 10` or deploy to charging-master.local LXC for post-deploy smoke test
+Next command: User-driven — next bug report or feature. Self-update pipeline is deployed in repo but NOT installed on LXC (flat `/opt/charging-master` served by `tsx server.ts`, no .git). Installing self-update requires running `install.sh` on the LXC.
