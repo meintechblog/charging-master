@@ -3,8 +3,17 @@
 import { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { usePowerStream, useOnlineStream } from '@/hooks/use-power-stream';
+import { useChargeStream } from '@/hooks/use-charge-stream';
 import { Sparkline } from '@/components/charts/sparkline';
 import { RelayToggle } from '@/components/devices/relay-toggle';
+import type { ChargeStateEvent } from '@/modules/charging/types';
+
+const ACTIVE_CHARGE_STATES = new Set<ChargeStateEvent['state']>([
+  'detecting',
+  'matched',
+  'charging',
+  'countdown',
+]);
 
 type PlugCardProps = {
   plug: {
@@ -36,6 +45,12 @@ export function PlugCard({ plug }: PlugCardProps) {
   const [relayOn, setRelayOn] = useState(plug.output ?? false);
   const [isOnline, setIsOnline] = useState(plug.online);
   const [sparkData, setSparkData] = useState<Array<[number, number]>>([]);
+  const [charge, setCharge] = useState<{
+    state: ChargeStateEvent['state'];
+    profileName?: string;
+    estimatedSoc?: number;
+    targetSoc?: number;
+  } | null>(null);
   const lastToggleAtRef = useRef<number>(0);
 
   const onReading = useCallback(
@@ -66,8 +81,22 @@ export function PlugCard({ plug }: PlugCardProps) {
     [plug.id]
   );
 
+  const onCharge = useCallback((event: ChargeStateEvent) => {
+    if (ACTIVE_CHARGE_STATES.has(event.state)) {
+      setCharge({
+        state: event.state,
+        profileName: event.profileName,
+        estimatedSoc: event.estimatedSoc,
+        targetSoc: event.targetSoc,
+      });
+    } else {
+      setCharge(null);
+    }
+  }, []);
+
   usePowerStream(plug.id, onReading);
   useOnlineStream(onOnline);
+  useChargeStream(plug.id, onCharge);
 
   const handleRelayToggle = useCallback((newState: boolean) => {
     lastToggleAtRef.current = Date.now();
@@ -131,8 +160,33 @@ export function PlugCard({ plug }: PlugCardProps) {
         </div>
       )}
 
+      {/* Active charging indicator */}
+      {charge && (
+        <div className="mt-3 pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-60 animate-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+            </span>
+            <span className="text-xs text-neutral-300 truncate">
+              {charge.state === 'detecting'
+                ? 'Gerät wird erkannt…'
+                : charge.profileName ?? 'Ladevorgang'}
+            </span>
+            {charge.estimatedSoc != null && charge.targetSoc != null && (
+              <span className="text-xs text-neutral-500 tabular-nums shrink-0">
+                {charge.estimatedSoc}% → {charge.targetSoc}%
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-blue-400 hover:text-blue-300 shrink-0">
+            Details →
+          </span>
+        </div>
+      )}
+
       {/* Last Seen (only when offline) */}
-      {!isOnline && (
+      {!isOnline && !charge && (
         <div className="text-xs text-neutral-500">
           {plug.lastSeen
             ? formatRelativeTime(plug.lastSeen)
