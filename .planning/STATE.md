@@ -5,7 +5,7 @@ milestone_name: Self-Update
 status: completed
 stopped_at: Phase 10 complete, milestone v1.2 ready for verification
 last_updated: "2026-04-19T18:40:00.000Z"
-last_activity: 2026-04-19 — v1.2.1 post-milestone polish (21 commits, live iPad charging session): redesigned ChargeBanner, split sessionStartEnergy vs socBaselineEnergy, added charge_sessions.start_total_energy column, fixed SOC resume math, scoped chart to active session, replaced dashboard banner with inline PlugCard indicator
+last_activity: 2026-04-21 — Quick 260421-229: ChargeBanner now exposes "Profil manuell zuweisen" directly from the detecting state (previously only via 10-min UnknownDeviceDialog). Plus RelayToggle controlled-component bugfix (03346ec) so the dashboard switch reflects server state live. LXC on f74f411, origin/main on f74f411, update banner cleared.
 progress:
   total_phases: 4
   completed_phases: 4
@@ -120,6 +120,7 @@ None.
 | 260409-awk | Create one-line installer script (install.sh) | 2026-04-09 | df1042c | [260409-awk](./quick/260409-awk-create-one-line-installer-script-install/) |
 | 260409-b9z | Extend install.sh with create-lxc mode | 2026-04-09 | dd97532 | [260409-b9z](./quick/260409-b9z-extend-install-sh-with-create-lxc-mode-f/) |
 | 260419-charge-ux | v1.2.1 post-milestone polish: ChargeBanner redesign, SOC/Wh math rework (split sessionStart vs socBaseline), start_total_energy schema col, chart session scoping, dashboard inline indicator, countdown ring proportional to SOC | 2026-04-19 | ec54570..228bf06 (21 commits) | — inline, no quick/ dir |
+| 260421-229 | Manual profile assignment while a session is still in `detecting` — adds "Profil manuell zuweisen" link to the detecting-state banner, reuses existing PUT /api/charging/sessions/:id backend, no schema changes | 2026-04-21 | f74f411 | [260421-229](./quick/260421-229-manual-profile-assign-detecting/) |
 
 ## Session Continuity
 
