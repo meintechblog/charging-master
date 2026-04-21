@@ -5,7 +5,7 @@ milestone_name: Self-Update
 status: completed
 stopped_at: Phase 10 complete, milestone v1.2 ready for verification
 last_updated: "2026-04-19T18:40:00.000Z"
-last_activity: 2026-04-21 — Quick 260421-423: streaming discovery scan with progress bar (SSE /api/devices/discover/stream) + Shelly Switch.GetConfig.name surfaced as primary label and default plug name. LXC + origin on 448e219.
+last_activity: 2026-04-21 — Quick 260421-669: multi-channel Shelly support pulled forward from 999.1 backlog (schema `plugs.channel` + composite id + removed all `?id=0` hardcoding). Plus quick 260421-6f6 umlaut sweep. LXC + origin on f72ef68.
 progress:
   total_phases: 4
   completed_phases: 4
@@ -125,6 +125,8 @@ None.
 | 260421-23e | Relay identify-toggle next to every device row (Discovery + Registered). New /api/devices/relay-by-ip endpoint with RFC1918 guard for un-registered devices; existing /api/devices/:id/relay reused for registered. Removed redundant "Aktiv/Deaktiviert" span — green/red online dot on the left is already the live-status indicator. | 2026-04-21 | f1f7834 | [260421-23e](./quick/260421-23e-relay-toggle-in-lists/) |
 | 260421-34c | /devices UX polish: auto-scan on page mount, IP addresses are clickable links to the Shelly admin UI, live watts moved next to the toggle, redundant "Relais: Ein/Aus" text removed. | 2026-04-21 | 4526f70 | [260421-34c](./quick/260421-34c-auto-scan-on-devices-page/) |
 | 260421-423 | Streaming device scan via SSE with live progress bar — rows appear per-hit instead of all at once — plus Shelly-defined Switch.GetConfig.name is surfaced as the primary label and used as the default plug name on Hinzufügen. | 2026-04-21 | 448e219 | [260421-423](./quick/260421-423-streaming-device-scan/) |
+| 260421-669 | Multi-channel Shelly support (planned as 999.1 backlog, pulled into this session). Discovery enumerates every switch:N; schema `plugs.channel` added (ALTER TABLE on live DB); composite id `${deviceId}:${channel}` for channel > 0; all `?id=0` hardcoding removed from polling + relay + learn paths. | 2026-04-21 | ec20a40, 3bc75c9 | [260421-669](./quick/260421-669-multi-switch-discovery/) |
+| 260421-6f6 | Replace ASCII `ue / ae / oe` digraphs with proper umlauts in 9 user-facing strings across 5 files. No behavior change. | 2026-04-21 | f72ef68 | [260421-6f6](./quick/260421-6f6-umlaut-fixes/) |
 
 ## Session Continuity
 
