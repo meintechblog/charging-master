@@ -10,12 +10,15 @@ type DiscoveredDevice = {
   gen: number;
   apower: number;
   output: boolean;
+  channelName: string | null;
 };
 
 type DiscoveryListProps = {
   registeredIds: string[];
-  onAddDevice: (deviceId: string, ip: string) => void;
+  onAddDevice: (deviceId: string, ip: string, defaultName?: string) => void;
 };
+
+const TOTAL_IPS = 254;
 
 export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps) {
   const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
@@ -23,6 +26,8 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
   const [error, setError] = useState<string | null>(null);
   const [hasScanned, setHasScanned] = useState(false);
   const [relayState, setRelayState] = useState<Map<string, boolean>>(new Map());
+  const [progress, setProgress] = useState<{ scanned: number; total: number } | null>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   function setRelay(deviceId: string, on: boolean) {
     setRelayState((prev) => {
@@ -32,39 +37,79 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     });
   }
 
-  const handleScan = useCallback(async () => {
+  const handleScan = useCallback(() => {
+    esRef.current?.close();
+    esRef.current = null;
+
     setScanning(true);
     setError(null);
     setDevices([]);
+    setRelayState(new Map());
+    setProgress({ scanned: 0, total: TOTAL_IPS });
 
-    try {
-      const res = await fetch('/api/devices/discover');
-      const data = await res.json();
+    const es = new EventSource('/api/devices/discover/stream');
+    esRef.current = es;
 
-      if (!res.ok) {
-        setError(data.error ?? 'Scan fehlgeschlagen');
-        return;
+    es.addEventListener('device', (event) => {
+      try {
+        const device: DiscoveredDevice = JSON.parse((event as MessageEvent).data);
+        setDevices((prev) => {
+          if (prev.some((d) => d.deviceId === device.deviceId)) return prev;
+          return [...prev, device];
+        });
+        setRelay(device.deviceId, device.output);
+      } catch {
+        // ignore malformed frame
       }
+    });
 
-      const list: DiscoveredDevice[] = data.devices ?? [];
-      setDevices(list);
-      setHasScanned(true);
-      setRelayState(new Map(list.map((d) => [d.deviceId, d.output])));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Netzwerkfehler');
-    } finally {
+    es.addEventListener('progress', (event) => {
+      try {
+        const p: { scanned: number; total: number } = JSON.parse(
+          (event as MessageEvent).data
+        );
+        setProgress(p);
+      } catch {
+        // ignore
+      }
+    });
+
+    es.addEventListener('error', (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data);
+        setError(data?.error ?? 'Scan fehlgeschlagen');
+      } catch {
+        // Browser also fires `error` with no data when the stream closes;
+        // ignore unless we were still mid-scan.
+      }
+    });
+
+    es.addEventListener('done', () => {
       setScanning(false);
-    }
+      setHasScanned(true);
+      es.close();
+      esRef.current = null;
+    });
   }, []);
 
   const didAutoScanRef = useRef(false);
   useEffect(() => {
     if (didAutoScanRef.current) return;
     didAutoScanRef.current = true;
-    void handleScan();
+    handleScan();
   }, [handleScan]);
 
+  useEffect(() => {
+    return () => {
+      esRef.current?.close();
+      esRef.current = null;
+    };
+  }, []);
+
   const unregistered = devices.filter((d) => !registeredIds.includes(d.deviceId));
+  const progressPct = progress
+    ? Math.round((progress.scanned / progress.total) * 100)
+    : 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -80,26 +125,34 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
             Scanne Netzwerk...
           </span>
         ) : (
-          'Geraete suchen'
+          'Geräte suchen'
         )}
       </button>
+
+      {/* Progress Bar */}
+      {scanning && progress && (
+        <div className="flex flex-col gap-1">
+          <div className="relative h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all duration-150 ease-linear"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="text-xs text-neutral-500 tabular-nums">
+            {progress.scanned} / {progress.total} IPs geprüft · {progressPct}%
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
         <div className="text-sm text-red-400">{error}</div>
       )}
 
-      {/* Results */}
-      {scanning && (
-        <div className="flex items-center gap-2 text-sm text-neutral-400">
-          <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-          Scanne Netzwerk...
-        </div>
-      )}
-
+      {/* Empty state after full scan */}
       {!scanning && hasScanned && unregistered.length === 0 && (
         <div className="text-sm text-neutral-500">
-          Keine neuen Geraete gefunden.
+          Keine neuen Geräte gefunden.
         </div>
       )}
 
@@ -107,15 +160,27 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
         <div className="flex flex-col gap-2">
           {unregistered.map((device) => {
             const relayOn = relayState.get(device.deviceId) ?? device.output;
+            const displayName = device.channelName ?? device.deviceId;
             return (
               <div
                 key={device.deviceId}
                 className="bg-neutral-800 rounded-md p-3 flex items-center justify-between gap-3"
               >
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
-                  <span className="text-sm text-neutral-100 font-mono truncate">
-                    {device.deviceId}
-                  </span>
+                  {device.channelName ? (
+                    <>
+                      <span className="text-sm text-neutral-100 truncate">
+                        {device.channelName}
+                      </span>
+                      <span className="text-xs text-neutral-500 font-mono truncate">
+                        {device.deviceId}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-neutral-100 font-mono truncate">
+                      {device.deviceId}
+                    </span>
+                  )}
                   <div className="flex items-center gap-3 text-xs text-neutral-400 tabular-nums">
                     <a
                       href={`http://${device.ip}/`}
@@ -140,10 +205,10 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
                     onToggle={(next) => setRelay(device.deviceId, next)}
                   />
                   <button
-                    onClick={() => onAddDevice(device.deviceId, device.ip)}
+                    onClick={() => onAddDevice(device.deviceId, device.ip, displayName)}
                     className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
                   >
-                    Hinzufuegen
+                    Hinzufügen
                   </button>
                 </div>
               </div>

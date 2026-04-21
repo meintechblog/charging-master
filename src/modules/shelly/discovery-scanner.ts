@@ -12,6 +12,7 @@ export type ScanResult = {
   gen: number;
   apower: number;
   output: boolean;
+  channelName: string | null;
 };
 
 /**
@@ -53,6 +54,7 @@ export async function probeDevice(ip: string, timeoutMs: number): Promise<ScanRe
     // Fetch current switch status for power reading
     let apower = 0;
     let output = false;
+    let channelName: string | null = null;
 
     try {
       const statusRes = await fetch(
@@ -69,7 +71,22 @@ export async function probeDevice(ip: string, timeoutMs: number): Promise<ScanRe
       // Switch status is optional -- device info is enough
     }
 
-    return { ip, deviceId: id, model, gen, apower, output };
+    try {
+      const cfgRes = await fetch(
+        `http://${ip}/rpc/Switch.GetConfig?id=0`,
+        { signal: AbortSignal.timeout(timeoutMs) }
+      );
+
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        const raw = typeof cfg?.name === 'string' ? cfg.name.trim() : '';
+        channelName = raw.length > 0 ? raw : null;
+      }
+    } catch {
+      // Channel name is optional
+    }
+
+    return { ip, deviceId: id, model, gen, apower, output, channelName };
   } catch {
     return null;
   }
@@ -88,10 +105,12 @@ export async function scanSubnet(options?: {
   concurrency?: number;
   timeoutMs?: number;
   onProgress?: (scanned: number, total: number) => void;
+  onDevice?: (device: ScanResult) => void;
 }): Promise<ScanResult[]> {
   const concurrency = options?.concurrency ?? 20;
   const timeoutMs = options?.timeoutMs ?? 1500;
   const onProgress = options?.onProgress;
+  const onDevice = options?.onDevice;
 
   const subnet = getLocalSubnet();
   const total = 254;
@@ -110,7 +129,10 @@ export async function scanSubnet(options?: {
     const batchResults = await Promise.all(batch);
 
     for (const result of batchResults) {
-      if (result) results.push(result);
+      if (result) {
+        results.push(result);
+        onDevice?.(result);
+      }
     }
 
     scanned = batchEnd;

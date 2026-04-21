@@ -100,13 +100,13 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
     }
   }
 
-  async function handleAddFromDiscovery(deviceId: string, ip: string) {
+  async function handleAddFromDiscovery(deviceId: string, ip: string, defaultName?: string) {
     const res = await fetch('/api/devices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: deviceId,
-        name: deviceId,
+        name: defaultName && defaultName.trim().length > 0 ? defaultName.trim() : deviceId,
         ipAddress: ip,
       }),
     });
