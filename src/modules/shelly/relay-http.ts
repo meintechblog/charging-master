@@ -22,10 +22,16 @@ export function isPrivateIpv4(ip: string): boolean {
  * Switch relay on via Shelly HTTP API.
  * Returns true if the command was acknowledged.
  */
-export async function switchRelayOnHttp(ipAddress: string): Promise<boolean> {
+function safeChannel(channel: number | undefined): number {
+  if (!Number.isInteger(channel) || (channel as number) < 0) return 0;
+  return channel as number;
+}
+
+export async function switchRelayOnHttp(ipAddress: string, channel = 0): Promise<boolean> {
   try {
+    const id = safeChannel(channel);
     const res = await fetch(
-      `http://${ipAddress}/rpc/Switch.Set?id=0&on=true`,
+      `http://${ipAddress}/rpc/Switch.Set?id=${id}&on=true`,
       { signal: AbortSignal.timeout(3000) }
     );
     return res.ok;
@@ -38,10 +44,11 @@ export async function switchRelayOnHttp(ipAddress: string): Promise<boolean> {
  * Switch relay off via Shelly HTTP API.
  * Returns true if the command was acknowledged.
  */
-export async function switchRelayOffHttp(ipAddress: string): Promise<boolean> {
+export async function switchRelayOffHttp(ipAddress: string, channel = 0): Promise<boolean> {
   try {
+    const id = safeChannel(channel);
     const res = await fetch(
-      `http://${ipAddress}/rpc/Switch.Set?id=0&on=false`,
+      `http://${ipAddress}/rpc/Switch.Set?id=${id}&on=false`,
       { signal: AbortSignal.timeout(3000) }
     );
     return res.ok;

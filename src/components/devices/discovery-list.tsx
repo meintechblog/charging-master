@@ -8,10 +8,15 @@ type DiscoveredDevice = {
   deviceId: string;
   model: string;
   gen: number;
+  channel: number;
+  channelName: string | null;
   apower: number;
   output: boolean;
-  channelName: string | null;
 };
+
+function rowKey(d: { deviceId: string; channel: number }): string {
+  return `${d.deviceId}:${d.channel}`;
+}
 
 type DiscoveryListProps = {
   registeredIds: string[];
@@ -29,10 +34,10 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
   const [progress, setProgress] = useState<{ scanned: number; total: number } | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
-  function setRelay(deviceId: string, on: boolean) {
+  function setRelay(key: string, on: boolean) {
     setRelayState((prev) => {
       const next = new Map(prev);
-      next.set(deviceId, on);
+      next.set(key, on);
       return next;
     });
   }
@@ -54,10 +59,11 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
       try {
         const device: DiscoveredDevice = JSON.parse((event as MessageEvent).data);
         setDevices((prev) => {
-          if (prev.some((d) => d.deviceId === device.deviceId)) return prev;
+          const key = rowKey(device);
+          if (prev.some((d) => rowKey(d) === key)) return prev;
           return [...prev, device];
         });
-        setRelay(device.deviceId, device.output);
+        setRelay(rowKey(device), device.output);
       } catch {
         // ignore malformed frame
       }
@@ -106,7 +112,11 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     };
   }, []);
 
-  const unregistered = devices.filter((d) => !registeredIds.includes(d.deviceId));
+  // Channel 0: hide once the base device is registered.
+  // Channel > 0: always show until multi-channel registration lands (999.1).
+  const unregistered = devices.filter((d) =>
+    d.channel === 0 ? !registeredIds.includes(d.deviceId) : true
+  );
   const progressPct = progress
     ? Math.round((progress.scanned / progress.total) * 100)
     : 0;
@@ -159,25 +169,29 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
       {unregistered.length > 0 && (
         <div className="flex flex-col gap-2">
           {unregistered.map((device) => {
-            const relayOn = relayState.get(device.deviceId) ?? device.output;
-            const displayName = device.channelName ?? device.deviceId;
+            const key = rowKey(device);
+            const relayOn = relayState.get(key) ?? device.output;
+            const primaryLabel =
+              device.channelName ??
+              (device.channel === 0 ? device.deviceId : `${device.deviceId} (Kanal ${device.channel})`);
+            const showSecondaryId = device.channelName !== null;
+            const canRegister = device.channel === 0;
             return (
               <div
-                key={device.deviceId}
+                key={key}
                 className="bg-neutral-800 rounded-md p-3 flex items-center justify-between gap-3"
               >
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
-                  {device.channelName ? (
-                    <>
-                      <span className="text-sm text-neutral-100 truncate">
-                        {device.channelName}
-                      </span>
-                      <span className="text-xs text-neutral-500 font-mono truncate">
-                        {device.deviceId}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-sm text-neutral-100 font-mono truncate">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm text-neutral-100 truncate">
+                      {primaryLabel}
+                    </span>
+                    <span className="text-[10px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded shrink-0">
+                      Kanal {device.channel}
+                    </span>
+                  </div>
+                  {showSecondaryId && (
+                    <span className="text-xs text-neutral-500 font-mono truncate">
                       {device.deviceId}
                     </span>
                   )}
@@ -201,15 +215,25 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
                 <div className="flex items-center gap-2 shrink-0">
                   <IpRelayToggle
                     ip={device.ip}
+                    channel={device.channel}
                     state={relayOn}
-                    onToggle={(next) => setRelay(device.deviceId, next)}
+                    onToggle={(next) => setRelay(key, next)}
                   />
-                  <button
-                    onClick={() => onAddDevice(device.deviceId, device.ip, displayName)}
-                    className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
-                  >
-                    Hinzufügen
-                  </button>
+                  {canRegister ? (
+                    <button
+                      onClick={() => onAddDevice(device.deviceId, device.ip, primaryLabel)}
+                      className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
+                    >
+                      Hinzufügen
+                    </button>
+                  ) : (
+                    <span
+                      title="Multi-Channel-Support folgt in Phase 999.1 — Kanal 0 kann bereits hinzugefügt werden."
+                      className="text-xs text-neutral-500 bg-neutral-900 px-3 py-1 rounded-md cursor-not-allowed"
+                    >
+                      999.1
+                    </span>
+                  )}
                 </div>
               </div>
             );

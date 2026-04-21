@@ -7,14 +7,14 @@ import {
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
-  let body: { ip?: string; command?: string };
+  let body: { ip?: string; command?: string; channel?: number };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: 'invalid_body' }, { status: 400 });
   }
 
-  const { ip, command } = body;
+  const { ip, command, channel } = body;
 
   if (!ip || typeof ip !== 'string' || !isPrivateIpv4(ip)) {
     return Response.json(
@@ -30,12 +30,23 @@ export async function POST(request: Request) {
     );
   }
 
+  let ch = 0;
+  if (channel !== undefined) {
+    if (!Number.isInteger(channel) || channel < 0 || channel > 7) {
+      return Response.json(
+        { error: 'invalid_channel', valid: '0-7 integer' },
+        { status: 400 }
+      );
+    }
+    ch = channel;
+  }
+
   const success =
-    command === 'on' ? await switchRelayOnHttp(ip) : await switchRelayOffHttp(ip);
+    command === 'on' ? await switchRelayOnHttp(ip, ch) : await switchRelayOffHttp(ip, ch);
 
   if (!success) {
     return Response.json({ error: 'device_unreachable' }, { status: 502 });
   }
 
-  return Response.json({ ok: true, command });
+  return Response.json({ ok: true, command, channel: ch });
 }

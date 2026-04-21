@@ -4,12 +4,13 @@ import { useState, useRef, useCallback } from 'react';
 
 type IpRelayToggleProps = {
   ip: string;
+  channel?: number;
   state: boolean;
   disabled?: boolean;
   onToggle?: (newState: boolean) => void;
 };
 
-export function IpRelayToggle({ ip, state, disabled, onToggle }: IpRelayToggleProps) {
+export function IpRelayToggle({ ip, channel, state, disabled, onToggle }: IpRelayToggleProps) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -30,7 +31,11 @@ export function IpRelayToggle({ ip, state, disabled, onToggle }: IpRelayTogglePr
       const res = await fetch('/api/devices/relay-by-ip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip, command: newState ? 'on' : 'off' }),
+        body: JSON.stringify({
+          ip,
+          command: newState ? 'on' : 'off',
+          ...(channel !== undefined ? { channel } : {}),
+        }),
         signal: controller.signal,
       });
 
@@ -48,7 +53,7 @@ export function IpRelayToggle({ ip, state, disabled, onToggle }: IpRelayTogglePr
     } finally {
       setPending(false);
     }
-  }, [state, pending, disabled, ip, onToggle]);
+  }, [state, pending, disabled, ip, channel, onToggle]);
 
   return (
     <button
