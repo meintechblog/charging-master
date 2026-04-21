@@ -4,6 +4,7 @@ export const plugs = sqliteTable('plugs', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   ipAddress: text('ip_address'),
+  channel: integer('channel').notNull().default(0),
   pollingInterval: integer('polling_interval').notNull().default(5),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   online: integer('online', { mode: 'boolean' }).notNull().default(false),

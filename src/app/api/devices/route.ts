@@ -19,11 +19,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { id, name, ipAddress, pollingInterval } = body as {
+  const { id, name, ipAddress, pollingInterval, channel } = body as {
     id: string;
     name: string;
     ipAddress?: string;
     pollingInterval?: number;
+    channel?: number;
   };
 
   if (!id || typeof id !== 'string' || !name || typeof name !== 'string') {
@@ -32,6 +33,17 @@ export async function POST(request: Request) {
 
   if (!ipAddress || typeof ipAddress !== 'string') {
     return Response.json({ error: 'ip_address_required' }, { status: 400 });
+  }
+
+  let ch = 0;
+  if (channel !== undefined) {
+    if (!Number.isInteger(channel) || channel < 0 || channel > 7) {
+      return Response.json(
+        { error: 'invalid_channel', valid: '0-7 integer' },
+        { status: 400 }
+      );
+    }
+    ch = channel;
   }
 
   // Check for duplicate
@@ -45,6 +57,7 @@ export async function POST(request: Request) {
     id,
     name,
     ipAddress: ipAddress ?? null,
+    channel: ch,
     pollingInterval: pollingInterval ?? 5,
     enabled: true,
     online: false,
@@ -60,7 +73,8 @@ export async function POST(request: Request) {
     globalThis.__httpPollingService.startPolling(
       newPlug.id,
       newPlug.ipAddress,
-      (newPlug.pollingInterval ?? 1) * 1000
+      (newPlug.pollingInterval ?? 1) * 1000,
+      newPlug.channel
     );
   }
 
@@ -103,7 +117,8 @@ export async function PATCH(request: Request) {
       globalThis.__httpPollingService.startPolling(
         id,
         updated.ipAddress,
-        (updated.pollingInterval ?? 1) * 1000
+        (updated.pollingInterval ?? 1) * 1000,
+        updated.channel ?? 0
       );
     }
   }

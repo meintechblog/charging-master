@@ -28,13 +28,20 @@ export class HttpPollingService {
    * Polls immediately, then at the configured interval.
    * Guards against double-polling the same plugId.
    */
-  startPolling(plugId: string, ipAddress: string, intervalMs: number = 1000): void {
+  startPolling(
+    plugId: string,
+    ipAddress: string,
+    intervalMs: number = 1000,
+    channel: number = 0
+  ): void {
     if (this.pollers.has(plugId)) return;
+
+    const safeChannel = Number.isInteger(channel) && channel >= 0 ? channel : 0;
 
     const poll = async () => {
       try {
         const res = await fetch(
-          `http://${ipAddress}/rpc/Switch.GetStatus?id=0`,
+          `http://${ipAddress}/rpc/Switch.GetStatus?id=${safeChannel}`,
           { signal: AbortSignal.timeout(3000) }
         );
 

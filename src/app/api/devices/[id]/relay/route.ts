@@ -33,8 +33,8 @@ export async function POST(
   }
 
   const success = command === 'on'
-    ? await switchRelayOnHttp(plug.ipAddress)
-    : await switchRelayOffHttp(plug.ipAddress);
+    ? await switchRelayOnHttp(plug.ipAddress, plug.channel ?? 0)
+    : await switchRelayOffHttp(plug.ipAddress, plug.channel ?? 0);
 
   if (!success) {
     return Response.json({ error: 'device_unreachable' }, { status: 502 });

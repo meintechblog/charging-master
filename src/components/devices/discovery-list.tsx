@@ -20,8 +20,17 @@ function rowKey(d: { deviceId: string; channel: number }): string {
 
 type DiscoveryListProps = {
   registeredIds: string[];
-  onAddDevice: (deviceId: string, ip: string, defaultName?: string) => void;
+  onAddDevice: (
+    deviceId: string,
+    ip: string,
+    defaultName: string | undefined,
+    channel: number
+  ) => void;
 };
+
+function plugKey(deviceId: string, channel: number): string {
+  return channel > 0 ? `${deviceId}:${channel}` : deviceId;
+}
 
 const TOTAL_IPS = 254;
 
@@ -112,10 +121,11 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     };
   }, []);
 
-  // Channel 0: hide once the base device is registered.
-  // Channel > 0: always show until multi-channel registration lands (999.1).
-  const unregistered = devices.filter((d) =>
-    d.channel === 0 ? !registeredIds.includes(d.deviceId) : true
+  // A row is considered registered once a plug row exists with the
+  // matching composite id (deviceId for channel 0, deviceId:channel
+  // for channel > 0).
+  const unregistered = devices.filter(
+    (d) => !registeredIds.includes(plugKey(d.deviceId, d.channel))
   );
   const progressPct = progress
     ? Math.round((progress.scanned / progress.total) * 100)
@@ -175,7 +185,6 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
               device.channelName ??
               (device.channel === 0 ? device.deviceId : `${device.deviceId} (Kanal ${device.channel})`);
             const showSecondaryId = device.channelName !== null;
-            const canRegister = device.channel === 0;
             return (
               <div
                 key={key}
@@ -219,21 +228,14 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
                     state={relayOn}
                     onToggle={(next) => setRelay(key, next)}
                   />
-                  {canRegister ? (
-                    <button
-                      onClick={() => onAddDevice(device.deviceId, device.ip, primaryLabel)}
-                      className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
-                    >
-                      Hinzufügen
-                    </button>
-                  ) : (
-                    <span
-                      title="Multi-Channel-Support folgt in Phase 999.1 — Kanal 0 kann bereits hinzugefügt werden."
-                      className="text-xs text-neutral-500 bg-neutral-900 px-3 py-1 rounded-md cursor-not-allowed"
-                    >
-                      999.1
-                    </span>
-                  )}
+                  <button
+                    onClick={() =>
+                      onAddDevice(device.deviceId, device.ip, primaryLabel, device.channel)
+                    }
+                    className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
+                  >
+                    Hinzufügen
+                  </button>
                 </div>
               </div>
             );

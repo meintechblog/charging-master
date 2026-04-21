@@ -430,7 +430,7 @@ export class ChargeMonitor {
         const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
         if (plug && plug.ipAddress && canSwitchRelay(this.lastRelayOff.get(plugId) ?? 0)) {
           switchRelayOff(
-            { id: plug.id, ipAddress: plug.ipAddress },
+            { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
             this.eventBus
           ).then((ok) => {
             if (ok) this.lastRelayOff.set(plugId, Date.now());
@@ -609,7 +609,7 @@ export class ChargeMonitor {
     }
 
     const success = await switchRelayOff(
-      { id: plug.id, ipAddress: plug.ipAddress },
+      { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
       this.eventBus
     );
 

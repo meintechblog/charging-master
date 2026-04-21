@@ -57,7 +57,12 @@ async function main() {
   const registeredPlugs = db.select().from(plugs).all();
   for (const plug of registeredPlugs) {
     if (plug.enabled && plug.ipAddress) {
-      httpPollingService.startPolling(plug.id, plug.ipAddress, (plug.pollingInterval ?? 1) * 1000);
+      httpPollingService.startPolling(
+        plug.id,
+        plug.ipAddress,
+        (plug.pollingInterval ?? 1) * 1000,
+        plug.channel ?? 0
+      );
     }
   }
 

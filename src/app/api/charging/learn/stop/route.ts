@@ -25,7 +25,7 @@ async function turnPlugOff(plugId: string): Promise<void> {
 
   try {
     await switchRelayOff(
-      { id: plug.id, ipAddress: plug.ipAddress },
+      { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
       eventBus
     );
   } catch {

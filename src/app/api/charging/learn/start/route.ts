@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   // the relay defaults to off after a fresh teach-in.
   if (plug.ipAddress) {
     try {
-      await switchRelayOn({ id: plug.id, ipAddress: plug.ipAddress });
+      await switchRelayOn({ id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 });
     } catch {
       // Non-fatal: learning can still proceed and user can toggle manually.
     }

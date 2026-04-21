@@ -51,11 +51,11 @@ function waitForPowerDrop(
  * Returns true if relay was confirmed off.
  */
 export async function switchRelayOff(
-  plug: { id: string; ipAddress: string },
+  plug: { id: string; ipAddress: string; channel?: number },
   eventBus: EventBus
 ): Promise<boolean> {
   for (let retry = 0; retry < MAX_HTTP_RETRIES; retry++) {
-    const ok = await switchRelayOffHttp(plug.ipAddress);
+    const ok = await switchRelayOffHttp(plug.ipAddress, plug.channel ?? 0);
     if (ok) {
       const verified = await waitForPowerDrop(eventBus, plug.id, VERIFY_DELAY_MS);
       if (verified) return true;
@@ -70,9 +70,9 @@ export async function switchRelayOff(
  * Returns true if the command was acknowledged.
  */
 export async function switchRelayOn(
-  plug: { id: string; ipAddress: string }
+  plug: { id: string; ipAddress: string; channel?: number }
 ): Promise<boolean> {
-  return switchRelayOnHttp(plug.ipAddress);
+  return switchRelayOnHttp(plug.ipAddress, plug.channel ?? 0);
 }
 
 /**
