@@ -5,7 +5,7 @@ milestone_name: Self-Update
 status: completed
 stopped_at: Phase 10 complete, milestone v1.2 ready for verification
 last_updated: "2026-04-19T18:40:00.000Z"
-last_activity: 2026-04-21 — Quick 260421-34c: /devices UX polish (auto-scan on mount, clickable IP → Shelly admin, watts moved next to toggle, redundant relay-state text removed). Backlog item 999.1 added for the multi-channel Shelly refactor. LXC + origin on 4526f70.
+last_activity: 2026-04-21 — Quick 260421-423: streaming discovery scan with progress bar (SSE /api/devices/discover/stream) + Shelly Switch.GetConfig.name surfaced as primary label and default plug name. LXC + origin on 448e219.
 progress:
   total_phases: 4
   completed_phases: 4
@@ -124,6 +124,7 @@ None.
 | 260421-146 | Guarded plug delete + richer registered-device rows (IP, live W, relay state, "Ladevorgang aktiv" badge). DELETE now returns 409 when an active session exists and cascades charge_sessions/power_readings in a transaction otherwise. Two-step confirm in UI. **Incident:** smoke-testing the DELETE against live Schuppen wiped 4 sessions + 52k readings — plug re-registered, lesson captured in memory. | 2026-04-21 | ea0182a | [260421-146](./quick/260421-146-guarded-plug-delete/) |
 | 260421-23e | Relay identify-toggle next to every device row (Discovery + Registered). New /api/devices/relay-by-ip endpoint with RFC1918 guard for un-registered devices; existing /api/devices/:id/relay reused for registered. Removed redundant "Aktiv/Deaktiviert" span — green/red online dot on the left is already the live-status indicator. | 2026-04-21 | f1f7834 | [260421-23e](./quick/260421-23e-relay-toggle-in-lists/) |
 | 260421-34c | /devices UX polish: auto-scan on page mount, IP addresses are clickable links to the Shelly admin UI, live watts moved next to the toggle, redundant "Relais: Ein/Aus" text removed. | 2026-04-21 | 4526f70 | [260421-34c](./quick/260421-34c-auto-scan-on-devices-page/) |
+| 260421-423 | Streaming device scan via SSE with live progress bar — rows appear per-hit instead of all at once — plus Shelly-defined Switch.GetConfig.name is surfaced as the primary label and used as the default plug name on Hinzufügen. | 2026-04-21 | 448e219 | [260421-423](./quick/260421-423-streaming-device-scan/) |
 
 ## Session Continuity
 
