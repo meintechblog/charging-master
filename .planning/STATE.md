@@ -5,7 +5,7 @@ milestone_name: Self-Update
 status: completed
 stopped_at: Phase 10 complete, milestone v1.2 ready for verification
 last_updated: "2026-04-19T18:40:00.000Z"
-last_activity: 2026-04-21 — Quick 260421-229: ChargeBanner now exposes "Profil manuell zuweisen" directly from the detecting state (previously only via 10-min UnknownDeviceDialog). Plus RelayToggle controlled-component bugfix (03346ec) so the dashboard switch reflects server state live. LXC on f74f411, origin/main on f74f411, update banner cleared.
+last_activity: 2026-04-21 — Quick 260421-146: guarded plug DELETE (409 on active session, transactional cascade otherwise) + richer /devices rows (IP, live W, relay state, active-charge badge). Incident: smoke-test wiped live Schuppen history (plug re-registered, lesson saved to memory). LXC on ea0182a, origin/main on ea0182a.
 progress:
   total_phases: 4
   completed_phases: 4
@@ -121,6 +121,7 @@ None.
 | 260409-b9z | Extend install.sh with create-lxc mode | 2026-04-09 | dd97532 | [260409-b9z](./quick/260409-b9z-extend-install-sh-with-create-lxc-mode-f/) |
 | 260419-charge-ux | v1.2.1 post-milestone polish: ChargeBanner redesign, SOC/Wh math rework (split sessionStart vs socBaseline), start_total_energy schema col, chart session scoping, dashboard inline indicator, countdown ring proportional to SOC | 2026-04-19 | ec54570..228bf06 (21 commits) | — inline, no quick/ dir |
 | 260421-229 | Manual profile assignment while a session is still in `detecting` — adds "Profil manuell zuweisen" link to the detecting-state banner, reuses existing PUT /api/charging/sessions/:id backend, no schema changes | 2026-04-21 | f74f411 | [260421-229](./quick/260421-229-manual-profile-assign-detecting/) |
+| 260421-146 | Guarded plug delete + richer registered-device rows (IP, live W, relay state, "Ladevorgang aktiv" badge). DELETE now returns 409 when an active session exists and cascades charge_sessions/power_readings in a transaction otherwise. Two-step confirm in UI. **Incident:** smoke-testing the DELETE against live Schuppen wiped 4 sessions + 52k readings — plug re-registered, lesson captured in memory. | 2026-04-21 | ea0182a | [260421-146](./quick/260421-146-guarded-plug-delete/) |
 
 ## Session Continuity
 
