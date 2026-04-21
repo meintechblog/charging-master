@@ -6,6 +6,7 @@ import { DiscoveryList } from '@/components/devices/discovery-list';
 import { AddDeviceForm } from '@/components/devices/add-device-form';
 import { usePowerStream, useOnlineStream } from '@/hooks/use-power-stream';
 import { useChargeStream } from '@/hooks/use-charge-stream';
+import { RelayToggle } from '@/components/devices/relay-toggle';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 
 type Plug = {
@@ -271,16 +272,25 @@ function RegisteredDeviceRow({
   const [watts, setWatts] = useState<number | null>(null);
   const [relayOn, setRelayOn] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(plug.online);
+  const lastToggleAtRef = useRef<number>(0);
 
   const onReading = useCallback(
     (reading: { plugId: string; apower: number; output: boolean }) => {
       if (reading.plugId !== plug.id) return;
       setWatts(reading.apower);
-      setRelayOn(reading.output);
       setIsOnline(true);
+      const elapsed = Date.now() - lastToggleAtRef.current;
+      if (elapsed >= 4000) {
+        setRelayOn(reading.output);
+      }
     },
     [plug.id]
   );
+
+  const handleRelayToggle = useCallback((newState: boolean) => {
+    lastToggleAtRef.current = Date.now();
+    setRelayOn(newState);
+  }, []);
 
   const onOnline = useCallback(
     (event: { plugId: string; online: boolean }) => {
@@ -370,9 +380,12 @@ function RegisteredDeviceRow({
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span className={`text-xs ${plug.enabled ? 'text-green-400' : 'text-neutral-500'}`}>
-            {plug.enabled ? 'Aktiv' : 'Deaktiviert'}
-          </span>
+          <RelayToggle
+            plugId={plug.id}
+            state={relayOn ?? false}
+            disabled={!isOnline || relayOn === null}
+            onToggle={handleRelayToggle}
+          />
           <button
             onClick={onDeleteClick}
             disabled={deleteDisabled}
