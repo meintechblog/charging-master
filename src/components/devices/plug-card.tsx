@@ -146,7 +146,7 @@ export function PlugCard({ plug }: PlugCardProps) {
         >
           <RelayToggle
             plugId={plug.id}
-            initialState={relayOn}
+            state={relayOn}
             disabled={!isOnline}
             onToggle={handleRelayToggle}
           />
