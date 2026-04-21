@@ -248,6 +248,37 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
             </svg>
             <span className="text-sm text-neutral-400">Gerät wird erkannt...</span>
           </div>
+          {session.sessionId && profiles.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-neutral-700/60 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-neutral-500">
+              {!showProfileDropdown ? (
+                <button
+                  onClick={() => setShowProfileDropdown(true)}
+                  className="text-neutral-400 hover:text-blue-400 transition-colors underline-offset-2 hover:underline"
+                >
+                  Profil manuell zuweisen
+                </button>
+              ) : (
+                <div className="flex gap-1 flex-wrap items-center">
+                  <span className="text-neutral-500 mr-1">Profil:</span>
+                  {profiles.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => handleOverrideProfile(p.id)}
+                      className="px-2 py-0.5 rounded bg-neutral-700 text-neutral-200 hover:bg-neutral-600"
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowProfileDropdown(false)}
+                    className="text-neutral-500 hover:text-neutral-300 px-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {showUnknown && session.sessionId && (
           <UnknownDeviceDialog
