@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { IpRelayToggle } from '@/components/devices/ip-relay-toggle';
 
 type DiscoveredDevice = {
@@ -32,7 +32,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     });
   }
 
-  async function handleScan() {
+  const handleScan = useCallback(async () => {
     setScanning(true);
     setError(null);
     setDevices([]);
@@ -55,7 +55,14 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
     } finally {
       setScanning(false);
     }
-  }
+  }, []);
+
+  const didAutoScanRef = useRef(false);
+  useEffect(() => {
+    if (didAutoScanRef.current) return;
+    didAutoScanRef.current = true;
+    void handleScan();
+  }, [handleScan]);
 
   const unregistered = devices.filter((d) => !registeredIds.includes(d.deviceId));
 
@@ -110,7 +117,15 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
                     {device.deviceId}
                   </span>
                   <div className="flex items-center gap-3 text-xs text-neutral-400 tabular-nums">
-                    <span>{device.ip}</span>
+                    <a
+                      href={`http://${device.ip}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-blue-400 underline-offset-2 hover:underline"
+                      title="Shelly Admin-UI in neuem Tab öffnen"
+                    >
+                      {device.ip}
+                    </a>
                     <span>{device.model}</span>
                     <span>{device.apower.toFixed(1)} W</span>
                     <span className={relayOn ? 'text-green-400' : 'text-neutral-500'}>

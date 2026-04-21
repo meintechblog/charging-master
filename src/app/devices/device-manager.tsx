@@ -367,7 +367,17 @@ function RegisteredDeviceRow({
             )}
             <div className="text-xs text-neutral-500 font-mono truncate">{plug.id}</div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-neutral-400 mt-1 tabular-nums">
-              {plug.ipAddress && <span>{plug.ipAddress}</span>}
+              {plug.ipAddress && (
+                <a
+                  href={`http://${plug.ipAddress}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-blue-400 underline-offset-2 hover:underline"
+                  title="Shelly Admin-UI in neuem Tab öffnen"
+                >
+                  {plug.ipAddress}
+                </a>
+              )}
               <span>{model}</span>
               <span>{watts != null ? `${watts.toFixed(1)} W` : '-- W'}</span>
               <span className={relayOn ? 'text-green-400' : 'text-neutral-500'}>
