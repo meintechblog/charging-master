@@ -379,10 +379,6 @@ function RegisteredDeviceRow({
                 </a>
               )}
               <span>{model}</span>
-              <span>{watts != null ? `${watts.toFixed(1)} W` : '-- W'}</span>
-              <span className={relayOn ? 'text-green-400' : 'text-neutral-500'}>
-                {relayOn == null ? '– / –' : relayOn ? 'Relais: Ein' : 'Relais: Aus'}
-              </span>
               {isActiveCharge && (
                 <span className="text-blue-400">● Ladevorgang aktiv</span>
               )}
@@ -390,6 +386,9 @@ function RegisteredDeviceRow({
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs text-neutral-400 tabular-nums w-14 text-right">
+            {watts != null ? `${watts.toFixed(1)} W` : '-- W'}
+          </span>
           <RelayToggle
             plugId={plug.id}
             state={relayOn ?? false}
