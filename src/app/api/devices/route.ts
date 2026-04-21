@@ -1,6 +1,14 @@
 import { db } from '@/db/client';
-import { plugs } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { plugs, chargeSessions, powerReadings } from '@/db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
+
+const ACTIVE_SESSION_STATES = [
+  'detecting',
+  'matched',
+  'charging',
+  'countdown',
+  'learning',
+] as const;
 
 export const runtime = 'nodejs';
 
@@ -116,9 +124,33 @@ export async function DELETE(request: Request) {
     return Response.json({ error: 'not_found' }, { status: 404 });
   }
 
-  db.delete(plugs).where(eq(plugs.id, id)).run();
+  const active = db
+    .select({ id: chargeSessions.id, state: chargeSessions.state })
+    .from(chargeSessions)
+    .where(
+      and(
+        eq(chargeSessions.plugId, id),
+        inArray(chargeSessions.state, [...ACTIVE_SESSION_STATES])
+      )
+    )
+    .get();
 
-  // Stop HTTP polling for the deleted plug
+  if (active) {
+    return Response.json(
+      { error: 'active_session', sessionId: active.id, state: active.state },
+      { status: 409 }
+    );
+  }
+
+  // FKs on charge_sessions.plug_id and power_readings.plug_id do not cascade,
+  // so wipe them explicitly. session_readings + session_events cascade off
+  // charge_sessions via their own ON DELETE CASCADE.
+  db.transaction((tx) => {
+    tx.delete(chargeSessions).where(eq(chargeSessions.plugId, id)).run();
+    tx.delete(powerReadings).where(eq(powerReadings.plugId, id)).run();
+    tx.delete(plugs).where(eq(plugs.id, id)).run();
+  });
+
   if (globalThis.__httpPollingService) {
     globalThis.__httpPollingService.stopPolling(existing.id);
   }
