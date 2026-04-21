@@ -113,7 +113,7 @@ export class NotificationService {
       case 'learn_complete':
         return {
           title: 'Lernvorgang abgeschlossen',
-          message: `Referenzkurve aufgezeichnet fuer ${event.profileName ?? 'Unbekannt'}`,
+          message: `Referenzkurve aufgezeichnet für ${event.profileName ?? 'Unbekannt'}`,
           priority: 0,
         };
       default:

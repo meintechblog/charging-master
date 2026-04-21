@@ -18,7 +18,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
     setError(null);
 
     if (!id.trim() || !name.trim() || !ipAddress.trim()) {
-      setError('Geraete-ID, Name und IP-Adresse sind erforderlich');
+      setError('Geräte-ID, Name und IP-Adresse sind erforderlich');
       return;
     }
 
@@ -41,10 +41,10 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
         setIpAddress('');
         onAdded();
       } else if (res.status === 409) {
-        setError('Geraet bereits registriert');
+        setError('Gerät bereits registriert');
       } else {
         const data = await res.json();
-        setError(data.error ?? 'Fehler beim Hinzufuegen');
+        setError(data.error ?? 'Fehler beim Hinzufügen');
       }
     } catch {
       setError('Netzwerkfehler');
@@ -57,7 +57,7 @@ export function AddDeviceForm({ onAdded }: AddDeviceFormProps) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
         <label htmlFor="device-id" className="block text-sm font-medium text-neutral-300 mb-1">
-          Geraete-ID
+          Geräte-ID
         </label>
         <input
           id="device-id"

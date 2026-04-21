@@ -164,7 +164,7 @@ export default function HistoryPage() {
           onChange={(e) => setSelectedPlugId(e.target.value)}
           className="bg-neutral-800 border border-neutral-700 text-neutral-200 text-sm rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
         >
-          <option value="">Alle Geraete</option>
+          <option value="">Alle Geräte</option>
           {plugs.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}

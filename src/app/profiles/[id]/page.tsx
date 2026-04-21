@@ -460,7 +460,7 @@ export default function ProfileDetailPage() {
             })}
           </div>
         ) : (
-          <p className="text-sm text-neutral-500">Noch keine Ladevorgaenge fuer dieses Profil.</p>
+          <p className="text-sm text-neutral-500">Noch keine Ladevorgänge für dieses Profil.</p>
         )}
       </div>
 

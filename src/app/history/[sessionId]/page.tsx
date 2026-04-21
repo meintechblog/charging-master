@@ -159,7 +159,7 @@ export default function SessionDetailPage() {
       <div className="text-center py-12">
         <p className="text-neutral-400 mb-4">Session nicht gefunden.</p>
         <Link href="/history" className="text-blue-400 hover:text-blue-300 text-sm">
-          Zurueck zur Uebersicht
+          Zurück zur Übersicht
         </Link>
       </div>
     );
@@ -233,7 +233,7 @@ export default function SessionDetailPage() {
           />
         ) : (
           <div className="bg-neutral-900 rounded-lg p-8 border border-neutral-800 text-center">
-            <p className="text-sm text-neutral-500">Keine Messdaten fuer diese Session vorhanden.</p>
+            <p className="text-sm text-neutral-500">Keine Messdaten für diese Session vorhanden.</p>
           </div>
         )}
       </div>
