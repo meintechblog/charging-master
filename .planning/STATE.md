@@ -5,7 +5,7 @@ milestone_name: Self-Update
 status: completed
 stopped_at: Phase 10 complete, milestone v1.2 ready for verification
 last_updated: "2026-04-19T18:40:00.000Z"
-last_activity: 2026-04-21 — Quick 260421-23e: relay identify-toggle next to every device row (both Discovery and Registered). New /api/devices/relay-by-ip endpoint with RFC1918 guard for unregistered Shellys. Redundant "Aktiv/Deaktiviert" span removed. LXC + origin on f1f7834.
+last_activity: 2026-04-21 — Quick 260421-34c: /devices UX polish (auto-scan on mount, clickable IP → Shelly admin, watts moved next to toggle, redundant relay-state text removed). Backlog item 999.1 added for the multi-channel Shelly refactor. LXC + origin on 4526f70.
 progress:
   total_phases: 4
   completed_phases: 4
@@ -123,6 +123,7 @@ None.
 | 260421-229 | Manual profile assignment while a session is still in `detecting` — adds "Profil manuell zuweisen" link to the detecting-state banner, reuses existing PUT /api/charging/sessions/:id backend, no schema changes | 2026-04-21 | f74f411 | [260421-229](./quick/260421-229-manual-profile-assign-detecting/) |
 | 260421-146 | Guarded plug delete + richer registered-device rows (IP, live W, relay state, "Ladevorgang aktiv" badge). DELETE now returns 409 when an active session exists and cascades charge_sessions/power_readings in a transaction otherwise. Two-step confirm in UI. **Incident:** smoke-testing the DELETE against live Schuppen wiped 4 sessions + 52k readings — plug re-registered, lesson captured in memory. | 2026-04-21 | ea0182a | [260421-146](./quick/260421-146-guarded-plug-delete/) |
 | 260421-23e | Relay identify-toggle next to every device row (Discovery + Registered). New /api/devices/relay-by-ip endpoint with RFC1918 guard for un-registered devices; existing /api/devices/:id/relay reused for registered. Removed redundant "Aktiv/Deaktiviert" span — green/red online dot on the left is already the live-status indicator. | 2026-04-21 | f1f7834 | [260421-23e](./quick/260421-23e-relay-toggle-in-lists/) |
+| 260421-34c | /devices UX polish: auto-scan on page mount, IP addresses are clickable links to the Shelly admin UI, live watts moved next to the toggle, redundant "Relais: Ein/Aus" text removed. | 2026-04-21 | 4526f70 | [260421-34c](./quick/260421-34c-auto-scan-on-devices-page/) |
 
 ## Session Continuity
 
