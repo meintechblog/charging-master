@@ -224,3 +224,49 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
+
+## Backlog
+
+### Phase 999.1: Multi-Channel Shelly Support (Schema + Code Refactor) (BACKLOG)
+
+**Goal:** [Captured for future planning] Drop the `?id=0` hardcoding that permeates the codebase so that multi-channel Shelly devices (Pro 2PM / 4PM, 2PM Gen3) are enumerated, addressed, and charged per-channel — with the user-defined Switch names (`Switch.GetConfig.name`) surfaced throughout the UI.
+
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Problem:**
+Every relay/polling/discovery path assumes one switch per device at id=0:
+- `src/modules/shelly/relay-http.ts` — `switchRelayOnHttp/Off` hardcode `?id=0`
+- `src/modules/shelly/http-polling-service.ts` — polls only `Switch.GetStatus?id=0`
+- `src/modules/shelly/discovery-scanner.ts` — one ScanResult per IP (not per channel)
+- `src/app/api/devices/[id]/relay/route.ts` and `src/app/api/devices/relay-by-ip/route.ts` — call `switchRelay*` without a channel parameter
+- MQTT topics documented in CLAUDE.md: `<device_id>/status/switch:0`, `<device_id>/command/switch:0`
+- DB schema `plugs`: one row per device, no channel column. `charge_sessions.plug_id` and `power_readings.plug_id` reference the device, not a channel.
+
+Works fine on the current Shelly Plug S Gen3 (physically single-channel). A Pro 2PM or 4PM would silently lose channels 1..N. Separately, the `Switch.GetConfig.name` the user set in the Shelly admin UI (e.g. "Schuppen") is ignored today.
+
+**Scope of the refactor:**
+- Schema migration: `plugs` gets `channel_id INTEGER NOT NULL DEFAULT 0`; PK becomes `(id, channel_id)` — or normalize by splitting into `devices` + `plug_channels`. `charge_sessions` and `power_readings` both need `channel_id`.
+- `relay-http.ts`: `switchRelayOnHttp(ip, channelId = 0)`.
+- `http-polling-service.ts`: iterate every channel per device, poll `Switch.GetStatus?id=N` each.
+- `discovery-scanner.ts`: `Shelly.GetComponents?include=["status","config"]&dynamic_only=false`, enumerate all `switch:N`, one ScanResult per channel, include `Switch.GetConfig.name`.
+- All relay endpoints accept `channelId` (path / body).
+- `ChargeMonitor`/`ChargeStateMachine`: instance keyed by `(plugId, channelId)`.
+- EventBus / SSE: events carry `channelId`; UI filters by it.
+- UI: DiscoveryList renders one row per channel (channel name = primary label). `RegisteredDeviceRow` shows all channels of a device with per-channel toggle + watts. Plug-detail routes become `/devices/[deviceId]/[channelId]` (or virtual-plug abstraction stays and URL remains).
+
+**Migration strategy:**
+- Existing rows (`shellyplugsg3-charging-master-1`, `-2`) get `channel_id = 0` via migration — no data loss.
+- Re-discovery run after migration backfills `Switch.GetConfig.name` into the DB.
+
+**Acceptance:**
+- Plugging in a Shelly Pro 2PM/4PM exposes all channels, each addressable and chargeable individually.
+- Shelly-defined Switch names are used throughout the UI.
+- Single-channel devices keep working unchanged.
+- Zero `?id=0` hardcodes left in the code.
+
+**Why this lives in the backlog, not a quick task:**
+Schema migration + ~8 touchpoints in code + UI structural change + state-machine lifecycle rework. This is a Phase with research / discuss / plan / execute, not a 1–3 task patch.
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
