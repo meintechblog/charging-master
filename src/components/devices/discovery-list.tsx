@@ -181,61 +181,57 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
           {unregistered.map((device) => {
             const key = rowKey(device);
             const relayOn = relayState.get(key) ?? device.output;
-            const primaryLabel =
-              device.channelName ??
-              (device.channel === 0 ? device.deviceId : `${device.deviceId} (Kanal ${device.channel})`);
-            const showSecondaryId = device.channelName !== null;
+            const primaryLabel = device.channelName ?? device.deviceId;
+            const compositeId = plugKey(device.deviceId, device.channel);
             return (
               <div
                 key={key}
-                className="bg-neutral-800 rounded-md p-3 flex items-center justify-between gap-3"
+                className="bg-neutral-800 rounded-md p-3 flex flex-col gap-2"
               >
-                <div className="flex flex-col gap-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm text-neutral-100 truncate">
-                      {primaryLabel}
-                    </span>
-                    <span className="text-[10px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded shrink-0">
-                      Kanal {device.channel}
-                    </span>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className="w-2 h-2 rounded-full shrink-0 bg-green-500" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-neutral-100 truncate">{primaryLabel}</div>
+                      <div className="text-xs text-neutral-500 font-mono truncate">{compositeId}</div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-neutral-400 mt-1 tabular-nums">
+                        <a
+                          href={`http://${device.ip}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:text-blue-400 underline-offset-2 hover:underline"
+                          title="Shelly Admin-UI in neuem Tab öffnen"
+                        >
+                          {device.ip}
+                        </a>
+                        <span>{device.model}</span>
+                        {device.channel > 0 && (
+                          <span className="text-[10px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded">
+                            Kanal {device.channel}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  {showSecondaryId && (
-                    <span className="text-xs text-neutral-500 font-mono truncate">
-                      {device.deviceId}
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-neutral-400 tabular-nums w-14 text-right">
+                      {device.apower.toFixed(1)} W
                     </span>
-                  )}
-                  <div className="flex items-center gap-3 text-xs text-neutral-400 tabular-nums">
-                    <a
-                      href={`http://${device.ip}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-blue-400 underline-offset-2 hover:underline"
-                      title="Shelly Admin-UI in neuem Tab öffnen"
+                    <IpRelayToggle
+                      ip={device.ip}
+                      channel={device.channel}
+                      state={relayOn}
+                      onToggle={(next) => setRelay(key, next)}
+                    />
+                    <button
+                      onClick={() =>
+                        onAddDevice(device.deviceId, device.ip, primaryLabel, device.channel)
+                      }
+                      className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
                     >
-                      {device.ip}
-                    </a>
-                    <span>{device.model}</span>
-                    <span>{device.apower.toFixed(1)} W</span>
-                    <span className={relayOn ? 'text-green-400' : 'text-neutral-500'}>
-                      {relayOn ? 'Ein' : 'Aus'}
-                    </span>
+                      Hinzufügen
+                    </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <IpRelayToggle
-                    ip={device.ip}
-                    channel={device.channel}
-                    state={relayOn}
-                    onToggle={(next) => setRelay(key, next)}
-                  />
-                  <button
-                    onClick={() =>
-                      onAddDevice(device.deviceId, device.ip, primaryLabel, device.channel)
-                    }
-                    className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md transition-colors"
-                  >
-                    Hinzufügen
-                  </button>
                 </div>
               </div>
             );

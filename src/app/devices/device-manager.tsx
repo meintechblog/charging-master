@@ -15,6 +15,7 @@ type Plug = {
   online: boolean;
   enabled: boolean;
   ipAddress: string | null;
+  channel: number;
   lastSeen: number | null;
 };
 
@@ -386,6 +387,11 @@ function RegisteredDeviceRow({
                 </a>
               )}
               <span>{model}</span>
+              {plug.channel > 0 && (
+                <span className="text-[10px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded">
+                  Kanal {plug.channel}
+                </span>
+              )}
               {isActiveCharge && (
                 <span className="text-blue-400">● Ladevorgang aktiv</span>
               )}
