@@ -75,6 +75,10 @@ export const deviceProfiles = sqliteTable('device_profiles', {
   warrantyCycles: integer('warranty_cycles'),
   // --- Charging accessory binding (placeholder; full charger entity later) ---
   chargerModel: text('charger_model'),
+  // AC->DC efficiency factor for this profile's charger. Shelly meters AC,
+  // but the user cares about DC Wh that actually entered the battery.
+  // Default 0.85 — typical SMPS for small Li-ion packs. Range expected 0.5–1.0.
+  chargerEfficiency: real('charger_efficiency').default(0.85),
   // --- Free-form user notes (separate from description) ---
   notes: text('notes'),
   // --- JSON escape hatch for fields we haven't typed yet ---

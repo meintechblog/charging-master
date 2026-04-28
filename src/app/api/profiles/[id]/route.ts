@@ -190,6 +190,7 @@ export async function PUT(
     'chargeTempMinC', 'chargeTempMaxC',
     'dischargeTempMinC', 'dischargeTempMaxC',
     'endOfLifeCapacityPct', 'warrantyCycles',
+    'chargerEfficiency',
   ] as const;
   for (const field of numberFields) {
     const v = body[field];

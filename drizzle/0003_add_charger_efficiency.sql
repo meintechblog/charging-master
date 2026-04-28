@@ -1,0 +1,1 @@
+ALTER TABLE `device_profiles` ADD `charger_efficiency` real DEFAULT 0.85;

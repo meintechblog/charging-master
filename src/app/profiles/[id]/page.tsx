@@ -53,6 +53,7 @@ type ProfileData = {
   warrantyUntil: string | null;
   warrantyCycles: number | null;
   chargerModel: string | null;
+  chargerEfficiency: number | null;
   notes: string | null;
   cyclesUsed: number | null;
   totalDeliveredWh: number;
@@ -338,6 +339,14 @@ export default function ProfileDetailPage() {
   if (profile.chargerModel) {
     attrs.push({ icon: <IconZap />, label: 'Ladegerät', value: profile.chargerModel, accent: 'text-yellow-400' });
   }
+  if (profile.chargerEfficiency != null) {
+    attrs.push({
+      icon: <IconBolt />,
+      label: 'Charger-Wirkungsgrad',
+      value: `${(profile.chargerEfficiency * 100).toFixed(0)} % (AC → DC)`,
+      accent: 'text-yellow-400',
+    });
+  }
   if (profile.warrantyUntil || profile.warrantyCycles) {
     const parts: string[] = [];
     if (profile.warrantyUntil) parts.push(`bis ${new Date(profile.warrantyUntil).toLocaleDateString('de-DE')}`);
@@ -356,13 +365,23 @@ export default function ProfileDetailPage() {
     const durationStr = durationMin >= 60
       ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}min`
       : `${durationMin} min`;
-    const energyStr = c.totalEnergyWh >= 1000
-      ? `${(c.totalEnergyWh / 1000).toFixed(2)} kWh`
-      : `${c.totalEnergyWh.toFixed(1)} Wh`;
+    const formatWh = (wh: number) => wh >= 1000 ? `${(wh / 1000).toFixed(2)} kWh` : `${wh.toFixed(1)} Wh`;
+    const acWh = c.totalEnergyWh;
+    // DC estimate: AC measured at the plug times charger efficiency. Without a
+    // measured efficiency we fall back to the schema default 0.85 so the user
+    // always sees a DC estimate even on legacy profiles.
+    const eta = profile.chargerEfficiency ?? 0.85;
+    const dcWh = acWh * eta;
 
     curveStats.push({ icon: <IconZap />, label: 'Startleistung', value: `${c.startPower.toFixed(1)} W`, accent: 'text-yellow-400' });
     curveStats.push({ icon: <IconBolt />, label: 'Spitzenleistung', value: `${c.peakPower.toFixed(1)} W`, accent: 'text-orange-400' });
-    curveStats.push({ icon: <IconBolt />, label: 'Energie (AC-seitig)', value: energyStr, accent: 'text-green-400' });
+    curveStats.push({ icon: <IconBolt />, label: 'Energie AC (gemessen)', value: formatWh(acWh), accent: 'text-green-400' });
+    curveStats.push({
+      icon: <IconBolt />,
+      label: `Energie DC (Akku, ~${(eta * 100).toFixed(0)} %)`,
+      value: formatWh(dcWh),
+      accent: 'text-emerald-300',
+    });
     curveStats.push({ icon: <IconClock />, label: 'Ladedauer', value: durationStr, accent: 'text-blue-400' });
   }
 
