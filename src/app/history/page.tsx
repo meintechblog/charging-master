@@ -153,12 +153,12 @@ export default function HistoryPage() {
   }, [fetchSessions]);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       {/* Header */}
       <h1 className="text-2xl font-bold text-neutral-100 mb-6">Verlauf</h1>
 
       {/* Filter bar */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4">
         <select
           value={selectedPlugId}
           onChange={(e) => setSelectedPlugId(e.target.value)}

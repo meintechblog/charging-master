@@ -64,7 +64,8 @@ export default async function ProfilesPage() {
         </div>
       ) : (
         <div className="bg-neutral-900 rounded-lg overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-neutral-800">
                 <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3 w-12" aria-label="Bild" />
@@ -120,6 +121,7 @@ export default async function ProfilesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

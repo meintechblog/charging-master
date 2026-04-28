@@ -183,7 +183,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
   return (
     <div className="flex flex-col gap-6">
       {/* Auto-Discovery Section */}
-      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
+      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
         <h2 className="text-lg font-semibold text-neutral-100 mb-4">
           Geräte-Erkennung
         </h2>
@@ -194,7 +194,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
       </section>
 
       {/* Manual Add Section */}
-      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
+      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
         <button
           onClick={() => setShowManual(!showManual)}
           className="flex items-center justify-between w-full text-lg font-semibold text-neutral-100"
@@ -213,7 +213,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
 
       {/* Registered Devices */}
       {registeredPlugs.length > 0 && (
-        <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
+        <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
           <h2 className="text-lg font-semibold text-neutral-100 mb-4">
             Registrierte Geräte
           </h2>
