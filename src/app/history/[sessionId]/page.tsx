@@ -136,14 +136,36 @@ export default function SessionDetailPage() {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/history/${sessionId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('not found');
-        return res.json();
-      })
-      .then((data) => setSession(data))
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const NON_TERMINAL = new Set(['detecting', 'matched', 'charging', 'countdown', 'stopping', 'learning']);
+
+    async function tick(initial: boolean) {
+      try {
+        const res = await fetch(`/api/history/${sessionId}`, { cache: 'no-store' });
+        if (!res.ok) {
+          if (initial) setError(true);
+          return;
+        }
+        const data: SessionDetail = await res.json();
+        if (cancelled) return;
+        setSession(data);
+        if (NON_TERMINAL.has(data.state)) {
+          timer = setTimeout(() => tick(false), 5000);
+        }
+      } catch {
+        if (initial && !cancelled) setError(true);
+      } finally {
+        if (initial && !cancelled) setLoading(false);
+      }
+    }
+
+    tick(true);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [sessionId]);
 
   if (loading) {
@@ -221,7 +243,18 @@ export default function SessionDetailPage() {
 
       {/* Power curve chart */}
       <div>
-        <h2 className="text-sm font-medium text-neutral-400 mb-3">Ladekurve</h2>
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-medium text-neutral-400">Ladekurve</h2>
+          {(session.state === 'learning' || session.state === 'charging' || session.state === 'countdown' || session.state === 'detecting' || session.state === 'matched' || session.state === 'stopping') && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-green-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+              </span>
+              Live (5s)
+            </span>
+          )}
+        </div>
         {sessionChartData.length > 0 ? (
           <PowerChart
             plugId={`session-${sessionId}`}

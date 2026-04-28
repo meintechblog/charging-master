@@ -7,8 +7,14 @@ import {
   sessionEvents,
   referenceCurves,
   referenceCurvePoints,
+  powerReadings,
 } from '@/db/schema';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, and, gte } from 'drizzle-orm';
+
+// States considered "still running" — we serve live data from power_readings
+// instead of relying on session_readings (which is only populated for charge
+// sessions, not learn sessions).
+const NON_TERMINAL_STATES = new Set(['detecting', 'matched', 'charging', 'countdown', 'stopping', 'learning']);
 
 export const runtime = 'nodejs';
 
@@ -52,19 +58,88 @@ export async function GET(
     return Response.json({ error: 'session_not_found' }, { status: 404 });
   }
 
-  // All readings for full chart replay
-  const readings = db
-    .select({
-      offsetMs: sessionReadings.offsetMs,
-      apower: sessionReadings.apower,
-      voltage: sessionReadings.voltage,
-      current: sessionReadings.current,
-      timestamp: sessionReadings.timestamp,
-    })
-    .from(sessionReadings)
-    .where(eq(sessionReadings.sessionId, sessionId))
-    .orderBy(asc(sessionReadings.offsetMs))
-    .all();
+  // Readings: prefer the live raw stream from power_readings while the
+  // session is still running (covers learn sessions, which never write into
+  // session_readings, and gives near-real-time updates for charging sessions
+  // too). Fall back to session_readings for completed sessions where
+  // power_readings has been pruned but session_readings remains.
+  const useLive = NON_TERMINAL_STATES.has(session.state);
+
+  let readings: Array<{
+    offsetMs: number;
+    apower: number;
+    voltage: number | null;
+    current: number | null;
+    timestamp: number;
+  }> = [];
+
+  if (useLive) {
+    const raw = db
+      .select({
+        timestamp: powerReadings.timestamp,
+        apower: powerReadings.apower,
+        voltage: powerReadings.voltage,
+        current: powerReadings.current,
+      })
+      .from(powerReadings)
+      .where(and(
+        eq(powerReadings.plugId, session.plugId),
+        gte(powerReadings.timestamp, session.startedAt),
+      ))
+      .orderBy(asc(powerReadings.timestamp))
+      .all();
+
+    readings = raw.map((r) => ({
+      offsetMs: r.timestamp - session.startedAt,
+      apower: r.apower,
+      voltage: r.voltage,
+      current: r.current,
+      timestamp: r.timestamp,
+    }));
+  } else {
+    readings = db
+      .select({
+        offsetMs: sessionReadings.offsetMs,
+        apower: sessionReadings.apower,
+        voltage: sessionReadings.voltage,
+        current: sessionReadings.current,
+        timestamp: sessionReadings.timestamp,
+      })
+      .from(sessionReadings)
+      .where(eq(sessionReadings.sessionId, sessionId))
+      .orderBy(asc(sessionReadings.offsetMs))
+      .all();
+
+    // For completed learn sessions, session_readings is empty — fall back
+    // to the persisted power_readings so the recorded curve is still visible.
+    if (readings.length === 0) {
+      const upTo = session.stoppedAt ?? Date.now();
+      const raw = db
+        .select({
+          timestamp: powerReadings.timestamp,
+          apower: powerReadings.apower,
+          voltage: powerReadings.voltage,
+          current: powerReadings.current,
+        })
+        .from(powerReadings)
+        .where(and(
+          eq(powerReadings.plugId, session.plugId),
+          gte(powerReadings.timestamp, session.startedAt),
+        ))
+        .orderBy(asc(powerReadings.timestamp))
+        .all();
+
+      readings = raw
+        .filter((r) => r.timestamp <= upTo)
+        .map((r) => ({
+          offsetMs: r.timestamp - session.startedAt,
+          apower: r.apower,
+          voltage: r.voltage,
+          current: r.current,
+          timestamp: r.timestamp,
+        }));
+    }
+  }
 
   // All state transition events
   const events = db
