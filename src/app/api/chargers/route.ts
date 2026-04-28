@@ -1,28 +1,32 @@
 import { db } from '@/db/client';
 import { chargers, deviceProfiles } from '@/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const rows = db.select({
-    id: chargers.id,
-    name: chargers.name,
-    manufacturer: chargers.manufacturer,
-    model: chargers.model,
-    efficiency: chargers.efficiency,
-    maxCurrentA: chargers.maxCurrentA,
-    maxVoltageV: chargers.maxVoltageV,
-    outputType: chargers.outputType,
-    notes: chargers.notes,
-    createdAt: chargers.createdAt,
-    updatedAt: chargers.updatedAt,
-    profileCount: sql<number>`(SELECT COUNT(*) FROM ${deviceProfiles} WHERE ${deviceProfiles.chargerId} = ${chargers.id})`,
-  })
-    .from(chargers)
+  const rows = db.select().from(chargers).all();
+
+  // Profile counts per charger via a single grouped query, then merged in JS.
+  // Avoids correlated-subquery interpolation quirks.
+  const counts = db
+    .select({
+      chargerId: deviceProfiles.chargerId,
+      n: sql<number>`COUNT(*)`,
+    })
+    .from(deviceProfiles)
+    .where(sql`${deviceProfiles.chargerId} IS NOT NULL`)
+    .groupBy(deviceProfiles.chargerId)
     .all();
 
-  return Response.json({ chargers: rows });
+  const countMap = new Map<number, number>();
+  for (const c of counts) {
+    if (c.chargerId != null) countMap.set(c.chargerId, Number(c.n));
+  }
+
+  return Response.json({
+    chargers: rows.map((r) => ({ ...r, profileCount: countMap.get(r.id) ?? 0 })),
+  });
 }
 
 export async function POST(request: Request) {
