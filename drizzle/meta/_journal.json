@@ -29,6 +29,13 @@
       "when": 1777390740734,
       "tag": "0003_add_charger_efficiency",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777390874974,
+      "tag": "0004_add_profile_photos",
+      "breakpoints": true
     }
   ]
 }

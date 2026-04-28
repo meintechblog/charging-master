@@ -15,6 +15,7 @@ type SessionSummary = {
 import { ProfileForm, type ProfileFormValues } from '@/components/charging/profile-form';
 import { SocButtons } from '@/components/charging/soc-buttons';
 import { PowerChart } from '@/components/charts/power-chart';
+import { ProfilePhotoGallery, type ProfilePhoto } from '@/components/charging/profile-photo-gallery';
 
 type ProfileData = {
   id: number;
@@ -152,6 +153,7 @@ export default function ProfileDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
+  const [primaryPhoto, setPrimaryPhoto] = useState<ProfilePhoto | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -388,17 +390,27 @@ export default function ProfileDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <Link href="/profiles" className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
-            ← Profile
-          </Link>
-          <h1 className="text-2xl font-bold text-neutral-100">{profile.name}</h1>
-          {profile.manufacturer && (
-            <p className="text-sm text-neutral-400">{profile.manufacturer}{profile.modelName ? ` — ${profile.modelName}` : ''}</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          {primaryPhoto && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/profiles/${profile.id}/photos/${primaryPhoto.id}/file`}
+              alt={profile.name}
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg object-cover bg-neutral-900 border border-neutral-800 shrink-0"
+            />
           )}
+          <div className="min-w-0">
+            <Link href="/profiles" className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+              ← Profile
+            </Link>
+            <h1 className="text-2xl font-bold text-neutral-100 truncate">{profile.name}</h1>
+            {profile.manufacturer && (
+              <p className="text-sm text-neutral-400 truncate">{profile.manufacturer}{profile.modelName ? ` — ${profile.modelName}` : ''}</p>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <button
             onClick={() => setEditing(!editing)}
             className="px-3 py-1.5 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
@@ -445,6 +457,9 @@ export default function ProfileDetailPage() {
           ))}
         </div>
       )}
+
+      {/* Photo gallery */}
+      <ProfilePhotoGallery profileId={profile.id} onPrimaryChange={setPrimaryPhoto} />
 
       {/* Edit form OR attribute display */}
       {editing ? (

@@ -94,6 +94,18 @@ export const priceHistory = sqliteTable('price_history', {
   recordedAt: integer('recorded_at').notNull(),
 });
 
+export const profilePhotos = sqliteTable('profile_photos', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),
+  fileName: text('file_name').notNull(),         // on-disk filename, e.g. '42.jpeg'
+  originalName: text('original_name'),           // user's original upload name
+  contentType: text('content_type').notNull(),   // 'image/jpeg' | 'image/png' | 'image/webp'
+  sizeBytes: integer('size_bytes').notNull(),
+  isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+  caption: text('caption'),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const referenceCurves = sqliteTable('reference_curves', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),
