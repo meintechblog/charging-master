@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Dashboard' },
   { href: '/devices', label: 'Geräte' },
   { href: '/profiles', label: 'Profile' },
+  { href: '/chargers', label: 'Ladegeräte' },
   { href: '/settings', label: 'Einstellungen' },
   { href: '/history', label: 'Verlauf' },
 ];

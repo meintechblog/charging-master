@@ -1,5 +1,5 @@
 import { db } from '@/db/client';
-import { deviceProfiles, referenceCurves, socBoundaries, priceHistory, chargeSessions } from '@/db/schema';
+import { deviceProfiles, referenceCurves, socBoundaries, priceHistory, chargeSessions, chargers } from '@/db/schema';
 import { eq, desc, and, sql } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
@@ -70,10 +70,17 @@ export async function GET(
     ? totalDeliveredWh / perCycleWh
     : null;
 
+  const chargerRow = profile.chargerId != null
+    ? db.select().from(chargers).where(eq(chargers.id, profile.chargerId)).get() ?? null
+    : null;
+
   return Response.json({
     ...profile,
     certifications: parseJsonArray(profile.certifications),
     extra: parseJsonObject(profile.extra),
+    charger: chargerRow,
+    // Effective efficiency precedence: linked charger > per-profile override > 0.85.
+    effectiveEfficiency: chargerRow?.efficiency ?? profile.chargerEfficiency ?? 0.85,
     hasCurve: !!curve,
     curve: curve ? {
       id: curve.id,
@@ -204,6 +211,17 @@ export async function PUT(
 
   if (body.replaceable === null) updates.replaceable = null;
   else if (typeof body.replaceable === 'boolean') updates.replaceable = body.replaceable;
+
+  // chargerId: must reference an existing charger or be null
+  if (body.chargerId === null) {
+    updates.chargerId = null;
+  } else if (typeof body.chargerId === 'number' && Number.isInteger(body.chargerId)) {
+    const exists = db.select({ id: chargers.id }).from(chargers).where(eq(chargers.id, body.chargerId)).get();
+    if (!exists) {
+      return Response.json({ error: 'invalid_charger_id', message: 'no charger with that id' }, { status: 400 });
+    }
+    updates.chargerId = body.chargerId;
+  }
 
   // certifications: accept array<string> or null; serialize as JSON
   if (body.certifications === null) {

@@ -1,6 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+type ChargerOption = {
+  id: number;
+  name: string;
+  manufacturer: string | null;
+  model: string | null;
+  efficiency: number | null;
+};
 
 export type ProfileFormValues = {
   // Identity / commercial
@@ -32,6 +40,7 @@ export type ProfileFormValues = {
   chargeTempMaxC: number | null;
   chargerModel: string;
   chargerEfficiency: number | null;
+  chargerId: number | null;
   // Identity / provenance
   serialNumber: string;
   productionDate: string;
@@ -105,6 +114,19 @@ export function ProfileForm({
   const [chargeTempMaxC, setChargeTempMaxC] = useState(numOrEmpty(initialValues?.chargeTempMaxC));
   const [chargerModel, setChargerModel] = useState(strOrEmpty(initialValues?.chargerModel));
   const [chargerEfficiency, setChargerEfficiency] = useState(numOrEmpty(initialValues?.chargerEfficiency));
+  const [chargerId, setChargerId] = useState<string>(initialValues?.chargerId != null ? String(initialValues.chargerId) : '');
+  const [chargerOptions, setChargerOptions] = useState<ChargerOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/chargers')
+      .then((r) => r.ok ? r.json() : { chargers: [] })
+      .then((data: { chargers: ChargerOption[] }) => {
+        if (!cancelled) setChargerOptions(data.chargers ?? []);
+      })
+      .catch(() => { /* offline-tolerant */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // --- Identity / provenance ---
   const [serialNumber, setSerialNumber] = useState(strOrEmpty(initialValues?.serialNumber));
@@ -158,6 +180,7 @@ export function ProfileForm({
       chargeTempMaxC: chargeTempMaxC ? parseInt(chargeTempMaxC, 10) : null,
       chargerModel: chargerModel.trim(),
       chargerEfficiency: chargerEfficiency ? parseFloat(chargerEfficiency) : null,
+      chargerId: chargerId ? parseInt(chargerId, 10) : null,
       serialNumber: serialNumber.trim(),
       productionDate: productionDate.trim(),
       countryOfOrigin: countryOfOrigin.trim(),
@@ -320,9 +343,28 @@ export function ProfileForm({
         </div>
       </div>
 
+      <div>
+        <label className={LABEL_CLASS}>Verknüpftes Ladegerät</label>
+        <select value={chargerId} onChange={(e) => setChargerId(e.target.value)} className={INPUT_CLASS} disabled={disabled}>
+          <option value="">— keines (Werte unten verwenden) —</option>
+          {chargerOptions.map((c) => {
+            const det = [c.manufacturer, c.model].filter(Boolean).join(' ');
+            const eta = c.efficiency != null ? ` · η ${(c.efficiency * 100).toFixed(0)} %` : '';
+            return (
+              <option key={c.id} value={String(c.id)}>
+                {c.name}{det ? ` — ${det}` : ''}{eta}
+              </option>
+            );
+          })}
+        </select>
+        <p className="text-[11px] text-neutral-500 mt-1">
+          Wenn verknüpft, hat der Wirkungsgrad des Ladegeräts Vorrang vor dem per-Profil-Wert unten.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className={LABEL_CLASS}>Ladegerät-Modell</label>
+          <label className={LABEL_CLASS}>Ladegerät-Modell (Free-Text)</label>
           <input type="text" value={chargerModel} onChange={(e) => setChargerModel(e.target.value)} className={INPUT_CLASS} placeholder="z.B. Winbot W3 Dock" disabled={disabled} />
         </div>
         <div>

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 export const plugs = sqliteTable('plugs', {
   id: text('id').primaryKey(),
@@ -73,12 +73,14 @@ export const deviceProfiles = sqliteTable('device_profiles', {
   endOfLifeCapacityPct: integer('end_of_life_capacity_pct').default(80),
   warrantyUntil: text('warranty_until'),              // 'YYYY-MM-DD'
   warrantyCycles: integer('warranty_cycles'),
-  // --- Charging accessory binding (placeholder; full charger entity later) ---
+  // --- Charging accessory binding ---
+  // Free-text fallback for profiles without a structured charger record.
   chargerModel: text('charger_model'),
-  // AC->DC efficiency factor for this profile's charger. Shelly meters AC,
-  // but the user cares about DC Wh that actually entered the battery.
-  // Default 0.85 — typical SMPS for small Li-ion packs. Range expected 0.5–1.0.
+  // Per-profile efficiency override (legacy + ad-hoc). When chargerId is set,
+  // the linked charger's efficiency takes precedence at render time.
   chargerEfficiency: real('charger_efficiency').default(0.85),
+  // Optional reference to a shared charger entity (chargers table).
+  chargerId: integer('charger_id').references((): AnySQLiteColumn => chargers.id, { onDelete: 'set null' }),
   // --- Free-form user notes (separate from description) ---
   notes: text('notes'),
   // --- JSON escape hatch for fields we haven't typed yet ---
@@ -92,6 +94,20 @@ export const priceHistory = sqliteTable('price_history', {
   profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),
   priceEur: real('price_eur').notNull(),
   recordedAt: integer('recorded_at').notNull(),
+});
+
+export const chargers = sqliteTable('chargers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  manufacturer: text('manufacturer'),
+  model: text('model'),
+  efficiency: real('efficiency').default(0.85),       // 0..1, AC->DC ratio
+  maxCurrentA: real('max_current_a'),
+  maxVoltageV: real('max_voltage_v'),
+  outputType: text('output_type').default('DC'),      // 'AC' | 'DC'
+  notes: text('notes'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
 });
 
 export const profilePhotos = sqliteTable('profile_photos', {

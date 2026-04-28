@@ -55,6 +55,18 @@ type ProfileData = {
   warrantyCycles: number | null;
   chargerModel: string | null;
   chargerEfficiency: number | null;
+  chargerId: number | null;
+  charger: {
+    id: number;
+    name: string;
+    manufacturer: string | null;
+    model: string | null;
+    efficiency: number | null;
+    maxCurrentA: number | null;
+    maxVoltageV: number | null;
+    outputType: string | null;
+  } | null;
+  effectiveEfficiency: number;
   notes: string | null;
   cyclesUsed: number | null;
   totalDeliveredWh: number;
@@ -338,14 +350,29 @@ export default function ProfileDetailPage() {
     const replaceableStr = profile.replaceable === true ? ' (tauschbar)' : profile.replaceable === false ? ' (verbaut)' : '';
     attrs.push({ icon: <IconTag />, label: 'Bauform', value: `${profile.batteryFormFactor}${replaceableStr}` });
   }
-  if (profile.chargerModel) {
+  if (profile.charger) {
+    const c = profile.charger;
+    const detail = [c.manufacturer, c.model].filter(Boolean).join(' ');
+    attrs.push({
+      icon: <IconZap />,
+      label: 'Ladegerät (verknüpft)',
+      value: detail ? `${c.name} — ${detail}` : c.name,
+      accent: 'text-yellow-400',
+      href: `/chargers/${c.id}`,
+    });
+  } else if (profile.chargerModel) {
     attrs.push({ icon: <IconZap />, label: 'Ladegerät', value: profile.chargerModel, accent: 'text-yellow-400' });
   }
-  if (profile.chargerEfficiency != null) {
+  if (profile.effectiveEfficiency != null) {
+    const source = profile.charger?.efficiency != null
+      ? '(aus verknüpftem Ladegerät)'
+      : profile.chargerEfficiency != null
+      ? '(per-Profil)'
+      : '(Standard 0.85)';
     attrs.push({
       icon: <IconBolt />,
       label: 'Charger-Wirkungsgrad',
-      value: `${(profile.chargerEfficiency * 100).toFixed(0)} % (AC → DC)`,
+      value: `${(profile.effectiveEfficiency * 100).toFixed(0)} % AC → DC ${source}`,
       accent: 'text-yellow-400',
     });
   }
@@ -369,10 +396,8 @@ export default function ProfileDetailPage() {
       : `${durationMin} min`;
     const formatWh = (wh: number) => wh >= 1000 ? `${(wh / 1000).toFixed(2)} kWh` : `${wh.toFixed(1)} Wh`;
     const acWh = c.totalEnergyWh;
-    // DC estimate: AC measured at the plug times charger efficiency. Without a
-    // measured efficiency we fall back to the schema default 0.85 so the user
-    // always sees a DC estimate even on legacy profiles.
-    const eta = profile.chargerEfficiency ?? 0.85;
+    // DC estimate uses effective efficiency (charger > per-profile > default).
+    const eta = profile.effectiveEfficiency ?? 0.85;
     const dcWh = acWh * eta;
 
     curveStats.push({ icon: <IconZap />, label: 'Startleistung', value: `${c.startPower.toFixed(1)} W`, accent: 'text-yellow-400' });
@@ -493,6 +518,7 @@ export default function ProfileDetailPage() {
               chargeTempMaxC: profile.chargeTempMaxC,
               chargerModel: profile.chargerModel ?? '',
               chargerEfficiency: profile.chargerEfficiency,
+              chargerId: profile.chargerId,
               serialNumber: profile.serialNumber ?? '',
               productionDate: profile.productionDate ?? '',
               countryOfOrigin: profile.countryOfOrigin ?? '',
