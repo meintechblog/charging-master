@@ -49,6 +49,36 @@ export const deviceProfiles = sqliteTable('device_profiles', {
   weightGrams: integer('weight_grams'),
   priceEur: real('price_eur'),
   priceUpdatedAt: integer('price_updated_at'),
+  // --- Battery cell + chemistry ---
+  chemistry: text('chemistry'),                       // 'Li-ion', 'LiFePO4', 'NiMH', 'Pb', etc.
+  cellDesignation: text('cell_designation'),          // IEC code, e.g. 'INR19/66' or '18650'
+  cellConfiguration: text('cell_configuration'),      // e.g. '6S2P', '13S4P'
+  nominalVoltageV: real('nominal_voltage_v'),
+  nominalCapacityMah: integer('nominal_capacity_mah'),
+  // --- Charge spec from label ---
+  maxChargeCurrentA: real('max_charge_current_a'),
+  maxChargeVoltageV: real('max_charge_voltage_v'),
+  chargeTempMinC: integer('charge_temp_min_c'),
+  chargeTempMaxC: integer('charge_temp_max_c'),
+  dischargeTempMinC: integer('discharge_temp_min_c'),
+  dischargeTempMaxC: integer('discharge_temp_max_c'),
+  // --- Identity / provenance ---
+  serialNumber: text('serial_number'),
+  productionDate: text('production_date'),            // 'YYYY-MM' or 'YYYY-MM-DD'
+  countryOfOrigin: text('country_of_origin'),
+  certifications: text('certifications'),             // JSON array, e.g. '["UL 62133-2","CE","PSE"]'
+  // --- Lifecycle / warranty ---
+  batteryFormFactor: text('battery_form_factor'),     // 'pack' | 'single-cell' | 'integrated' | 'removable'
+  replaceable: integer('replaceable', { mode: 'boolean' }),
+  endOfLifeCapacityPct: integer('end_of_life_capacity_pct').default(80),
+  warrantyUntil: text('warranty_until'),              // 'YYYY-MM-DD'
+  warrantyCycles: integer('warranty_cycles'),
+  // --- Charging accessory binding (placeholder; full charger entity later) ---
+  chargerModel: text('charger_model'),
+  // --- Free-form user notes (separate from description) ---
+  notes: text('notes'),
+  // --- JSON escape hatch for fields we haven't typed yet ---
+  extra: text('extra'),                               // arbitrary JSON object
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

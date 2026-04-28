@@ -72,6 +72,8 @@ export async function GET(
 
   return Response.json({
     ...profile,
+    certifications: parseJsonArray(profile.certifications),
+    extra: parseJsonObject(profile.extra),
     hasCurve: !!curve,
     curve: curve ? {
       id: curve.id,
@@ -87,6 +89,26 @@ export async function GET(
     totalDeliveredWh,
     sessionCount,
   });
+}
+
+function parseJsonArray(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonObject(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -150,6 +172,55 @@ export async function PUT(
   if (typeof body.productUrl === 'string') updates.productUrl = body.productUrl;
   if (typeof body.documentUrl === 'string') updates.documentUrl = body.documentUrl;
 
+  // --- Extended battery metadata (Phase: profile-schema-extension) ---
+  const stringFields = [
+    'chemistry', 'cellDesignation', 'cellConfiguration',
+    'serialNumber', 'productionDate', 'countryOfOrigin',
+    'batteryFormFactor', 'warrantyUntil', 'chargerModel', 'notes',
+  ] as const;
+  for (const field of stringFields) {
+    const v = body[field];
+    if (v === null) updates[field] = null;
+    else if (typeof v === 'string') updates[field] = v.trim() || null;
+  }
+
+  const numberFields = [
+    'nominalVoltageV', 'nominalCapacityMah',
+    'maxChargeCurrentA', 'maxChargeVoltageV',
+    'chargeTempMinC', 'chargeTempMaxC',
+    'dischargeTempMinC', 'dischargeTempMaxC',
+    'endOfLifeCapacityPct', 'warrantyCycles',
+  ] as const;
+  for (const field of numberFields) {
+    const v = body[field];
+    if (v === null) updates[field] = null;
+    else if (typeof v === 'number' && Number.isFinite(v)) updates[field] = v;
+    else if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v);
+      if (Number.isFinite(n)) updates[field] = n;
+    }
+  }
+
+  if (body.replaceable === null) updates.replaceable = null;
+  else if (typeof body.replaceable === 'boolean') updates.replaceable = body.replaceable;
+
+  // certifications: accept array<string> or null; serialize as JSON
+  if (body.certifications === null) {
+    updates.certifications = null;
+  } else if (Array.isArray(body.certifications)) {
+    const cleaned = body.certifications
+      .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+      .map((s) => s.trim());
+    updates.certifications = cleaned.length > 0 ? JSON.stringify(cleaned) : null;
+  }
+
+  // extra: free-form JSON object; accept object/null, reject other types
+  if (body.extra === null) {
+    updates.extra = null;
+  } else if (body.extra !== undefined && typeof body.extra === 'object' && !Array.isArray(body.extra)) {
+    updates.extra = JSON.stringify(body.extra);
+  }
+
   // Price with history tracking
   if (body.priceEur !== undefined) {
     const newPrice = body.priceEur === null ? null : Number(body.priceEur);
@@ -184,7 +255,12 @@ export async function PUT(
     .orderBy(desc(priceHistory.recordedAt))
     .all();
 
-  return Response.json({ ...updated, priceHistory: prices });
+  return Response.json({
+    ...updated,
+    certifications: parseJsonArray(updated?.certifications ?? null),
+    extra: parseJsonObject(updated?.extra ?? null),
+    priceHistory: prices,
+  });
 }
 
 /**

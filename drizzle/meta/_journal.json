@@ -15,6 +15,13 @@
       "when": 1775824661348,
       "tag": "0001_nappy_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777390448517,
+      "tag": "0002_add_extended_battery_fields",
+      "breakpoints": true
     }
   ]
 }
