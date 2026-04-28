@@ -2,6 +2,7 @@ import { db } from '@/db/client';
 import { config } from '@/db/schema';
 import { SettingsSection } from '@/components/settings/settings-section';
 import { PushoverSettings } from '@/components/settings/pushover-settings';
+import { ElectricitySettings } from '@/components/settings/electricity-settings';
 import { VersionBadge } from './version-badge';
 import { UpdateBanner } from './update-banner';
 import { UpdateHistory } from './update-history';
@@ -54,6 +55,13 @@ export default async function SettingsPage() {
         description="Benachrichtigungen via Pushover"
       >
         <PushoverSettings initialSettings={settings} />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Strompreis"
+        description="Wird für Kosten-Anzeige in Notifications und Session-Details verwendet"
+      >
+        <ElectricitySettings initialSettings={settings} />
       </SettingsSection>
     </div>
   );

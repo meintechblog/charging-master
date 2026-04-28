@@ -15,8 +15,34 @@ import type { EventBus } from '@/modules/events/event-bus';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 import { sendPushover } from './pushover-client';
 import { db } from '@/db/client';
-import { config } from '@/db/schema';
+import { config, deviceProfiles, chargers, chargeSessions } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+
+const DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH = 0.40;
+
+function formatDurationMs(ms: number): string {
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h >= 1) return `${h} h ${m} min`;
+  return `${m} min`;
+}
+
+function formatWh(wh: number): string {
+  if (wh >= 1000) return `${(wh / 1000).toFixed(2)} kWh`;
+  return `${wh.toFixed(0)} Wh`;
+}
+
+function formatEur(eur: number): string {
+  return `${eur.toFixed(2).replace('.', ',')} EUR`;
+}
+
+function getElectricityPrice(): number {
+  const row = db.select().from(config).where(eq(config.key, 'electricity.priceEurPerKwh')).get();
+  if (!row?.value) return DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH;
+  const n = parseFloat(row.value);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH;
+}
 
 const NOTIFICATION_STATES = new Set(['matched', 'complete', 'error', 'aborted', 'learn_complete']);
 
@@ -91,33 +117,90 @@ export class NotificationService {
 
   private buildMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
     switch (event.state) {
-      case 'matched':
-        return {
-          title: 'Ladevorgang erkannt',
-          message: `${event.profileName ?? 'Unbekannt'} wurde erkannt (${event.confidence ?? 0}% Konfidenz)`,
-          priority: 0,
-        };
+      case 'matched': {
+        const conf = event.confidence != null ? `${(event.confidence * 100).toFixed(0)} %` : '?';
+        const lines = [
+          `${event.profileName ?? 'Unbekannt'} erkannt (${conf} Konfidenz).`,
+        ];
+        if (event.estimatedSoc != null) lines.push(`Start-SOC ~${event.estimatedSoc} %.`);
+        if (event.targetSoc != null) lines.push(`Ziel: ${event.targetSoc} %.`);
+        return { title: 'Ladevorgang erkannt', message: lines.join(' '), priority: 0 };
+      }
+
       case 'complete':
-        return {
-          title: 'Ziel-SOC erreicht',
-          message: `Laden abgeschlossen bei ${event.estimatedSoc ?? '?'}% SOC`,
-          priority: 0,
-        };
+        return this.buildCompleteMessage(event);
+
       case 'error':
-      case 'aborted':
+      case 'aborted': {
+        const name = event.profileName ?? 'Unbekannt';
         return {
-          title: 'Ladefehler',
-          message: `Ladevorgang fehlgeschlagen: ${event.state}`,
+          title: event.state === 'error' ? 'Ladefehler' : 'Ladevorgang abgebrochen',
+          message: `${name}: ${event.state}. Plug-Status manuell pruefen.`,
           priority: 1,
         };
-      case 'learn_complete':
-        return {
-          title: 'Lernvorgang abgeschlossen',
-          message: `Referenzkurve aufgezeichnet für ${event.profileName ?? 'Unbekannt'}`,
-          priority: 0,
-        };
+      }
+
+      case 'learn_complete': {
+        const lines = [`Referenzkurve aufgezeichnet fuer ${event.profileName ?? 'Unbekannt'}.`];
+        if (event.elapsedMs) lines.push(`Dauer: ${formatDurationMs(event.elapsedMs)}.`);
+        if (event.energyChargedWh) lines.push(`Energie AC: ${formatWh(event.energyChargedWh)}.`);
+        return { title: 'Lernvorgang abgeschlossen', message: lines.join(' '), priority: 0 };
+      }
+
       default:
         return { title: 'Ladestatus', message: event.state, priority: -1 };
     }
+  }
+
+  private buildCompleteMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
+    const name = event.profileName ?? 'Akku';
+    const soc = event.estimatedSoc != null ? `${event.estimatedSoc} %` : '?';
+
+    // Pull authoritative AC Wh from the persisted session row — sessionWh in
+    // memory is cleared at cleanupSession time and the event may race that.
+    let acWh: number | undefined = event.energyChargedWh ?? undefined;
+    let efficiency = 0.85;
+    let priceEurPerKwh = getElectricityPrice();
+
+    if (event.sessionId != null) {
+      const session = db.select().from(chargeSessions).where(eq(chargeSessions.id, event.sessionId)).get();
+      if (session?.energyWh != null) acWh = session.energyWh;
+
+      if (session?.profileId != null) {
+        const profile = db.select().from(deviceProfiles).where(eq(deviceProfiles.id, session.profileId)).get();
+        if (profile) {
+          let resolvedEta: number | null = null;
+          if (profile.chargerId != null) {
+            const ch = db.select().from(chargers).where(eq(chargers.id, profile.chargerId)).get();
+            if (ch?.efficiency != null) resolvedEta = ch.efficiency;
+          }
+          if (resolvedEta == null && profile.chargerEfficiency != null) {
+            resolvedEta = profile.chargerEfficiency;
+          }
+          if (resolvedEta != null && resolvedEta > 0) efficiency = resolvedEta;
+        }
+      }
+    }
+
+    const dcWh = acWh != null ? acWh * efficiency : null;
+    const cost = acWh != null ? (acWh / 1000) * priceEurPerKwh : null;
+    const duration = event.elapsedMs ? formatDurationMs(event.elapsedMs) : null;
+
+    const parts: string[] = [];
+    parts.push(`${name} -> ${soc} erreicht.`);
+    if (dcWh != null && acWh != null) {
+      parts.push(`${formatWh(dcWh)} DC im Akku (${formatWh(acWh)} AC, eta ${(efficiency * 100).toFixed(0)} %).`);
+    } else if (acWh != null) {
+      parts.push(`${formatWh(acWh)} AC.`);
+    }
+    if (duration) parts.push(`Dauer ${duration}.`);
+    if (cost != null) parts.push(`Strompreis ${formatEur(cost)}.`);
+    parts.push('Plug abgeschaltet, sicher zum Abnehmen.');
+
+    return {
+      title: `Akku voll: ${name}`,
+      message: parts.join(' '),
+      priority: 0,
+    };
   }
 }
