@@ -18,6 +18,18 @@ export const SUSTAINED_READINGS = 6;       // 30s at 5s interval
 export const LEARN_IDLE_READINGS = 12;     // 60s at 5s interval
 const MATCHED_DISPLAY_MS = 5000;           // 5 seconds to show banner
 
+// Learn-mode plateau detection — catches chargers with persistent standby
+// load (dock electronics, fan-cooled chargers, idle robot draw). Triggers
+// learn_complete when sliding window is flat AND power is small relative
+// to session peak, even if absolute power stays above IDLE_THRESHOLD.
+export const PLATEAU_WINDOW_MS = 5 * 60 * 1000;        // 5 min sliding window
+export const PLATEAU_MIN_SAMPLES = 30;                 // need at least ~2.5 min of data at 5s interval
+export const PLATEAU_MIN_SPAN_MS = 4 * 60 * 1000 + 30_000; // window must span at least 4.5 min
+export const PLATEAU_MAX_RANGE_W = 1;                  // max - min within window
+export const PLATEAU_AVG_RATIO = 0.10;                 // avg must be < 10% of session peak
+export const PLATEAU_MIN_PEAK_W = 5;                   // session peak must exceed this before plateau fires
+export const LEARN_HARD_STOP_MS = 6 * 60 * 60 * 1000;  // 6h absolute cap
+
 export class ChargeStateMachine {
   state: ChargeState = 'idle';
   sessionId: number | null = null;
@@ -31,6 +43,11 @@ export class ChargeStateMachine {
   private idleCount = 0;
   private matchedAt: number | null = null;
   private matchResult: MatchResult | null = null;
+
+  // Learn-mode plateau detection state
+  private learnStartTimestamp: number | null = null;
+  private learnSessionMaxPower = 0;
+  private learnReadings: Array<{ ts: number; p: number }> = [];
 
   /**
    * Process one power reading. May trigger state transition.
@@ -69,6 +86,9 @@ export class ChargeStateMachine {
     this.sessionId = sessionId;
     this.state = 'learning';
     this.idleCount = 0;
+    this.learnStartTimestamp = null;
+    this.learnSessionMaxPower = 0;
+    this.learnReadings = [];
     this.onTransition?.(from, 'learning');
   }
 
@@ -144,15 +164,62 @@ export class ChargeStateMachine {
     return this.state;
   }
 
-  private handleLearning(apower: number, _timestamp: number): ChargeState {
+  private handleLearning(apower: number, timestamp: number): ChargeState {
+    if (this.learnStartTimestamp === null) {
+      this.learnStartTimestamp = timestamp;
+    }
+    if (apower > this.learnSessionMaxPower) {
+      this.learnSessionMaxPower = apower;
+    }
+
+    this.learnReadings.push({ ts: timestamp, p: apower });
+    const cutoff = timestamp - PLATEAU_WINDOW_MS;
+    while (this.learnReadings.length > 0 && this.learnReadings[0].ts < cutoff) {
+      this.learnReadings.shift();
+    }
+
+    if (timestamp - this.learnStartTimestamp >= LEARN_HARD_STOP_MS) {
+      this.transition('learn_complete');
+      return this.state;
+    }
+
     if (apower < IDLE_THRESHOLD) {
       this.idleCount++;
       if (this.idleCount >= LEARN_IDLE_READINGS) {
         this.transition('learn_complete');
+        return this.state;
       }
     } else {
       this.idleCount = 0;
     }
+
+    if (this.learnSessionMaxPower < PLATEAU_MIN_PEAK_W) {
+      return this.state;
+    }
+    if (this.learnReadings.length < PLATEAU_MIN_SAMPLES) {
+      return this.state;
+    }
+    const windowSpanMs = timestamp - this.learnReadings[0].ts;
+    if (windowSpanMs < PLATEAU_MIN_SPAN_MS) {
+      return this.state;
+    }
+
+    let minP = Infinity;
+    let maxP = -Infinity;
+    let sumP = 0;
+    for (const r of this.learnReadings) {
+      if (r.p < minP) minP = r.p;
+      if (r.p > maxP) maxP = r.p;
+      sumP += r.p;
+    }
+    const avgP = sumP / this.learnReadings.length;
+    const range = maxP - minP;
+    const avgRatio = avgP / this.learnSessionMaxPower;
+
+    if (range < PLATEAU_MAX_RANGE_W && avgRatio < PLATEAU_AVG_RATIO) {
+      this.transition('learn_complete');
+    }
+
     return this.state;
   }
 
@@ -169,5 +236,8 @@ export class ChargeStateMachine {
     this.matchResult = null;
     this.sessionId = null;
     this.estimatedSoc = 0;
+    this.learnStartTimestamp = null;
+    this.learnSessionMaxPower = 0;
+    this.learnReadings = [];
   }
 }
