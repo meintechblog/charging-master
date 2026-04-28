@@ -1,6 +1,6 @@
 import { db } from '@/db/client';
-import { deviceProfiles, referenceCurves } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { deviceProfiles, referenceCurves, profilePhotos } from '@/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -15,10 +15,26 @@ export default async function ProfilesPage() {
       .where(eq(referenceCurves.profileId, profile.id))
       .get();
 
+    // Pick the explicit primary photo, fall back to the oldest upload so the
+    // list never shows a blank slot when at least one photo exists.
+    const primary = db
+      .select({ id: profilePhotos.id })
+      .from(profilePhotos)
+      .where(and(eq(profilePhotos.profileId, profile.id), eq(profilePhotos.isPrimary, true)))
+      .get()
+      ?? db
+        .select({ id: profilePhotos.id })
+        .from(profilePhotos)
+        .where(eq(profilePhotos.profileId, profile.id))
+        .orderBy(desc(profilePhotos.createdAt))
+        .limit(1)
+        .get();
+
     return {
       ...profile,
       hasCurve: !!curve,
       totalEnergyWh: curve?.totalEnergyWh ?? null,
+      primaryPhotoId: primary?.id ?? null,
     };
   });
 
@@ -51,6 +67,7 @@ export default async function ProfilesPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-neutral-800">
+                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3 w-12" aria-label="Bild" />
                 <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Name</th>
                 <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Modell</th>
                 <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Ziel-SOC</th>
@@ -61,6 +78,23 @@ export default async function ProfilesPage() {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} className="border-b border-neutral-800 last:border-0 hover:bg-neutral-800/50 transition-colors">
+                  <td className="px-4 py-3 w-12">
+                    {row.primaryPhotoId != null ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/profiles/${row.id}/photos/${row.primaryPhotoId}/file`}
+                        alt=""
+                        className="w-9 h-9 rounded object-cover bg-neutral-950 border border-neutral-800"
+                      />
+                    ) : (
+                      <div
+                        className="w-9 h-9 rounded bg-neutral-800 border border-neutral-800 flex items-center justify-center text-xs text-neutral-500"
+                        aria-hidden
+                      >
+                        {row.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <Link href={`/profiles/${row.id}`} className="text-sm text-neutral-100 hover:text-blue-400 transition-colors">
                       {row.name}
