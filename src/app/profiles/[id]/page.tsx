@@ -33,6 +33,27 @@ type ProfileData = {
   priceEur: number | null;
   priceUpdatedAt: number | null;
   targetSoc: number;
+  // Extended battery metadata
+  chemistry: string | null;
+  cellDesignation: string | null;
+  cellConfiguration: string | null;
+  nominalVoltageV: number | null;
+  nominalCapacityMah: number | null;
+  maxChargeCurrentA: number | null;
+  maxChargeVoltageV: number | null;
+  chargeTempMinC: number | null;
+  chargeTempMaxC: number | null;
+  serialNumber: string | null;
+  productionDate: string | null;
+  countryOfOrigin: string | null;
+  certifications: string[] | null;
+  batteryFormFactor: string | null;
+  replaceable: boolean | null;
+  endOfLifeCapacityPct: number | null;
+  warrantyUntil: string | null;
+  warrantyCycles: number | null;
+  chargerModel: string | null;
+  notes: string | null;
   cyclesUsed: number | null;
   totalDeliveredWh: number;
   sessionCount: number;
@@ -271,6 +292,60 @@ export default function ProfileDetailPage() {
   }
   if (profile.documentUrl) {
     attrs.push({ icon: <IconFile />, label: 'Datenblatt', value: profile.documentUrl, accent: 'text-blue-400', href: profile.documentUrl });
+  }
+
+  // --- Extended battery metadata ---
+  if (profile.chemistry) {
+    attrs.push({ icon: <IconBolt />, label: 'Chemie', value: profile.chemistry, accent: 'text-cyan-400' });
+  }
+  if (profile.cellConfiguration) {
+    const designation = profile.cellDesignation ? ` · ${profile.cellDesignation}` : '';
+    attrs.push({ icon: <IconBolt />, label: 'Zellkonfiguration', value: `${profile.cellConfiguration}${designation}`, accent: 'text-cyan-400' });
+  } else if (profile.cellDesignation) {
+    attrs.push({ icon: <IconBolt />, label: 'Zellbezeichnung', value: profile.cellDesignation, accent: 'text-cyan-400' });
+  }
+  if (profile.nominalVoltageV != null || profile.nominalCapacityMah != null) {
+    const parts: string[] = [];
+    if (profile.nominalVoltageV != null) parts.push(`${profile.nominalVoltageV} V`);
+    if (profile.nominalCapacityMah != null) parts.push(`${profile.nominalCapacityMah} mAh`);
+    attrs.push({ icon: <IconZap />, label: 'Nennwerte', value: parts.join(' / '), accent: 'text-cyan-400' });
+  }
+  if (profile.maxChargeCurrentA != null || profile.maxChargeVoltageV != null) {
+    const parts: string[] = [];
+    if (profile.maxChargeVoltageV != null) parts.push(`${profile.maxChargeVoltageV} V`);
+    if (profile.maxChargeCurrentA != null) parts.push(`${profile.maxChargeCurrentA} A`);
+    attrs.push({ icon: <IconBolt />, label: 'Max. Lade-Spec', value: parts.join(' / '), accent: 'text-orange-400' });
+  }
+  if (profile.chargeTempMinC != null && profile.chargeTempMaxC != null) {
+    attrs.push({ icon: <IconBolt />, label: 'Lade-Temperatur', value: `${profile.chargeTempMinC} – ${profile.chargeTempMaxC} °C` });
+  }
+  if (profile.serialNumber) {
+    attrs.push({ icon: <IconBarcode />, label: 'Seriennummer', value: profile.serialNumber });
+  }
+  if (profile.productionDate) {
+    attrs.push({ icon: <IconCalendar />, label: 'Produktionsdatum', value: profile.productionDate });
+  }
+  if (profile.countryOfOrigin) {
+    attrs.push({ icon: <IconFactory />, label: 'Herkunftsland', value: profile.countryOfOrigin });
+  }
+  if (profile.certifications && profile.certifications.length > 0) {
+    attrs.push({ icon: <IconTag />, label: 'Zertifizierungen', value: profile.certifications.join(' · ') });
+  }
+  if (profile.batteryFormFactor) {
+    const replaceableStr = profile.replaceable === true ? ' (tauschbar)' : profile.replaceable === false ? ' (verbaut)' : '';
+    attrs.push({ icon: <IconTag />, label: 'Bauform', value: `${profile.batteryFormFactor}${replaceableStr}` });
+  }
+  if (profile.chargerModel) {
+    attrs.push({ icon: <IconZap />, label: 'Ladegerät', value: profile.chargerModel, accent: 'text-yellow-400' });
+  }
+  if (profile.warrantyUntil || profile.warrantyCycles) {
+    const parts: string[] = [];
+    if (profile.warrantyUntil) parts.push(`bis ${new Date(profile.warrantyUntil).toLocaleDateString('de-DE')}`);
+    if (profile.warrantyCycles) parts.push(`${profile.warrantyCycles} Zyklen`);
+    attrs.push({ icon: <IconClock />, label: 'Garantie', value: parts.join(' · ') });
+  }
+  if (profile.notes) {
+    attrs.push({ icon: <IconFile />, label: 'Notizen', value: profile.notes });
   }
 
   // Curve stats as hero cards
