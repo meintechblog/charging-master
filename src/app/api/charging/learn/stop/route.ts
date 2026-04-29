@@ -6,6 +6,9 @@ import {
   referenceCurvePoints,
   socBoundaries,
   plugs,
+  deviceProfiles,
+  chargers,
+  batteryHealthSnapshots,
 } from '@/db/schema';
 import { eq, and, gte, inArray, asc } from 'drizzle-orm';
 import { computeSocBoundaries } from '@/modules/charging/soc-estimator';
@@ -232,7 +235,32 @@ export async function POST(request: Request) {
     .where(eq(chargeSessions.id, session.id))
     .run();
 
-  // 10. Turn the plug off — auto-complete may already have done this, but
+  // 10. Battery-health snapshot — every learn save is by definition a
+  // (re-)measurement of the full charge, so it's a clean degradation data point.
+  const profile = db.select().from(deviceProfiles).where(eq(deviceProfiles.id, profileId)).get();
+  let efficiency = 0.85;
+  if (profile) {
+    if (profile.chargerId != null) {
+      const ch = db.select().from(chargers).where(eq(chargers.id, profile.chargerId)).get();
+      if (ch?.efficiency != null) efficiency = ch.efficiency;
+    }
+    if (profile.chargerEfficiency != null && (profile.chargerId == null)) {
+      efficiency = profile.chargerEfficiency;
+    }
+  }
+  db.insert(batteryHealthSnapshots).values({
+    profileId,
+    sessionId: session.id,
+    recordedAt: now,
+    totalEnergyWhAc: totalEnergyWh,
+    effectiveDcWh: totalEnergyWh * efficiency,
+    efficiencyUsed: efficiency,
+    peakPowerW: peakPower,
+    durationSeconds,
+    source: 'learn',
+  }).run();
+
+  // 11. Turn the plug off — auto-complete may already have done this, but
   // if the user saved before idle detection kicked in, the relay is still on.
   await turnPlugOff(plugId);
 

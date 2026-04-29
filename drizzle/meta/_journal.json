@@ -43,6 +43,13 @@
       "when": 1777395352475,
       "tag": "0005_add_chargers_table",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777443744398,
+      "tag": "0006_add_battery_health",
+      "breakpoints": true
     }
   ]
 }

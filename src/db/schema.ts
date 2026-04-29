@@ -110,6 +110,22 @@ export const chargers = sqliteTable('chargers', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// Snapshot of measured battery capacity at a point in time. Inserted on
+// every full charge (learn save or target_soc=100 complete). Trend over
+// time = degradation curve.
+export const batteryHealthSnapshots = sqliteTable('battery_health_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),
+  sessionId: integer('session_id').references(() => chargeSessions.id, { onDelete: 'set null' }),
+  recordedAt: integer('recorded_at').notNull(),
+  totalEnergyWhAc: real('total_energy_wh_ac').notNull(),
+  effectiveDcWh: real('effective_dc_wh').notNull(),     // ac * effective efficiency at time of snapshot
+  efficiencyUsed: real('efficiency_used').notNull(),    // the efficiency factor applied
+  peakPowerW: real('peak_power_w'),
+  durationSeconds: integer('duration_seconds'),
+  source: text('source').notNull(),                     // 'learn' | 'full_charge'
+});
+
 export const profilePhotos = sqliteTable('profile_photos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),

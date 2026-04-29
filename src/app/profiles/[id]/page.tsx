@@ -16,6 +16,7 @@ import { ProfileForm, type ProfileFormValues } from '@/components/charging/profi
 import { SocButtons } from '@/components/charging/soc-buttons';
 import { PowerChart } from '@/components/charts/power-chart';
 import { ProfilePhotoGallery, type ProfilePhoto } from '@/components/charging/profile-photo-gallery';
+import { BatteryHealthTrend } from '@/components/charging/battery-health-trend';
 
 type ProfileData = {
   id: number;
@@ -618,6 +619,12 @@ export default function ProfileDetailPage() {
         ) : (
           <p className="text-sm text-neutral-500">Noch keine Ladevorgänge für dieses Profil.</p>
         )}
+      </div>
+
+      {/* Battery health */}
+      <div className="bg-neutral-900 rounded-lg p-4">
+        <h2 className="text-sm font-medium text-neutral-400 mb-3">Akku-Gesundheit</h2>
+        <BatteryHealthTrend profileId={profile.id} />
       </div>
 
       {/* Reference curve */}
