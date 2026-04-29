@@ -9,6 +9,12 @@
 
 import { ChargeStateMachine, CHARGE_THRESHOLD } from './charge-state-machine';
 import { findBestCandidate, type ProfileWithCurve } from './curve-matcher';
+import {
+  logSocCorrection,
+  getStartSocBias,
+  recalibrateEta,
+  getEarlyCorrection,
+} from './calibration';
 import { estimateSoc } from './soc-estimator';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
@@ -179,6 +185,26 @@ export class ChargeMonitor {
     }
 
     if (opts.estimatedSoc !== undefined) {
+      // Capture predictedSoc + chargedWh BEFORE we mutate anything so the
+      // calibration log gets the matcher's actual estimate at the moment
+      // of correction (not the user-supplied target).
+      const predictedSoc = machine.estimatedSoc;
+      const chargedWhAtCorrection = this.sessionWh.get(targetPlugId) ?? 0;
+      const profileIdForLog = this.matchData.get(targetPlugId)?.profileId ?? opts.profileId;
+      if (profileIdForLog != null) {
+        try {
+          logSocCorrection({
+            profileId: profileIdForLog,
+            sessionId,
+            predictedSoc,
+            correctedSoc: opts.estimatedSoc,
+            chargedWhAtCorrection,
+          });
+        } catch (err) {
+          console.error('[Calibration] logSocCorrection failed:', err instanceof Error ? err.message : err);
+        }
+      }
+
       // Rebase the SOC math baseline (socBaselineEnergy) to the current plug
       // totalEnergy so the next reading computes currentWh-for-soc ≈ 0 and
       // updateSocTracking tracks forward from the user's value. The SEPARATE
@@ -610,6 +636,24 @@ export class ChargeMonitor {
     const sessionId = this.sessionIds.get(plugId);
     if (!machine || !sessionId) return;
 
+    // Apply learned start-SOC bias from past corrections of this profile.
+    // Median of recent (corrected − predicted) deltas, clipped ±15.
+    let biasedStartSoc = candidate.estimatedStartSoc;
+    let biasApplied = 0;
+    try {
+      const bias = getStartSocBias(candidate.profileId);
+      if (bias !== 0) {
+        biasedStartSoc = Math.max(0, Math.min(100, candidate.estimatedStartSoc + bias));
+        biasApplied = bias;
+      }
+    } catch (err) {
+      console.error('[Calibration] getStartSocBias failed:', err instanceof Error ? err.message : err);
+    }
+    if (biasedStartSoc !== candidate.estimatedStartSoc) {
+      candidate.estimatedStartSoc = biasedStartSoc;
+      console.log(`[Calibration] applied start-SOC bias ${biasApplied >= 0 ? '+' : ''}${biasApplied} for profile ${candidate.profileId} → estimatedStartSoc=${biasedStartSoc}`);
+    }
+
     machine.setMatch(candidate, sessionId, Date.now());
 
     // Persist match to DB directly — handleTransition('detecting','matched')
@@ -632,6 +676,51 @@ export class ChargeMonitor {
     }).where(eq(chargeSessions.id, sessionId)).run();
 
     this.emitChargeEvent(plugId, 'matched');
+  }
+
+  /**
+   * On session complete, try to refit the charger efficiency from this
+   * session's data. Only fires when an early correction (chargedWh below
+   * the EARLY_CORRECTION_WH_THRESHOLD in calibration.ts) gave us a clean
+   * start-SOC anchor — otherwise we'd treat matcher-guessed start-SOC as
+   * ground truth and bake the matcher's bias into eta.
+   */
+  private recalibrateChargerEtaIfPossible(plugId: string, sessionId: number): void {
+    const machine = this.machines.get(plugId);
+    const match = this.matchData.get(plugId);
+    if (!machine || !match) return;
+
+    const anchor = getEarlyCorrection(sessionId);
+    if (!anchor) return;
+
+    const acWh = this.sessionWh.get(plugId) ?? 0;
+    if (acWh <= 0) return;
+
+    // The correction snapshot: at moment X (chargedWh ≈ small), real SOC
+    // was correctedSoc. From X to session end, AC consumption =
+    // (totalSessionWh − chargedWhAtCorrection). Final SOC = machine.estimatedSoc
+    // (which on complete equals machine.targetSoc, modulo last-reading drift).
+    const acWhSinceAnchor = Math.max(0, acWh - anchor.chargedWhAtCorrection);
+    if (acWhSinceAnchor <= 0) return;
+
+    const result = recalibrateEta({
+      profileId: match.profileId,
+      startSoc: anchor.correctedSoc,
+      endSoc: machine.estimatedSoc,
+      acWh: acWhSinceAnchor,
+    });
+
+    if (result.applied && result.oldEta != null && result.newEta != null) {
+      const delta = result.newEta - result.oldEta;
+      console.log(
+        `[Calibration] eta refit for profile ${match.profileId}: ` +
+        `${result.oldEta.toFixed(3)} → ${result.newEta.toFixed(3)} ` +
+        `(${delta >= 0 ? '+' : ''}${delta.toFixed(3)}, anchor SOC=${anchor.correctedSoc}, ` +
+        `ΔSOC=${machine.estimatedSoc - anchor.correctedSoc}, AC Wh=${acWhSinceAnchor.toFixed(1)})`
+      );
+    } else if (!result.applied) {
+      console.log(`[Calibration] eta refit skipped: ${result.reason}`);
+    }
   }
 
   private loadProfilesWithCurves(): ProfileWithCurve[] {
@@ -771,6 +860,16 @@ export class ChargeMonitor {
           stoppedAt: Date.now(),
           stopReason: 'target_soc_reached',
         }).where(eq(chargeSessions.id, sessionId)).run();
+
+        // Eta recalibration: only when an early correction (chargedWh
+        // small) gave us a clean ground-truth start-SOC anchor. Without
+        // that, computing eta from a matcher-guessed start would just
+        // bake the matcher's bias into the charger efficiency.
+        try {
+          this.recalibrateChargerEtaIfPossible(plugId, sessionId);
+        } catch (err) {
+          console.error('[Calibration] recalibrateChargerEta failed:', err instanceof Error ? err.message : err);
+        }
       }
       this.emitChargeEvent(plugId, 'complete');
       this.cleanupSession(plugId);

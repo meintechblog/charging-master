@@ -206,6 +206,23 @@ export const sessionEvents = sqliteTable('session_events', {
   timestamp: integer('timestamp').notNull(),
 });
 
+// --- SOC calibration log ---
+// Every time the user clicks "SOC korrigieren", we log (predicted, corrected,
+// charged_wh_so_far) tied to the active session and profile. The matcher
+// then applies a moving-average bias to estimatedStartSoc on future matches
+// of the same profile, and the eta-recalibrator uses early corrections
+// (where charged_wh ≈ 0) as ground-truth start-SOC anchors to refit the
+// charger efficiency on session complete.
+export const socCorrections = sqliteTable('soc_corrections', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  profileId: integer('profile_id').notNull().references(() => deviceProfiles.id, { onDelete: 'cascade' }),
+  sessionId: integer('session_id').notNull().references(() => chargeSessions.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+  predictedSoc: integer('predicted_soc').notNull(),     // matcher's value just before user override
+  correctedSoc: integer('corrected_soc').notNull(),     // user-supplied real SOC
+  chargedWhAtCorrection: real('charged_wh_at_correction').notNull(),
+});
+
 // --- Phase 7: Self-update audit log ---
 
 export const updateRuns = sqliteTable('update_runs', {
