@@ -16,12 +16,39 @@ const AUTO_UPDATE_TICK_MS = 5 * 60 * 1000; // re-evaluate auto-update conditions
 const AUTO_UPDATE_MIN_INTERVAL_MS = 23 * 60 * 60 * 1000; // never auto-update more than once per ~day
 const ACTIVE_SESSION_STATES = ['detecting', 'matched', 'charging', 'countdown', 'learning', 'stopping'];
 
+// The user's intended timezone for "auto-update at hour X". Default project
+// deployment is German LXCs in CEST/CET; users think in local hours, so we
+// must map their configured hour through Berlin time, regardless of what
+// the host OS clock is set to. Override via env if deploying outside DACH.
+const AUTO_UPDATE_TIMEZONE = process.env.AUTO_UPDATE_TZ || 'Europe/Berlin';
+
+function getHourInTimezone(tz: string, now: Date = new Date()): number {
+  // Intl is the only built-in way to read a wall-clock hour in a specific
+  // TZ without pulling Luxon/date-fns. Returns 0–23.
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    hour12: false,
+    timeZone: tz,
+  });
+  const formatted = formatter.format(now);
+  const parsed = parseInt(formatted, 10);
+  if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 23) return parsed;
+  // Fall back to system local hour if the TZ string is invalid (Intl would
+  // throw on an unknown TZ; the formatter constructor catches that, but
+  // an unparseable result is the second-line defense).
+  return now.getHours();
+}
+
 export class UpdateChecker {
   private readonly store: UpdateStateStore;
   private readonly client: GitHubClient;
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private autoUpdateTickHandle: ReturnType<typeof setInterval> | null = null;
   private isChecking = false;
+  // Dedup auto-update gate-skip logs so a 5-min tick doesn't spam journalctl
+  // with the same "outside window" line 12 times an hour. Stores
+  // "<gate>:<detail>" — only logs when the value changes.
+  private lastSkipKey: string | null = null;
 
   constructor(store: UpdateStateStore, client: GitHubClient = new GitHubClient()) {
     this.store = store;
@@ -86,21 +113,44 @@ export class UpdateChecker {
    */
   private maybeAutoUpdate(): void {
     const autoEnabled = this.readConfig('update.autoUpdate') === 'true';
-    if (!autoEnabled) return;
+    if (!autoEnabled) {
+      this.logGateSkip('disabled', 'autoUpdate=false');
+      return;
+    }
 
     const state = this.store.read();
-    if (state.updateStatus === 'installing') return;
-    if (state.lastCheckResult?.status !== 'ok') return;
-    if (state.lastCheckResult.remoteSha === state.currentSha) return;
+    if (state.updateStatus === 'installing') {
+      this.logGateSkip('installing', 'updateStatus=installing');
+      return;
+    }
+    if (state.lastCheckResult?.status !== 'ok') {
+      this.logGateSkip('check_status', `lastCheckStatus=${state.lastCheckResult?.status ?? 'none'}`);
+      return;
+    }
+    if (state.lastCheckResult.remoteSha === state.currentSha) {
+      this.logGateSkip('up_to_date', 'remote == current');
+      return;
+    }
 
     const hourStr = this.readConfig('update.autoUpdateHour') ?? '3';
     const targetHour = parseInt(hourStr, 10);
-    if (!Number.isFinite(targetHour) || targetHour < 0 || targetHour > 23) return;
-    const localHour = new Date().getHours();
-    if (localHour !== targetHour) return;
+    if (!Number.isFinite(targetHour) || targetHour < 0 || targetHour > 23) {
+      this.logGateSkip('bad_hour_config', `autoUpdateHour="${hourStr}"`);
+      return;
+    }
+    const localHour = getHourInTimezone(AUTO_UPDATE_TIMEZONE);
+    if (localHour !== targetHour) {
+      this.logGateSkip('outside_window', `localHour=${localHour} (${AUTO_UPDATE_TIMEZONE}) targetHour=${targetHour}`);
+      return;
+    }
 
     const lastAuto = parseInt(this.readConfig('update.lastAutoUpdateAt') ?? '0', 10) || 0;
-    if (Date.now() - lastAuto < AUTO_UPDATE_MIN_INTERVAL_MS) return;
+    const elapsed = Date.now() - lastAuto;
+    if (elapsed < AUTO_UPDATE_MIN_INTERVAL_MS) {
+      const remainingMin = Math.ceil((AUTO_UPDATE_MIN_INTERVAL_MS - elapsed) / 60000);
+      this.logGateSkip('cooldown', `${remainingMin} min remaining of 23h cooldown (lastAuto=${new Date(lastAuto).toISOString()})`);
+      return;
+    }
 
     // Don't interrupt an active charge.
     const active = db.select({ id: chargeSessions.id })
@@ -108,11 +158,12 @@ export class UpdateChecker {
       .where(inArray(chargeSessions.state, ACTIVE_SESSION_STATES))
       .all();
     if (active.length > 0) {
-      console.log(`[UpdateChecker] auto-update deferred — ${active.length} active session(s)`);
+      this.logGateSkip('active_session', `${active.length} active session(s)`);
       return;
     }
 
     console.log(`[UpdateChecker] auto-update window open — triggering update to ${state.lastCheckResult.remoteShaShort}`);
+    this.lastSkipKey = null; // success — reset gate-skip dedup so the next blocker logs
     this.writeConfig('update.lastAutoUpdateAt', String(Date.now()));
 
     // Mirror the API trigger flow: pre-mark state, spawn systemctl --no-block.
@@ -141,6 +192,20 @@ export class UpdateChecker {
         this.store.write({ updateStatus: 'idle', targetSha: null, updateStartedAt: null });
       } catch { /* best effort */ }
     }
+  }
+
+  /**
+   * Emit one log line per distinct (gate, detail) pair. The auto-update
+   * tick fires every 5 min, so naive logging at every blocked tick floods
+   * journalctl with identical lines. Dedup against lastSkipKey: only log
+   * when the reason changes (e.g. enters a new hour, cooldown counts down,
+   * a session starts/stops). Reset to null on a successful trigger.
+   */
+  private logGateSkip(gate: string, detail: string): void {
+    const key = `${gate}:${detail}`;
+    if (this.lastSkipKey === key) return;
+    this.lastSkipKey = key;
+    console.log(`[UpdateChecker] auto-update gated: ${gate} — ${detail}`);
   }
 
   private readConfig(key: string): string | null {
