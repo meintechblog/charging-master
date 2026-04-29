@@ -32,7 +32,12 @@ async function main() {
   // orphaned row from >1h ago as 'success' with the current SHA as the
   // best inference (the service IS up at that SHA, after all). Idempotent.
   try {
-    const cutoffMs = Date.now() - 60 * 60 * 1000;
+    // Any update marked 'running' at server boot is by definition orphaned —
+    // the updater can't survive a systemctl restart, so if the service is
+    // booting and a row says 'running', the run is dead. 5-min grace lets
+    // a freshly-spawned updater that just inserted its row not get clobbered
+    // by the boot of the service it's about to update (theoretical race).
+    const cutoffMs = Date.now() - 5 * 60 * 1000;
     const result = db.run(sql`
       UPDATE update_runs
          SET status = 'success',
