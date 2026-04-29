@@ -28,6 +28,32 @@ type PlugCardProps = {
 
 const MAX_SPARK_POINTS = 90; // ~3 minutes at 1 reading/2sec
 
+function formatDetectingLabel(charge: {
+  detectionSamples?: number;
+  detectionTargetSamples?: number;
+  bestCandidateName?: string;
+  bestCandidateConfidence?: number;
+}): string {
+  const samples = charge.detectionSamples;
+  const target = charge.detectionTargetSamples;
+
+  // Surface the best speculative candidate when DTW already has a strong
+  // (≥0.5) hint — keeps the user informed without committing to a profile.
+  if (
+    charge.bestCandidateName &&
+    charge.bestCandidateConfidence != null &&
+    charge.bestCandidateConfidence >= 0.5
+  ) {
+    const pct = Math.round(charge.bestCandidateConfidence * 100);
+    return `Vermutlich ${charge.bestCandidateName} (${pct} %)`;
+  }
+
+  if (samples != null && target != null) {
+    return `Erkenne Gerät… ${samples}/${target}`;
+  }
+  return 'Gerät wird erkannt…';
+}
+
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const seconds = Math.floor(diff / 1000);
@@ -50,6 +76,10 @@ export function PlugCard({ plug }: PlugCardProps) {
     profileName?: string;
     estimatedSoc?: number;
     targetSoc?: number;
+    detectionSamples?: number;
+    detectionTargetSamples?: number;
+    bestCandidateName?: string;
+    bestCandidateConfidence?: number;
   } | null>(null);
   const lastToggleAtRef = useRef<number>(0);
 
@@ -88,6 +118,10 @@ export function PlugCard({ plug }: PlugCardProps) {
         profileName: event.profileName,
         estimatedSoc: event.estimatedSoc,
         targetSoc: event.targetSoc,
+        detectionSamples: event.detectionSamples,
+        detectionTargetSamples: event.detectionTargetSamples,
+        bestCandidateName: event.bestCandidateName,
+        bestCandidateConfidence: event.bestCandidateConfidence,
       });
     } else {
       setCharge(null);
@@ -170,14 +204,16 @@ export function PlugCard({ plug }: PlugCardProps) {
             </span>
             <span className="text-xs text-neutral-300 truncate">
               {charge.state === 'detecting'
-                ? 'Gerät wird erkannt…'
+                ? formatDetectingLabel(charge)
                 : charge.profileName ?? 'Ladevorgang'}
             </span>
-            {charge.estimatedSoc != null && charge.targetSoc != null && (
-              <span className="text-xs text-neutral-500 tabular-nums shrink-0">
-                {charge.estimatedSoc}% → {charge.targetSoc}%
-              </span>
-            )}
+            {charge.state !== 'detecting' &&
+              charge.estimatedSoc != null &&
+              charge.targetSoc != null && (
+                <span className="text-xs text-neutral-500 tabular-nums shrink-0">
+                  {charge.estimatedSoc}% → {charge.targetSoc}%
+                </span>
+              )}
           </div>
           <span className="text-xs text-blue-400 hover:text-blue-300 shrink-0">
             Details →

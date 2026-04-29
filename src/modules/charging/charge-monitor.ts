@@ -8,7 +8,7 @@
  */
 
 import { ChargeStateMachine, CHARGE_THRESHOLD } from './charge-state-machine';
-import { matchCurve, type ProfileWithCurve } from './curve-matcher';
+import { findBestCandidate, type ProfileWithCurve } from './curve-matcher';
 import { estimateSoc } from './soc-estimator';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
@@ -24,8 +24,26 @@ import {
 } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 
-const MIN_DETECTION_READINGS = 60;
-const MAX_DETECTION_READINGS = 120;
+// First match attempt fires once the buffer crosses MIN_MATCH_READINGS.
+// Earlier match attempts gate behind a stricter confidence to keep
+// false-positives down — see DETECTION_PHASES below.
+const MIN_MATCH_READINGS = 12;          // ~1 min at 5 s sampling
+const MATCH_INTERVAL_READINGS = 12;     // re-probe every minute while detecting
+const MAX_DETECTION_READINGS = 120;     // ~10 min hard cap → detectionExhausted
+const DETECTION_TARGET_READINGS = 60;   // displayed denominator: "samples/60"
+
+// Phase-appropriate thresholds. With a small buffer DTW can over-fit a
+// transient slice of the wrong reference, so we demand near-perfect fit
+// early and relax as samples accumulate.
+const EARLY_CONFIDENCE = 0.85;          // 12-23 readings
+const MID_CONFIDENCE = 0.75;            // 24-59 readings
+const LATE_CONFIDENCE = 0.70;           // 60+ readings (matches old behavior)
+
+function thresholdForBufferSize(n: number): number {
+  if (n >= 60) return LATE_CONFIDENCE;
+  if (n >= 24) return MID_CONFIDENCE;
+  return EARLY_CONFIDENCE;
+}
 
 // Anomaly detection: live charging power vs reference curve.
 const ANOMALY_DEVIATION_PCT = 0.40;          // 40 % off from expected
@@ -328,13 +346,27 @@ export class ChargeMonitor {
       }
       buffer.push(apower);
 
-      // Run matching after accumulating enough readings
-      if (buffer.length >= MIN_DETECTION_READINGS) {
+      // Run matching every MATCH_INTERVAL_READINGS once we have enough
+      // samples to attempt one. tryMatch() commits only if the result's
+      // confidence meets the phase-appropriate threshold; otherwise it
+      // updates this.matchData with the best speculative candidate so
+      // the UI can show "vermutlich iPad Pro (78%)" while still detecting.
+      if (
+        buffer.length >= MIN_MATCH_READINGS &&
+        buffer.length % MATCH_INTERVAL_READINGS === 0
+      ) {
         this.tryMatch(plugId, buffer, timestamp);
       }
 
-      // Once detection exhausts buffer without match, emit with detectionExhausted
-      // flag so UI switches from "detecting..." spinner to UnknownDeviceDialog.
+      // Push a progress event on every reading during detection so the UI
+      // shows a live counter. emitChargeEvent already includes the latest
+      // speculative best-candidate via the matchData map.
+      if (machine.state === 'detecting') {
+        this.emitChargeEvent(plugId, 'detecting');
+      }
+
+      // Once detection exhausts buffer without commit, emit with detectionExhausted
+      // flag so UI switches from progress to UnknownDeviceDialog.
       if (buffer.length >= MAX_DETECTION_READINGS && machine.state === 'detecting') {
         this.emitChargeEvent(plugId, 'detecting', true);
       }
@@ -553,45 +585,53 @@ export class ChargeMonitor {
     const profiles = this.loadProfilesWithCurves();
     if (profiles.length === 0) return;
 
-    const result = matchCurve(buffer, profiles);
-    if (result) {
-      this.matchData.set(plugId, result);
-      // Cache the matched profile's curve points for anomaly detection.
-      const matchedProfile = profiles.find((p) => p.id === result.profileId);
-      if (matchedProfile) {
-        this.anomalyCurve.set(plugId, matchedProfile.curvePoints.map((p) => ({
-          offsetSeconds: p.offsetSeconds,
-          apower: p.apower,
-        })));
-        this.anomalyDeviationCount.set(plugId, 0);
-      }
-      const machine = this.machines.get(plugId);
-      const sessionId = this.sessionIds.get(plugId);
-      if (machine && sessionId) {
-        machine.setMatch(result, sessionId, Date.now());
+    const candidate = findBestCandidate(buffer, profiles);
+    if (!candidate) return;
 
-        // Persist match to DB directly — handleTransition('detecting','matched')
-        // is skipped because setMatch mutates state synchronously from inside
-        // handlePowerReading after newState was already captured. Without this
-        // write, profile_id / target_soc / detection_confidence never land in
-        // the DB, and resume-after-restart loses the match entirely.
-        const profile = db.select().from(deviceProfiles)
-          .where(eq(deviceProfiles.id, result.profileId)).get();
-        if (profile) {
-          machine.targetSoc = profile.targetSoc;
-        }
-        db.update(chargeSessions).set({
-          state: 'matched',
-          profileId: result.profileId,
-          detectionConfidence: result.confidence,
-          curveOffsetSeconds: result.curveOffsetSeconds,
-          targetSoc: machine.targetSoc,
-          estimatedSoc: result.estimatedStartSoc,
-        }).where(eq(chargeSessions.id, sessionId)).run();
+    // Always remember the best speculative candidate so the UI can render
+    // it during detection ("vermutlich iPad Pro (78%)"). matchData double-
+    // duties as the committed match for downstream code paths (anomaly
+    // detection reads it once we transition to 'matched').
+    this.matchData.set(plugId, candidate);
 
-        this.emitChargeEvent(plugId, 'matched');
-      }
+    const threshold = thresholdForBufferSize(buffer.length);
+    if (candidate.confidence < threshold) return; // keep accumulating
+
+    // Confidence cleared the phase threshold → commit.
+    const matchedProfile = profiles.find((p) => p.id === candidate.profileId);
+    if (matchedProfile) {
+      this.anomalyCurve.set(plugId, matchedProfile.curvePoints.map((p) => ({
+        offsetSeconds: p.offsetSeconds,
+        apower: p.apower,
+      })));
+      this.anomalyDeviationCount.set(plugId, 0);
     }
+    const machine = this.machines.get(plugId);
+    const sessionId = this.sessionIds.get(plugId);
+    if (!machine || !sessionId) return;
+
+    machine.setMatch(candidate, sessionId, Date.now());
+
+    // Persist match to DB directly — handleTransition('detecting','matched')
+    // is skipped because setMatch mutates state synchronously from inside
+    // handlePowerReading after newState was already captured. Without this
+    // write, profile_id / target_soc / detection_confidence never land in
+    // the DB, and resume-after-restart loses the match entirely.
+    const profile = db.select().from(deviceProfiles)
+      .where(eq(deviceProfiles.id, candidate.profileId)).get();
+    if (profile) {
+      machine.targetSoc = profile.targetSoc;
+    }
+    db.update(chargeSessions).set({
+      state: 'matched',
+      profileId: candidate.profileId,
+      detectionConfidence: candidate.confidence,
+      curveOffsetSeconds: candidate.curveOffsetSeconds,
+      targetSoc: machine.targetSoc,
+      estimatedSoc: candidate.estimatedStartSoc,
+    }).where(eq(chargeSessions.id, sessionId)).run();
+
+    this.emitChargeEvent(plugId, 'matched');
   }
 
   private loadProfilesWithCurves(): ProfileWithCurve[] {
@@ -753,12 +793,20 @@ export class ChargeMonitor {
     const startedAt = this.sessionStartedAt.get(plugId);
     const etaSeconds = this.sessionEtaSeconds.get(plugId);
 
+    // During detection the matchData entry is a speculative candidate, not
+    // a committed match — it must not surface as profileName (the UI would
+    // render it as if the device had been identified). Promote it to the
+    // dedicated bestCandidate* fields instead. Once we transition to
+    // 'matched' or beyond, the committed match is exposed normally.
+    const isDetecting = state === 'detecting';
+    const buffer = this.detectionBuffers.get(plugId);
+
     const event: ChargeStateEvent = {
       plugId,
       state,
-      profileId: match?.profileId,
-      profileName: match?.profileName,
-      confidence: match?.confidence,
+      profileId: isDetecting ? undefined : match?.profileId,
+      profileName: isDetecting ? undefined : match?.profileName,
+      confidence: isDetecting ? undefined : match?.confidence,
       estimatedSoc: machine?.estimatedSoc,
       targetSoc: machine?.targetSoc,
       sessionId,
@@ -767,6 +815,12 @@ export class ChargeMonitor {
       etaSeconds,
       energyChargedWh: this.sessionWh.get(plugId),
       energyRemainingWh: this.sessionEnergyRemainingWh.get(plugId),
+      // Detection-progress fields. Only meaningful while state==='detecting'.
+      detectionSamples: isDetecting ? (buffer?.length ?? 0) : undefined,
+      detectionTargetSamples: isDetecting ? DETECTION_TARGET_READINGS : undefined,
+      bestCandidateProfileId: isDetecting ? match?.profileId : undefined,
+      bestCandidateName: isDetecting ? match?.profileName : undefined,
+      bestCandidateConfidence: isDetecting ? match?.confidence : undefined,
     };
 
     this.eventBus.emitChargeState(event);

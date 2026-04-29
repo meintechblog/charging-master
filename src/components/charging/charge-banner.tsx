@@ -27,6 +27,10 @@ type SessionState = {
   etaSeconds?: number;
   energyChargedWh?: number;
   energyRemainingWh?: number;
+  detectionSamples?: number;
+  detectionTargetSamples?: number;
+  bestCandidateName?: string;
+  bestCandidateConfidence?: number;
 };
 
 function formatWh(wh: number | undefined): string {
@@ -110,6 +114,10 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
       etaSeconds: event.etaSeconds,
       energyChargedWh: event.energyChargedWh,
       energyRemainingWh: event.energyRemainingWh,
+      detectionSamples: event.detectionSamples,
+      detectionTargetSamples: event.detectionTargetSamples,
+      bestCandidateName: event.bestCandidateName,
+      bestCandidateConfidence: event.bestCandidateConfidence,
     });
 
     // Reset dismissed flag when transitioning from idle to a new detection
@@ -229,15 +237,31 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
     ) : null;
   }
 
-  // Detecting state - subtle banner
+  // Detecting state - subtle banner with live progress
   if (session.state === 'detecting') {
+    const samples = session.detectionSamples ?? 0;
+    const target = session.detectionTargetSamples ?? 60;
+    const progressPct = Math.min(100, Math.round((samples / target) * 100));
+    const candidatePct =
+      session.bestCandidateConfidence != null
+        ? Math.round(session.bestCandidateConfidence * 100)
+        : null;
+    const showCandidate =
+      session.bestCandidateName != null &&
+      session.bestCandidateConfidence != null &&
+      session.bestCandidateConfidence >= 0.5;
+
+    // Rough ETA to next match attempt: every 12 readings ≈ 60 s
+    const samplesUntilNextProbe = 12 - (samples % 12 || 12);
+    const secondsUntilNextProbe = samplesUntilNextProbe * 5;
+
     return (
       <>
         <div className="bg-neutral-800 border-l-4 border-neutral-500 rounded-lg p-4">
           <PlugIdentity plugName={plugName} plugIp={plugIp} />
           <div className="flex items-center gap-2">
             <svg
-              className="animate-spin h-4 w-4 text-neutral-400"
+              className="animate-spin h-4 w-4 text-neutral-400 shrink-0"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -246,7 +270,27 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
               <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
               <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
             </svg>
-            <span className="text-sm text-neutral-400">Gerät wird erkannt...</span>
+            <span className="text-sm text-neutral-300">
+              {showCandidate
+                ? `Vermutlich ${session.bestCandidateName} (${candidatePct} %)`
+                : 'Gerät wird erkannt…'}
+            </span>
+          </div>
+          <div className="mt-2 space-y-1.5">
+            <div className="h-1 w-full rounded-full bg-neutral-700/60 overflow-hidden">
+              <div
+                className="h-full bg-blue-500/70 transition-[width] duration-500"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-neutral-500 tabular-nums">
+              <span>
+                {samples}/{target} Messwerte
+              </span>
+              <span>
+                Nächster Match-Versuch in ~{secondsUntilNextProbe}s
+              </span>
+            </div>
           </div>
           {session.sessionId && profiles.length > 0 && (
             <div className="mt-3 pt-3 border-t border-neutral-700/60 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-neutral-500">

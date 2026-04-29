@@ -63,4 +63,16 @@ export interface ChargeStateEvent {
   energyChargedWh?: number;
   // Wh still needed to reach targetSoc from current estimated SOC.
   energyRemainingWh?: number;
+  // --- Detection-phase progress (only set while state === 'detecting') ---
+  // Readings collected so far for the active detection buffer.
+  detectionSamples?: number;
+  // Total readings the buffer can hold before MAX_DETECTION_READINGS forces
+  // detection-exhausted. Lets the UI render a progress fraction.
+  detectionTargetSamples?: number;
+  // Best speculative match the curve-matcher found at the latest probe.
+  // Confidence may be below the commit threshold — this is informational
+  // only and may flip to a different candidate as more samples arrive.
+  bestCandidateProfileId?: number;
+  bestCandidateName?: string;
+  bestCandidateConfidence?: number;
 }
