@@ -85,8 +85,11 @@ sql_escape() {
 
 db_start_run() {
     local from_sha="$1"
-    sqlite3 "${DB}" "INSERT INTO update_runs (start_at, from_sha, status, stage) VALUES ($(date +%s)000, '$(sql_escape "${from_sha}")', 'running', 'preflight');"
-    RUN_ID=$(sqlite3 "${DB}" "SELECT last_insert_rowid();")
+    # Combine INSERT + SELECT in ONE sqlite3 invocation. last_insert_rowid()
+    # is connection-scoped — running it in a separate sqlite3 call would
+    # always return 0, leaving every subsequent UPDATE targeting id=0
+    # (i.e. updating zero rows, leaving the run row stuck at 'running').
+    RUN_ID=$(sqlite3 "${DB}" "INSERT INTO update_runs (start_at, from_sha, status, stage) VALUES ($(date +%s)000, '$(sql_escape "${from_sha}")', 'running', 'preflight'); SELECT last_insert_rowid();")
     log "update_runs row id=${RUN_ID} created"
 }
 
