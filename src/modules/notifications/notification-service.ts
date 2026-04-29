@@ -15,8 +15,8 @@ import type { EventBus } from '@/modules/events/event-bus';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 import { sendPushover } from './pushover-client';
 import { db } from '@/db/client';
-import { config, deviceProfiles, chargers, chargeSessions } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { config, deviceProfiles, chargers, chargeSessions, plugs, powerReadings } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
 
 const DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH = 0.40;
 
@@ -44,7 +44,7 @@ function getElectricityPrice(): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH;
 }
 
-const NOTIFICATION_STATES = new Set(['matched', 'complete', 'error', 'aborted', 'learn_complete']);
+const NOTIFICATION_STATES = new Set(['detecting', 'matched', 'complete', 'error', 'aborted', 'learn_complete']);
 
 const TERMINAL_STATES = new Set(['complete', 'error', 'aborted']);
 
@@ -73,6 +73,11 @@ export class NotificationService {
 
   private async handleEvent(event: ChargeStateEvent) {
     if (!NOTIFICATION_STATES.has(event.state)) return;
+
+    // Detection-exhausted re-emits the 'detecting' state at MAX_DETECTION_READINGS
+    // to drive the UnknownDeviceDialog. Don't notify a second time for the same
+    // session — the start announcement already fired at idle→detecting.
+    if (event.state === 'detecting' && event.detectionExhausted) return;
 
     // Dedup: skip if same state for same plug within cooldown
     const lastState = this.lastNotifiedState.get(event.plugId);
@@ -117,6 +122,9 @@ export class NotificationService {
 
   private buildMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
     switch (event.state) {
+      case 'detecting':
+        return this.buildDetectingMessage(event);
+
       case 'matched': {
         const conf = event.confidence != null ? `${(event.confidence * 100).toFixed(0)} %` : '?';
         const lines = [
@@ -150,6 +158,30 @@ export class NotificationService {
       default:
         return { title: 'Ladestatus', message: event.state, priority: -1 };
     }
+  }
+
+  private buildDetectingMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
+    const plugRow = db.select().from(plugs).where(eq(plugs.id, event.plugId)).get();
+    const plugName = plugRow?.name ?? event.plugId;
+
+    let powerLine = '';
+    try {
+      const reading = db.select({ apower: powerReadings.apower })
+        .from(powerReadings)
+        .where(eq(powerReadings.plugId, event.plugId))
+        .orderBy(desc(powerReadings.timestamp))
+        .limit(1)
+        .get();
+      if (reading?.apower != null) powerLine = ` ${reading.apower.toFixed(0)} W.`;
+    } catch {
+      // Best-effort — power line is informational only
+    }
+
+    return {
+      title: `Ladevorgang gestartet: ${plugName}`,
+      message: `${plugName} zieht Strom.${powerLine} Geräteerkennung läuft (~5–10 min).`,
+      priority: -1, // quiet — informational, no sound
+    };
   }
 
   private buildCompleteMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
