@@ -20,11 +20,18 @@ import {
   referenceCurves,
   referenceCurvePoints,
   plugs,
+  config,
 } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 
 const MIN_DETECTION_READINGS = 60;
 const MAX_DETECTION_READINGS = 120;
+
+// Anomaly detection: live charging power vs reference curve.
+const ANOMALY_DEVIATION_PCT = 0.40;          // 40 % off from expected
+const ANOMALY_SUSTAINED_READINGS = 10;       // ~50 s at 5 s sample → no false-positive on transient noise
+const ANOMALY_MIN_EXPECTED_W = 5;            // ignore noise comparison when expected is near zero
+const ANOMALY_COOLDOWN_MS = 30 * 60 * 1000;  // notify at most once per 30 min per plug
 
 export class ChargeMonitor {
   private eventBus: EventBus;
@@ -54,6 +61,15 @@ export class ChargeMonitor {
   private learnStartPower = new Map<string, number>();
   private learnPowerSum = new Map<string, number>();
   private learnMaxPower = new Map<string, number>();
+
+  // --- Anomaly detection ---
+  // Cached reference curve points for the active match, in offset order.
+  private anomalyCurve = new Map<string, Array<{ offsetSeconds: number; apower: number }>>();
+  // Consecutive readings outside the deviation band — reset on every in-band
+  // reading so brief spikes don't trigger a notification.
+  private anomalyDeviationCount = new Map<string, number>();
+  // Last anomaly notification per plug; we cool down for ANOMALY_COOLDOWN_MS.
+  private anomalyNotifiedAt = new Map<string, number>();
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
 
@@ -329,10 +345,93 @@ export class ChargeMonitor {
       this.handleTransition(plugId, prevState, newState, reading);
     }
 
-    // During charging/countdown, update SOC tracking
+    // During charging/countdown, update SOC tracking + anomaly detection
     if (newState === 'charging' || newState === 'countdown') {
       this.updateSocTracking(plugId, reading);
+      this.checkAnomaly(plugId, reading);
     }
+  }
+
+  /**
+   * Compare live apower against the matched reference curve. After
+   * ANOMALY_SUSTAINED_READINGS consecutive deviations beyond
+   * ANOMALY_DEVIATION_PCT, fire a Pushover notification. Cooldown
+   * prevents repeated notifications for a single anomaly run.
+   */
+  private checkAnomaly(plugId: string, reading: PowerReading): void {
+    const curve = this.anomalyCurve.get(plugId);
+    const match = this.matchData.get(plugId);
+    const sessionStartedAt = this.sessionStartedAt.get(plugId);
+    if (!curve || curve.length === 0 || !match || sessionStartedAt === undefined) return;
+
+    const offsetSeconds = Math.floor((reading.timestamp - sessionStartedAt) / 1000) + match.curveOffsetSeconds;
+    const expected = this.lookupCurvePower(curve, offsetSeconds);
+    if (expected === null || expected < ANOMALY_MIN_EXPECTED_W) {
+      // Outside curve range or expected ~0 → reset, no signal
+      this.anomalyDeviationCount.set(plugId, 0);
+      return;
+    }
+
+    const deviation = Math.abs(reading.apower - expected) / expected;
+    const out = deviation > ANOMALY_DEVIATION_PCT;
+    const count = (this.anomalyDeviationCount.get(plugId) ?? 0) + (out ? 1 : -1);
+    this.anomalyDeviationCount.set(plugId, Math.max(0, Math.min(count, ANOMALY_SUSTAINED_READINGS + 5)));
+
+    if ((this.anomalyDeviationCount.get(plugId) ?? 0) < ANOMALY_SUSTAINED_READINGS) return;
+
+    const lastNotified = this.anomalyNotifiedAt.get(plugId) ?? 0;
+    if (Date.now() - lastNotified < ANOMALY_COOLDOWN_MS) return;
+    this.anomalyNotifiedAt.set(plugId, Date.now());
+
+    this.fireAnomalyNotification(plugId, match.profileName, reading.apower, expected);
+  }
+
+  private lookupCurvePower(
+    curve: Array<{ offsetSeconds: number; apower: number }>,
+    targetSeconds: number,
+  ): number | null {
+    if (curve.length === 0) return null;
+    if (targetSeconds <= curve[0].offsetSeconds) return curve[0].apower;
+    if (targetSeconds >= curve[curve.length - 1].offsetSeconds) return null;
+    // Binary-search-ish lookup for the bracketing pair.
+    let lo = 0;
+    let hi = curve.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (curve[mid].offsetSeconds <= targetSeconds) lo = mid;
+      else hi = mid;
+    }
+    const a = curve[lo];
+    const b = curve[hi];
+    const span = b.offsetSeconds - a.offsetSeconds;
+    if (span === 0) return a.apower;
+    const t = (targetSeconds - a.offsetSeconds) / span;
+    return a.apower + (b.apower - a.apower) * t;
+  }
+
+  private fireAnomalyNotification(plugId: string, profileName: string, actual: number, expected: number): void {
+    const userKeyRow = db.select().from(config).where(eq(config.key, 'pushover.userKey')).get();
+    const tokenRow = db.select().from(config).where(eq(config.key, 'pushover.apiToken')).get();
+    if (!userKeyRow?.value || !tokenRow?.value) return;
+
+    const direction = actual > expected ? 'höher' : 'niedriger';
+    const deltaPct = Math.round(Math.abs(actual - expected) / expected * 100);
+    const title = `Lade-Anomalie: ${profileName}`;
+    const message =
+      `Live-Power ${actual.toFixed(0)} W liegt ${deltaPct} % ${direction} als die Referenzkurve erwartet (${expected.toFixed(0)} W). ` +
+      `Mögliche Ursachen: Zell-Alterung, Charger-Defekt, falsche Profil-Erkennung. Plug bleibt aktiv — bitte prüfen.`;
+
+    fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        token: tokenRow.value,
+        user: userKeyRow.value,
+        title,
+        message,
+        priority: '1',
+      }).toString(),
+    }).catch(() => { /* non-fatal */ });
   }
 
   private handleTransition(
@@ -457,6 +556,15 @@ export class ChargeMonitor {
     const result = matchCurve(buffer, profiles);
     if (result) {
       this.matchData.set(plugId, result);
+      // Cache the matched profile's curve points for anomaly detection.
+      const matchedProfile = profiles.find((p) => p.id === result.profileId);
+      if (matchedProfile) {
+        this.anomalyCurve.set(plugId, matchedProfile.curvePoints.map((p) => ({
+          offsetSeconds: p.offsetSeconds,
+          apower: p.apower,
+        })));
+        this.anomalyDeviationCount.set(plugId, 0);
+      }
       const machine = this.machines.get(plugId);
       const sessionId = this.sessionIds.get(plugId);
       if (machine && sessionId) {
@@ -687,6 +795,9 @@ export class ChargeMonitor {
     this.socBaselineEnergy.delete(plugId);
     this.sessionPriorEnergyWh.delete(plugId);
     this.matchData.delete(plugId);
+    this.anomalyCurve.delete(plugId);
+    this.anomalyDeviationCount.delete(plugId);
+    this.anomalyNotifiedAt.delete(plugId);
   }
 
   /**
