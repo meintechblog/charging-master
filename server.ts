@@ -10,6 +10,8 @@ import { UpdateChecker } from './src/modules/self-update/update-checker';
 import { db } from './src/db/client';
 import { plugs } from './src/db/schema';
 import { env } from './src/lib/env';
+import { sql } from 'drizzle-orm';
+import { CURRENT_SHA } from './src/lib/version';
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -30,11 +32,8 @@ async function main() {
   // orphaned row from >1h ago as 'success' with the current SHA as the
   // best inference (the service IS up at that SHA, after all). Idempotent.
   try {
-    const { db } = await import('./src/db/client');
-    const { sql } = await import('drizzle-orm');
-    const { CURRENT_SHA } = await import('./src/lib/version');
     const cutoffMs = Date.now() - 60 * 60 * 1000;
-    db.run(sql`
+    const result = db.run(sql`
       UPDATE update_runs
          SET status = 'success',
              end_at = COALESCE(end_at, start_at + 60000),
@@ -43,6 +42,10 @@ async function main() {
        WHERE status = 'running'
          AND start_at < ${cutoffMs}
     `);
+    const changes = (result as { changes?: number })?.changes ?? 0;
+    if (changes > 0) {
+      console.log(`[boot] cleaned ${changes} orphaned update_runs row(s)`);
+    }
   } catch (err) {
     console.warn('[boot] orphaned update_runs cleanup failed:', err);
   }
