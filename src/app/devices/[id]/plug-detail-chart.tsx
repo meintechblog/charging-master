@@ -61,18 +61,33 @@ export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChar
     }
   }, [plugId, windowKey, sessionStartedAt, fetchHistory]);
 
-  // Reference curve: fetch and align when charge session is active
-  const fetchCurve = useCallback(async (profileId: number, sessionStartedAt: number) => {
+  // Reference curve: fetch and align when charge session is active.
+  // curveOffsetSeconds = where in the reference the matcher anchored the
+  // live data. Live time 0 (= sessionStartedAt) corresponds to reference
+  // offset = curveOffsetSeconds, so we must shift the entire curve LEFT
+  // by curveOffsetSeconds. Any point with offsetSeconds < curveOffsetSeconds
+  // ends up before sessionStartedAt and is correctly hidden by the chart's
+  // session-scoped x-range; what the user sees is the matched anchor going
+  // forward — the forecast of where the charge is headed.
+  const fetchCurve = useCallback(async (
+    profileId: number,
+    sessionStartedAt: number,
+    curveOffsetSeconds: number,
+  ) => {
     try {
       const res = await fetch(`/api/profiles/${profileId}/curve`);
       if (!res.ok) {
         setReferenceData(undefined);
         return;
       }
-      const curvePoints: CurvePoint[] = await res.json();
-      // Align curve timestamps to session start time
+      const payload = await res.json() as
+        | CurvePoint[]
+        | { points: CurvePoint[] };
+      const curvePoints: CurvePoint[] = Array.isArray(payload)
+        ? payload
+        : payload.points ?? [];
       const aligned: Array<[number, number]> = curvePoints.map((pt) => [
-        sessionStartedAt + pt.offsetSeconds * 1000,
+        sessionStartedAt + (pt.offsetSeconds - curveOffsetSeconds) * 1000,
         pt.apower,
       ]);
       setReferenceData(aligned);
@@ -88,17 +103,24 @@ export function PlugDetailChart({ plugId, enableReferenceCurve }: PlugDetailChar
       const isActive = event.state === 'matched' || event.state === 'charging' || event.state === 'countdown';
 
       if (isActive && event.sessionId) {
-        // Fetch startedAt once per session to (a) scope the chart x-range
-        // and (b) align the reference curve. Cached in sessionRef.
+        // Fetch session details once per profile-match to (a) scope the
+        // chart x-range to startedAt and (b) align the reference curve
+        // using the matcher's curveOffsetSeconds. Cached in sessionRef.
         if (sessionRef.current?.profileId !== event.profileId) {
           fetch(`/api/charging/sessions/${event.sessionId}`)
             .then((res) => res.json())
-            .then((data: { startedAt?: number; session?: { startedAt: number } }) => {
+            .then((data: {
+              startedAt?: number;
+              curveOffsetSeconds?: number | null;
+              session?: { startedAt: number; curveOffsetSeconds?: number | null };
+            }) => {
               const startedAt = data.startedAt ?? data.session?.startedAt ?? Date.now();
+              const curveOffsetSeconds =
+                data.curveOffsetSeconds ?? data.session?.curveOffsetSeconds ?? 0;
               sessionRef.current = { profileId: event.profileId, startedAt };
               setSessionStartedAt(startedAt);
               if (enableReferenceCurve && event.profileId) {
-                fetchCurve(event.profileId, startedAt);
+                fetchCurve(event.profileId, startedAt, curveOffsetSeconds);
               }
             })
             .catch(() => {});
