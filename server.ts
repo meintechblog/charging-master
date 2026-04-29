@@ -24,6 +24,29 @@ async function main() {
   // NOT wrapped in try/catch — if this fails, the process MUST crash loud.
   UpdateStateStore.init();
 
+  // One-shot cleanup: pre-fix updater versions left every update_runs row
+  // stuck at status='running' stage='preflight' because RUN_ID was always 0
+  // (last_insert_rowid() in a separate sqlite3 invocation). Mark any such
+  // orphaned row from >1h ago as 'success' with the current SHA as the
+  // best inference (the service IS up at that SHA, after all). Idempotent.
+  try {
+    const { db } = await import('./src/db/client');
+    const { sql } = await import('drizzle-orm');
+    const { CURRENT_SHA } = await import('./src/lib/version');
+    const cutoffMs = Date.now() - 60 * 60 * 1000;
+    db.run(sql`
+      UPDATE update_runs
+         SET status = 'success',
+             end_at = COALESCE(end_at, start_at + 60000),
+             to_sha = COALESCE(to_sha, ${CURRENT_SHA}),
+             error_message = COALESCE(error_message, 'auto-recovered: pre-fix updater left this row orphaned')
+       WHERE status = 'running'
+         AND start_at < ${cutoffMs}
+    `);
+  } catch (err) {
+    console.warn('[boot] orphaned update_runs cleanup failed:', err);
+  }
+
   // Boot the background GitHub poller. Fire-and-forget: start() schedules an
   // immediate first check (async) + a 6h setInterval (unref'd). Must run
   // AFTER UpdateStateStore.init() (needs the store) and BEFORE HttpPollingService
