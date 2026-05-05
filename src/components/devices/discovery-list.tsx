@@ -127,6 +127,16 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
   const unregistered = devices.filter(
     (d) => !registeredIds.includes(plugKey(d.deviceId, d.channel))
   );
+
+  // Multi-channel devices (e.g. Shelly Pro 4PM) emit one row per switch:N.
+  // For those we want to label every channel — including channel 0 — so the
+  // discovery list reads as four sibling channels instead of "device + 3 sub-channels".
+  const channelsByDeviceId = new Map<string, number>();
+  for (const d of devices) {
+    channelsByDeviceId.set(d.deviceId, (channelsByDeviceId.get(d.deviceId) ?? 0) + 1);
+  }
+  const isMultiChannelDevice = (deviceId: string): boolean =>
+    (channelsByDeviceId.get(deviceId) ?? 0) > 1;
   const progressPct = progress
     ? Math.round((progress.scanned / progress.total) * 100)
     : 0;
@@ -181,8 +191,24 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
           {unregistered.map((device) => {
             const key = rowKey(device);
             const relayOn = relayState.get(key) ?? device.output;
-            const primaryLabel = device.channelName ?? device.deviceId;
-            const compositeId = plugKey(device.deviceId, device.channel);
+            const isMulti = isMultiChannelDevice(device.deviceId);
+            const channelSuffix = isMulti
+              ? ` · Kanal ${device.channel}`
+              : device.channel > 0
+                ? ` · Kanal ${device.channel}`
+                : '';
+            const baseLabel = device.channelName ?? device.deviceId;
+            const primaryLabel = isMulti && device.channelName === null
+              ? `${baseLabel}${channelSuffix}`
+              : baseLabel;
+            // Always include :channel in the displayed composite id for
+            // multi-channel devices so all rows read consistently. The plug
+            // key passed to onAddDevice still uses the canonical form
+            // (deviceId for channel 0) so DB ids stay stable.
+            const compositeId = isMulti
+              ? `${device.deviceId}:${device.channel}`
+              : plugKey(device.deviceId, device.channel);
+            const showChannelBadge = isMulti || device.channel > 0;
             return (
               <div
                 key={key}
@@ -205,7 +231,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
                           {device.ip}
                         </a>
                         <span>{device.model}</span>
-                        {device.channel > 0 && (
+                        {showChannelBadge && (
                           <span className="text-[10px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded">
                             Kanal {device.channel}
                           </span>

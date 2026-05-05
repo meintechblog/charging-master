@@ -53,6 +53,20 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
 
   const registeredIds = registeredPlugs.map((p) => p.id);
 
+  // Multi-channel devices (e.g. Shelly Pro 4PM) register one plug row per
+  // channel, all sharing the same underlying deviceId. We label channel 0
+  // explicitly only when more than one channel of the same device is
+  // registered, otherwise single-channel plugs would gain a noisy "Kanal 0".
+  const channelCountByDeviceId = new Map<string, number>();
+  for (const p of registeredPlugs) {
+    const base = p.id.split(':')[0];
+    channelCountByDeviceId.set(base, (channelCountByDeviceId.get(base) ?? 0) + 1);
+  }
+  const isPlugMultiChannel = (plugId: string): boolean => {
+    const base = plugId.split(':')[0];
+    return (channelCountByDeviceId.get(base) ?? 0) > 1;
+  };
+
   useEffect(() => {
     let cancelled = false;
     fetch('/api/charging/sessions')
@@ -223,6 +237,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
                 key={plug.id}
                 plug={plug}
                 model={deriveModelLabel(plug.id)}
+                isMultiChannel={isPlugMultiChannel(plug.id)}
                 isActiveCharge={activeSessions.has(plug.id)}
                 isRenaming={renamingId === plug.id}
                 renameInput={renameInput}
@@ -247,6 +262,7 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
 type RegisteredDeviceRowProps = {
   plug: Plug;
   model: string;
+  isMultiChannel: boolean;
   isActiveCharge: boolean;
   isRenaming: boolean;
   renameInput: string;
@@ -264,6 +280,7 @@ type RegisteredDeviceRowProps = {
 function RegisteredDeviceRow({
   plug,
   model,
+  isMultiChannel,
   isActiveCharge,
   isRenaming,
   renameInput,
@@ -387,7 +404,7 @@ function RegisteredDeviceRow({
                 </a>
               )}
               <span>{model}</span>
-              {plug.channel > 0 && (
+              {(isMultiChannel || plug.channel > 0) && (
                 <span className="text-[10px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded">
                   Kanal {plug.channel}
                 </span>
