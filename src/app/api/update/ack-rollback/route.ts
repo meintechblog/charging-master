@@ -9,26 +9,17 @@
 // hide a prior failure — see threat model T-10-03 for the accept rationale.
 
 import { UpdateStateStore } from '@/modules/self-update/update-state-store';
+import { isAllowedBrowserHost } from '@/lib/host-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 const NO_CACHE = { 'Cache-Control': 'no-store, no-cache, must-revalidate' } as const;
-
-function isLocalhostHost(request: Request): boolean {
-  const raw = request.headers.get('host');
-  if (!raw) return false;
-  const host = raw.startsWith('[')
-    ? raw.slice(0, raw.indexOf(']') + 1)
-    : raw.split(':')[0];
-  return ALLOWED_HOSTS.has(host);
-}
 
 type AckResponse = { status: 'acked' } | { error: string };
 
 export async function POST(request: Request): Promise<Response> {
-  if (!isLocalhostHost(request)) {
+  if (!isAllowedBrowserHost(request)) {
     const body: AckResponse = { error: 'forbidden' };
     return Response.json(body, { status: 403, headers: NO_CACHE });
   }

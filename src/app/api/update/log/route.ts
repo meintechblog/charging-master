@@ -15,6 +15,7 @@
 // systemd.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { isAllowedBrowserHost } from '@/lib/host-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,17 +29,6 @@ const SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 } as const;
 
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
-
-function isLocalhostHost(request: Request): boolean {
-  const raw = request.headers.get('host');
-  if (!raw) return false;
-  const host = raw.startsWith('[')
-    ? raw.slice(0, raw.indexOf(']') + 1)
-    : raw.split(':')[0];
-  return ALLOWED_HOSTS.has(host);
-}
-
 /**
  * Wrap raw text as SSE `data:` frames. Splits on newlines so a multi-line
  * chunk from journalctl becomes multiple discrete events. Empty lines are
@@ -50,7 +40,7 @@ function frame(text: string): string {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  if (!isLocalhostHost(request)) {
+  if (!isAllowedBrowserHost(request)) {
     return new Response('forbidden', { status: 403 });
   }
 

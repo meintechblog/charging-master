@@ -11,22 +11,12 @@
 import { spawn } from 'node:child_process';
 import { UpdateStateStore } from '@/modules/self-update/update-state-store';
 import type { UpdateTriggerResponse } from '@/modules/self-update/types';
+import { isAllowedBrowserHost } from '@/lib/host-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 const NO_CACHE = { 'Cache-Control': 'no-store, no-cache, must-revalidate' } as const;
-
-function isLocalhostHost(request: Request): boolean {
-  const raw = request.headers.get('host');
-  if (!raw) return false;
-  // Strip :port suffix. Handle both `127.0.0.1:80` and `[::1]:80`.
-  const host = raw.startsWith('[')
-    ? raw.slice(0, raw.indexOf(']') + 1)
-    : raw.split(':')[0];
-  return ALLOWED_HOSTS.has(host);
-}
 
 /**
  * POST /api/update/trigger
@@ -49,8 +39,8 @@ function isLocalhostHost(request: Request): boolean {
  * model, T-10-01 / T-10-09 / T-10-10).
  */
 export async function POST(request: Request): Promise<Response> {
-  // 1) Host guard — 403 for non-localhost
-  if (!isLocalhostHost(request)) {
+  // 1) Host guard — 403 for non-allowlisted Host header
+  if (!isAllowedBrowserHost(request)) {
     const body: UpdateTriggerResponse = { status: 'error', error: 'forbidden' };
     return Response.json(body, { status: 403, headers: NO_CACHE });
   }
