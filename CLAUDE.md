@@ -10,13 +10,13 @@ Eine Web-App, die Ladevorgaenge von Akkus (E-Bike, iPad, etc.) ueber Shelly S3 P
 ### Constraints
 
 - **Deployment**: Debian LXC Container (charging-master.local), Root-Zugang via SSH
-- **Smart Plug**: Shelly S3 Plug (Gen3 API, MQTT-faehig)
-- **Kommunikation**: MQTT primaer (mqtt-master.local), HTTP-API als Backup fuer Switch-Steuerung
-- **Datenbank**: SQLite (kein DB-Server, Single-User, Performance)
-- **Design**: Modernes Dark Theme, sexy Echtzeit-Charts
-- **Netzwerk**: Lokales Netz, kein Internet-Zugang noetig
-- **Single-User**: Keine Authentifizierung
-- **Charts**: Apache ECharts — Echtzeit-Streaming, Smooth Animations, Overlay-Support
+- **Smart Plug**: Shelly Plug S Gen3 + Multi-Channel-Geraete wie Shelly Pro 4PM
+- **Kommunikation**: HTTP-RPC direkt zum Shelly (`Shelly.GetStatus`/`Switch.Set`/`Switch.GetStatus`); kein MQTT-Broker, kein mqtt.js dependency. Browser-Streams via SSE (`/api/sse/*`, `/api/update/log`)
+- **Datenbank**: SQLite via better-sqlite3 + Drizzle ORM, WAL-Mode (kein DB-Server, Single-User)
+- **Design**: Modernes Dark Theme, sexy Echtzeit-Charts (Apache ECharts mit Streaming + Overlays)
+- **Netzwerk**: Lokales Netz, kein Internet-Zugang noetig (ausser GitHub fuer Self-Update)
+- **Single-User**: Keine Authentifizierung; sicherheitskritische Endpoints per Host-Header-Guard (siehe `src/lib/host-guard.ts`)
+- **Self-Update**: In-App Update-Trigger via systemd Sibling-Unit (`charging-master-updater.service`) mit 2-Stufen-Rollback (siehe `scripts/update/run-update.sh`)
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:research/STACK.md -->
@@ -35,10 +35,14 @@ Eine Web-App, die Ladevorgaenge von Akkus (E-Bike, iPad, etc.) ueber Shelly S3 P
 | better-sqlite3 | 12.8.0 | SQLite driver | Synchronous, fastest SQLite driver for Node.js. Single-user app, no DB server needed on LXC. Native bindings = best performance for time-series data | HIGH |
 | drizzle-orm | 0.45.1 | Type-safe ORM | Already known from netzbetreiber-master. SQLite support via `drizzle-orm/better-sqlite3`. Type-safe queries, zero runtime overhead | HIGH |
 | drizzle-kit | 0.31.10 | Migrations | Schema push and migration generation. `drizzle-kit push:sqlite` for dev, `drizzle-kit generate` for production migrations | HIGH |
-### MQTT Communication
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| mqtt | 5.15.1 | MQTT client | The standard Node.js MQTT client. TypeScript rewrite (v5), supports MQTT 3.1.1 and 5.0, works in Node.js and browser. 3300+ dependents on npm | HIGH |
+### Shelly Communication (HTTP, not MQTT)
+> **Hinweis:** Die ursprueengliche Stack-Empfehlung sah MQTT vor; im Verlauf wurde
+> der Stack auf reines HTTP-Polling umgestellt (siehe `src/modules/shelly/http-polling-service.ts`).
+> Es gibt **keine** mqtt.js-Dependency mehr und keinen MQTT-Broker im Loop.
+
+| Technology | Purpose | Why |
+|------------|---------|-----|
+| Native fetch + Shelly Gen2/3 RPC | Polling + Switch-Steuerung | Direktes `Shelly.GetStatus`/`Switch.Set` per HTTP. Polling-Intervall pro Plug konfigurierbar; keine zusaetzliche Brokering-Schicht noetig. |
 ### Real-Time Data Streaming (Server to Browser)
 | Technology | Version | Purpose | Why | Confidence |
 |------------|---------|---------|-----|------------|
@@ -133,13 +137,70 @@ Eine Web-App, die Ladevorgaenge von Akkus (E-Bike, iPad, etc.) ueber Shelly S3 P
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+### Naming
+- **Files**: `kebab-case.ts` für Module/Utilities (`host-guard.ts`, `discovery-list.tsx`); `PascalCase` Komponenten exportiert aus `kebab-case`-Datei.
+- **Routes**: Next.js App Router — Page = `page.tsx`, API = `route.ts`.
+- **Tests**: `*.test.ts(x)` neben dem Modul, Vitest mit jsdom (siehe `vitest.config.ts`).
+- **Plug-IDs**: `<deviceId>` für Channel 0 (Single-Channel + erste Channel von Multi-Channel), `<deviceId>:<n>` für Channel ≥ 1. Persistent in DB als `plugs.id`.
+
+### Imports
+- `@/*` → `./src/*` (siehe `tsconfig.json`).
+- `import type { ... }` für Type-only Imports (TypeScript strict, isolatedModules).
+- `server-only` Import-Guard in serverseitigem Code, der nicht in den Client-Bundle leaken darf.
+
+### Tooling
+- **Type-Check**: `pnpm exec tsc --noEmit` — strict mode, ES2022.
+- **Lint**: `pnpm lint` (eslint v9 + `eslint-config-next` flat config in `eslint.config.mjs`); pre-existing Findings sind dokumentierter Code-Hygiene-Backlog, blockieren keine Builds.
+- **Tests**: `pnpm exec vitest run` — 51 Tests aktuell, alle grün.
+- **Build**: `pnpm build` ruft erst `gen:version` (schreibt SHA + Build-Time nach `src/lib/version.ts`) dann `next build`.
+
+### Style
+- Funktionen klein halten (<30 LOC Standardziel), explizite Return-Types für async / Public-API.
+- Kommentare nur fuer **WARUM**, nie fuer **WAS** — der Code beschreibt sich selbst.
+- Default: keine Kommentare. Block-Kommentare nur fuer load-bearing Konventionen (siehe `update/log/route.ts` cleanup, `update-banner.tsx` flow state machine).
+
+### Security & Endpoints
+- **LAN-only Deployment.** Authentifizierung durch Netzwerksegmentierung + Host-Header-Guard.
+- **Browser-facing Self-Update-Endpoints** (`/api/update/trigger`, `/api/update/log`, `/api/update/ack-rollback`): zentraler Guard via `src/lib/host-guard.ts`. Default-Allowlist enthält `127.0.0.1`, `localhost`, `::1`, `charging-master.local`. Override per `UPDATE_ALLOWED_HOSTS` (Komma-Liste).
+- **Server-to-Server Endpoints** (`/api/internal/prepare-for-shutdown`): eigene engere Localhost-Allowlist, weil ausschliesslich vom Updater-Skript via `127.0.0.1` aufgerufen.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+### Layers (von oben nach unten)
+1. **Pages + Components** (`src/app/<route>/page.tsx`, `src/components/`) — Next.js App Router, Server Components per Default, `'use client'` nur wo noetig (Charts, Live-Streams, Forms).
+2. **API Routes** (`src/app/api/**/route.ts`) — duenn, validieren Input, delegieren an Module.
+3. **Domain Modules** (`src/modules/`) — Geschaeftslogik nach Subdomain:
+   - `charging/` — ChargeMonitor, Charge State Machine, Curve Matcher (DTW), SOC Estimator, Session Recorder
+   - `shelly/` — `HttpPollingService` (pro Plug), `relay-http.ts`, `discovery-scanner.ts` (HTTP /24 Subnet Scan)
+   - `self-update/` — `UpdateChecker` (GitHub-Polling, ETag), `UpdateStateStore` (atomic state.json), Pipeline-Stage-Definitions
+   - `notifications/` — Pushover via `fetch()`
+   - `events/` — Cross-process Event-Bus fuer SSE-Streams
+4. **Database** (`src/db/`) — Drizzle ORM + better-sqlite3, WAL-Mode, Schema in `schema.ts`.
+5. **Shared Lib** (`src/lib/`) — `env.ts` (zod-validated), `version.ts` (build-generiert), `host-guard.ts`, `format.ts`, `utils.ts`.
+
+### Real-time Streams
+- **Server → Browser**: SSE via Next.js Route Handlers + `ReadableStream`. Endpoints: `/api/sse/power`, `/api/sse/charge`, `/api/sse/online`, `/api/update/log`. Heartbeat als SSE-Comment alle 10s. Cleanup zwingend doppelt: `request.signal.abort` UND `ReadableStream.cancel()` (siehe `update/log/route.ts`).
+- **Polling**: `HttpPollingService` pro Plug ruft Shelly via HTTP, schreibt in DB, emittiert auf den internen Event-Bus, der die SSE-Streams speist.
+
+### Self-Update Pipeline (`scripts/update/run-update.sh`)
+9 Stages mit `[stage=<name>]`-Markern in journalctl, gelesen vom UI per SSE:
+`preflight → snapshot → drain → stop → fetch → install → build → start → verify`.
+Zwei Rollback-Stufen: Stage 1 = git-reset, Stage 2 = Tarball-Restore. State in `.update-state/state.json` (atomic write tmp+rename, gelesen vom Browser via `/api/update/status`).
+
+### Entry Points
+- `server.ts` — Custom Next.js server (binds `0.0.0.0:80` in prod, `:3000` in dev).
+- `src/app/page.tsx` — Dashboard.
+- `src/app/devices/page.tsx` — Plug-Verwaltung + Discovery.
+- `src/app/profiles/page.tsx`, `src/app/profiles/learn/page.tsx` — Geraeteprofile.
+- `src/app/history/page.tsx`, `src/app/history/[sessionId]/page.tsx` — Lade-Historie.
+- `src/app/settings/page.tsx` — Settings, Update-Banner, Pushover-Konfiguration.
+
+### Cross-Cutting
+- **Versionierung**: `src/lib/version.ts` wird vor jedem Build von `scripts/build/generate-version.mjs` neu geschrieben (gitignored).
+- **Health**: `/api/version` liefert Live-DB-Probe (`dbHealthy`, <50ms Timeout) — vom Update-Pipeline Verify-Stage konsumiert.
+- **Validation**: zod-Schemas an System-Boundaries (env, API-Inputs).
 <!-- GSD:architecture-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
