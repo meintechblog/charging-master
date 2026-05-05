@@ -34,6 +34,16 @@ function plugKey(deviceId: string, channel: number): string {
 
 const TOTAL_IPS = 254;
 
+// Discovery rows aren't covered by the server-side HttpPollingService (that
+// service only polls plugs in the DB). After the one-shot subnet scan their
+// apower/output snapshot would otherwise stay frozen — so the client polls
+// the discovered IPs itself every LIVE_POLL_INTERVAL_MS via /api/devices/probe-by-ip.
+const LIVE_POLL_INTERVAL_MS = 2000;
+// Lock window after a user toggle, mirroring RegisteredDeviceRow. Prevents a
+// stale poll response from snapping the slider back before the device's own
+// switch state has caught up.
+const TOGGLE_LOCK_MS = 4000;
+
 export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps) {
   const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -42,6 +52,13 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
   const [relayState, setRelayState] = useState<Map<string, boolean>>(new Map());
   const [progress, setProgress] = useState<{ scanned: number; total: number } | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastToggleAtRef = useRef<Map<string, number>>(new Map());
+  // Refs let the polling tick read current devices/registeredIds without
+  // making them effect dependencies — devices changes on every tick and
+  // would otherwise re-create the interval, doubling traffic.
+  const devicesRef = useRef<DiscoveredDevice[]>([]);
+  const registeredIdsRef = useRef<string[]>(registeredIds);
 
   function setRelay(key: string, on: boolean) {
     setRelayState((prev) => {
@@ -50,6 +67,11 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
       return next;
     });
   }
+
+  const handleRelayToggle = useCallback((key: string, next: boolean) => {
+    lastToggleAtRef.current.set(key, Date.now());
+    setRelay(key, next);
+  }, []);
 
   const handleScan = useCallback(() => {
     esRef.current?.close();
@@ -120,6 +142,96 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
       esRef.current = null;
     };
   }, []);
+
+  // Keep refs in sync so the polling loop can read latest values without
+  // depending on them (which would re-create the interval on every tick).
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+  useEffect(() => {
+    registeredIdsRef.current = registeredIds;
+  }, [registeredIds]);
+
+  // Live-poll the unregistered discovered devices. The server-side
+  // HttpPollingService only covers DB-registered plugs, so without this loop
+  // discovery rows would keep showing the apower/output captured at scan time.
+  useEffect(() => {
+    if (scanning) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const tick = async () => {
+      if (inFlight || cancelled) return;
+
+      const currentDevices = devicesRef.current;
+      const currentRegistered = registeredIdsRef.current;
+      const targets = currentDevices
+        .filter((d) => !currentRegistered.includes(plugKey(d.deviceId, d.channel)))
+        .map((d) => ({ ip: d.ip, channel: d.channel }));
+
+      if (targets.length === 0) return;
+
+      inFlight = true;
+      try {
+        const res = await fetch('/api/devices/probe-by-ip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targets }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          results: Array<{ ip: string; channel: number; ok: boolean; apower?: number; output?: boolean }>;
+        };
+        if (cancelled || !Array.isArray(data.results)) return;
+
+        const byKey = new Map<string, { apower?: number; output?: boolean; ok: boolean }>();
+        for (const r of data.results) {
+          byKey.set(`${r.ip}:${r.channel}`, r);
+        }
+
+        setDevices((prev) =>
+          prev.map((d) => {
+            const r = byKey.get(`${d.ip}:${d.channel}`);
+            if (!r || !r.ok) return d;
+            return {
+              ...d,
+              apower: typeof r.apower === 'number' ? r.apower : d.apower,
+              output: typeof r.output === 'boolean' ? r.output : d.output,
+            };
+          })
+        );
+
+        setRelayState((prev) => {
+          const next = new Map(prev);
+          for (const d of currentDevices) {
+            const r = byKey.get(`${d.ip}:${d.channel}`);
+            if (!r || !r.ok || typeof r.output !== 'boolean') continue;
+            const key = rowKey(d);
+            const lastToggleAt = lastToggleAtRef.current.get(key) ?? 0;
+            if (Date.now() - lastToggleAt < TOGGLE_LOCK_MS) continue;
+            next.set(key, r.output);
+          }
+          return next;
+        });
+      } catch {
+        // Network blips are tolerated — the next tick will retry.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    tick();
+    pollTimerRef.current = setInterval(tick, LIVE_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [scanning]);
 
   // A row is considered registered once a plug row exists with the
   // matching composite id (deviceId for channel 0, deviceId:channel
@@ -247,7 +359,7 @@ export function DiscoveryList({ registeredIds, onAddDevice }: DiscoveryListProps
                       ip={device.ip}
                       channel={device.channel}
                       state={relayOn}
-                      onToggle={(next) => setRelay(key, next)}
+                      onToggle={(next) => handleRelayToggle(key, next)}
                     />
                     <button
                       onClick={() =>
