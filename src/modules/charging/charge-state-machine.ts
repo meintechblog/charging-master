@@ -54,6 +54,25 @@ export class ChargeStateMachine {
    * Returns the current state after processing.
    */
   feedReading(apower: number, timestamp: number): ChargeState {
+    // Terminal/transient states get stuck because ChargeMonitor.handleStopping
+    // (and the learn_complete / aborted / error paths) end a session by writing
+    // to the DB and clearing per-plug maps but never reset machine.state. The
+    // result: the next 33 W reading on the same plug falls into the default
+    // branch below and the machine never re-arms. Recycle ourselves on entry
+    // so a continued (or fresh) load can drive a new detection cycle. We also
+    // catch 'stopping' here as belt-and-suspenders — a relay-off race could
+    // theoretically leave the machine there without ever reaching a terminal.
+    if (
+      this.state === 'complete' ||
+      this.state === 'learn_complete' ||
+      this.state === 'aborted' ||
+      this.state === 'error' ||
+      this.state === 'stopping'
+    ) {
+      this.reset();
+      this.state = 'idle';
+    }
+
     switch (this.state) {
       case 'idle':
         return this.handleIdle(apower);

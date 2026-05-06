@@ -137,6 +137,30 @@ describe('ChargeStateMachine', () => {
     expect(machine.state).toBe('idle');
   });
 
+  it('recycles a stuck terminal/transient state on the next reading', () => {
+    // Reproduces the production bug where a successful auto-stop left the
+    // machine in `stopping` (or `complete` / `aborted` / `error`) and every
+    // subsequent reading fell through the default branch, so the same plug
+    // never re-armed detection on a continued or fresh load.
+    const stuckStates: Array<'stopping' | 'complete' | 'aborted' | 'error' | 'learn_complete'> = [
+      'stopping',
+      'complete',
+      'aborted',
+      'error',
+      'learn_complete',
+    ];
+    for (const stuck of stuckStates) {
+      const machine = createMachine();
+      machine.state = stuck;
+      // First reading after the stuck state recycles to idle and counts.
+      machine.feedReading(CHARGE_THRESHOLD + 10, 0);
+      expect(machine.state).toBe('idle');
+      // SUSTAINED_READINGS - 1 more readings reach detecting.
+      const finalState = feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS - 1, 5000);
+      expect(finalState).toBe('detecting');
+    }
+  });
+
   it('transitions IDLE -> LEARNING on learn mode start', () => {
     const machine = createMachine();
     machine.startLearning(99);
@@ -182,11 +206,19 @@ describe('ChargeStateMachine', () => {
     }
     expect(machine.state).toBe('learning');
 
-    // Sudden CV drop to ~7W plateau, hold ~5min — should trigger
+    // Sudden CV drop to ~7W plateau, hold ~5min — plateau-detection should
+    // fire once the window has filled. Stop feeding the moment it does, since
+    // post-terminal readings recycle the machine back to idle (production
+    // would have already toggled the relay off here).
+    let plateauTriggered = false;
     for (let i = 0; i < 80; i++) {
       machine.feedReading(7 + (i % 2) * 0.3, t); t += 5000;
+      if (machine.state === 'learn_complete') {
+        plateauTriggered = true;
+        break;
+      }
     }
-    expect(machine.state).toBe('learn_complete');
+    expect(plateauTriggered).toBe(true);
   });
 
   it('plateau does NOT trigger during steady CC charging at 60W', () => {
