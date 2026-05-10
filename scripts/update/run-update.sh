@@ -3,7 +3,8 @@
 # charging-master-updater — run-update.sh
 # =============================================================================
 # Pipeline: preflight → snapshot → drain → stop → fetch → reset → install
-#           → clean_build → build → start → verify → finalize
+#           → backup_db → migrate → clean_build → build → start → verify
+#           → finalize
 #
 # Triggered by: systemctl start --no-block charging-master-updater.service
 # Runs as: root (same as charging-master.service)
@@ -32,6 +33,9 @@ readonly DB="${INSTALL_DIR}/data/charging-master.db"
 readonly SERVICE="charging-master"
 readonly APP_URL="http://127.0.0.1:80"  # Hard-coded per 09-CONTEXT.md §Security
 readonly SNAPSHOT_RETAIN=3
+readonly DB_BACKUP_RETAIN=3
+readonly DB_BACKUP_DIR="${INSTALL_DIR}/data"
+readonly DB_BACKUP_PREFIX="charging-master.db.pre-migrate-"
 
 # -----------------------------------------------------------------------------
 # Runtime state (populated as the script progresses)
@@ -41,6 +45,8 @@ CURRENT_SHA=""
 ROLLBACK_SHA=""
 NEW_SHA=""
 RUN_ID=""
+PRE_MIGRATE_BACKUP=""   # set by do_backup_db; consumed by rollback if non-empty
+MIGRATE_RAN=0           # 1 once do_migrate has started — even partial runs need DB restore on rollback
 
 # -----------------------------------------------------------------------------
 # Logging helpers
@@ -349,6 +355,60 @@ do_install() {
     fi
 }
 
+do_backup_db() {
+    CURRENT_STAGE="backup_db"
+    db_update_stage "${CURRENT_STAGE}"
+    if [ ! -f "${DB}" ]; then
+        log "no DB file at ${DB} — skipping backup (fresh install?)"
+        return 0
+    fi
+    # Prune old pre-migrate backups (keep last DB_BACKUP_RETAIN-1 so the new
+    # one fits the budget after we write it). Same pattern as snapshots.
+    local existing
+    existing=$(ls -1t "${DB_BACKUP_DIR}/${DB_BACKUP_PREFIX}"* 2>/dev/null | tail -n +${DB_BACKUP_RETAIN} || true)
+    if [ -n "${existing}" ]; then
+        log "pruning old pre-migrate DB backups"
+        echo "${existing}" | xargs -r rm -f
+    fi
+    local stamp
+    stamp=$(date +%Y%m%d-%H%M%S)
+    PRE_MIGRATE_BACKUP="${DB_BACKUP_DIR}/${DB_BACKUP_PREFIX}${stamp}"
+    log "backing up DB to ${PRE_MIGRATE_BACKUP}"
+    # sqlite3 .backup is atomic and includes WAL — safer than `cp` even with
+    # the service stopped, in case a stray writer is still draining.
+    sqlite3 "${DB}" ".backup ${PRE_MIGRATE_BACKUP}" || die "DB backup failed"
+    log "backup size: $(du -h "${PRE_MIGRATE_BACKUP}" | cut -f1)"
+}
+
+do_migrate() {
+    CURRENT_STAGE="migrate"
+    db_update_stage "${CURRENT_STAGE}"
+    cd "${INSTALL_DIR}"
+    MIGRATE_RAN=1
+    log "applying drizzle migrations"
+    pnpm exec tsx scripts/db/migrate.ts || die "drizzle migrate failed"
+}
+
+restore_db_backup_if_needed() {
+    # Called from rollback. Restores PRE_MIGRATE_BACKUP over DB so the rolled-
+    # back code sees the schema it expects. No-op if migrate stage was never
+    # reached or backup is missing.
+    if [ "${MIGRATE_RAN}" -ne 1 ]; then
+        return 0
+    fi
+    if [ -z "${PRE_MIGRATE_BACKUP}" ] || [ ! -f "${PRE_MIGRATE_BACKUP}" ]; then
+        log "rollback: no pre-migrate DB backup to restore (PRE_MIGRATE_BACKUP=${PRE_MIGRATE_BACKUP})"
+        return 0
+    fi
+    log "rollback: restoring DB from ${PRE_MIGRATE_BACKUP}"
+    # Service is already stopped by Stage 1. Use sqlite3 .restore via a fresh
+    # connection on the backup file: simplest is just `cp` since the live DB
+    # is closed. Sweep the WAL/SHM that might be left over from the live run.
+    rm -f "${DB}-wal" "${DB}-shm"
+    cp "${PRE_MIGRATE_BACKUP}" "${DB}" || { log "DB restore cp FAILED"; return 1; }
+    log "DB restored"
+}
+
 do_clean_build() {
     CURRENT_STAGE="clean_build"
     db_update_stage "${CURRENT_STAGE}"
@@ -412,6 +472,10 @@ do_rollback_stage1() {
 
     # Best-effort: stop the (possibly broken) main service before touching git.
     systemctl stop "${SERVICE}" 2>/dev/null || true
+
+    # Restore pre-migrate DB if the migrate stage ran — otherwise the rolled-
+    # back code may face a schema it doesn't know about. No-op if no backup.
+    restore_db_backup_if_needed || { log "Stage 1 DB restore FAILED"; return 1; }
 
     git reset --hard "${ROLLBACK_SHA}" || { log "Stage 1 git reset FAILED"; return 1; }
     pnpm install --frozen-lockfile || { log "Stage 1 pnpm install FAILED"; return 1; }
@@ -556,8 +620,10 @@ main() {
     do_fetch
     do_reset
 
-    # --- Install + clean + build ---
+    # --- Install + DB backup + migrate + clean + build ---
     do_install
+    do_backup_db
+    do_migrate
     do_clean_build
     do_build
 

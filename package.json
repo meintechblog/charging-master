@@ -10,6 +10,8 @@
     "start": "NODE_ENV=production tsx server.ts",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/db/migrate.ts",
+    "db:backfill-migrations-table": "tsx scripts/db/backfill-migrations-table.ts",
     "lint": "eslint ."
   },
   "keywords": [],
