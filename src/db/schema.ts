@@ -106,6 +106,11 @@ export const chargers = sqliteTable('chargers', {
   maxVoltageV: real('max_voltage_v'),
   outputType: text('output_type').default('DC'),      // 'AC' | 'DC'
   notes: text('notes'),
+  // Single inline photo per charger. File on disk at
+  // data/charger-photos/<id>.<ext>; columns are NULL until one is uploaded.
+  photoFileName: text('photo_file_name'),
+  photoContentType: text('photo_content_type'),
+  photoSizeBytes: integer('photo_size_bytes'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
