@@ -1,3 +1,11 @@
+<!-- ACTIVE TEST TRIGGER (remove after the test is done) -->
+> **If the user says "teste jetzt was wir besprochen haben" (or any equivalent phrase
+> like "starten wir den Ladevorgang", "der Akku ist drin", "monitor das Laden"), read
+> `CHARGE-TEST.md` in the repo root and follow the runbook there end-to-end. The runbook
+> is self-contained — setup state, access paths, monitoring strategy, success criteria,
+> debug paths, deploy loop. After the test completes successfully, delete both
+> `CHARGE-TEST.md` and this trigger block in a single chore commit.**
+
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
