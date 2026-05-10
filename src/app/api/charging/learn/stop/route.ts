@@ -10,7 +10,7 @@ import {
   chargers,
   batteryHealthSnapshots,
 } from '@/db/schema';
-import { eq, and, gte, inArray, asc } from 'drizzle-orm';
+import { eq, and, gte, lte, inArray, asc } from 'drizzle-orm';
 import { computeSocBoundaries } from '@/modules/charging/soc-estimator';
 import { switchRelayOff } from '@/modules/charging/relay-controller';
 
@@ -90,14 +90,21 @@ export async function POST(request: Request) {
   }
 
   // action === 'save'
-  // 1. Fetch all power_readings since session start for this plug
+  // 1. Fetch all power_readings within the session's time window. For an
+  // active learning session stoppedAt is null, so we fall back to `now` —
+  // identical to the old behaviour. For a retroactive save against an old
+  // `learn_complete` session, the stoppedAt clamp prevents inhaling every
+  // reading recorded since (would otherwise produce a multi-day garbage
+  // curve, see incident 2026-05-10 on 192.168.2.117).
+  const upperBound = session.stoppedAt ?? now;
   const readings = db
     .select()
     .from(powerReadings)
     .where(
       and(
         eq(powerReadings.plugId, session.plugId),
-        gte(powerReadings.timestamp, session.startedAt)
+        gte(powerReadings.timestamp, session.startedAt),
+        lte(powerReadings.timestamp, upperBound)
       )
     )
     .orderBy(asc(powerReadings.timestamp))
@@ -224,11 +231,12 @@ export async function POST(request: Request) {
       .run();
   }
 
-  // 9. Update session
+  // 9. Update session. Preserve original stoppedAt for retroactive saves;
+  // only stamp `now` when the session was still open.
   db.update(chargeSessions)
     .set({
       state: 'complete',
-      stoppedAt: now,
+      stoppedAt: session.stoppedAt ?? now,
       stopReason: 'learn_complete',
       energyWh: totalEnergyWh,
     })
