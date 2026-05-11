@@ -9,3 +9,7 @@ data/
 
 # Runtime update state — local to each machine
 /.update-state/
+
+# Local working state — must not enter the catalog repo
+/.claude/
+/.planning/
