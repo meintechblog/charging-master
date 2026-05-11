@@ -11,6 +11,7 @@
  * Skips sending if Pushover credentials are not configured.
  */
 
+import os from 'node:os';
 import type { EventBus } from '@/modules/events/event-bus';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 import { sendPushover } from './pushover-client';
@@ -55,10 +56,38 @@ export class NotificationService {
   private lastNotifiedState = new Map<string, string>();
   private lastNotifiedTime = new Map<string, number>();
   private handler: (event: ChargeStateEvent) => void;
+  private instanceLabel: string | null = null;
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
     this.handler = (event: ChargeStateEvent) => this.handleEvent(event);
+  }
+
+  // Identify which instance fired the push so multi-LXC users can tell them
+  // apart. Precedence: config(instance.label) → first non-internal IPv4 from
+  // os.networkInterfaces() → hostname. Cached after first lookup; restart to
+  // re-read.
+  private getInstanceLabel(): string {
+    if (this.instanceLabel) return this.instanceLabel;
+
+    const labelRow = db.select().from(config).where(eq(config.key, 'instance.label')).get();
+    if (labelRow?.value) {
+      this.instanceLabel = labelRow.value;
+      return this.instanceLabel;
+    }
+
+    const ifaces = os.networkInterfaces();
+    for (const addrs of Object.values(ifaces)) {
+      for (const addr of addrs ?? []) {
+        if (addr.family === 'IPv4' && !addr.internal) {
+          this.instanceLabel = addr.address;
+          return this.instanceLabel;
+        }
+      }
+    }
+
+    this.instanceLabel = os.hostname();
+    return this.instanceLabel;
   }
 
   start() {
@@ -90,11 +119,12 @@ export class NotificationService {
     if (!credentials) return;
 
     const msg = this.buildMessage(event);
+    const label = this.getInstanceLabel();
 
     const sent = await sendPushover({
       userKey: credentials.userKey,
       apiToken: credentials.apiToken,
-      title: msg.title,
+      title: `[${label}] ${msg.title}`,
       message: msg.message,
       priority: msg.priority,
     });
