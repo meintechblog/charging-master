@@ -48,7 +48,8 @@ Charging-Master übernimmt das für dich. Ein Shelly S3 Plug sitzt zwischen Stec
     curl -X PUT -H "Content-Type: application/json" \
       -d '{"key":"instance.label","value":"Werkstatt"}' \
       http://<host>/api/settings
-    # Greift beim nächsten Service-Restart (Label wird einmal beim ersten Send gecacht).
+    # App-Cache wird beim ersten Send nach Service-Restart befüllt; das Updater-Script
+    # liest config.instance.label bei jedem Send frisch.
     ```
     Gilt sowohl für App-Notifications (Ladeevents) als auch für Updater-Notifications (Self-Update-Resultate).
 
