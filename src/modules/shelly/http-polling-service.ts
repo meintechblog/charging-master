@@ -14,13 +14,45 @@ export class HttpPollingService {
   private eventBus: EventBus;
   private pollers: Map<string, NodeJS.Timeout> = new Map();
   private lastPersistedAt: Map<string, number> = new Map();
+  // Tracks the last time we verified that the device answering at plug.ipAddress
+  // is the one we expect. Without this, IP reuse (DHCP gives the same IP to a
+  // different device after the original goes offline) leaves the app showing
+  // "online" forever because Switch.GetStatus succeeds against the squatter.
+  private lastIdCheckAt: Map<string, number> = new Map();
+  // 'ok' = last id check matched, re-verify every ID_CHECK_INTERVAL_MS.
+  // 'fail' (or absent) = last check missing/failed/mismatched, re-verify on
+  // every poll AND skip Switch.GetStatus to avoid emitting bogus readings
+  // from a squatter device.
+  private lastIdCheckResult: Map<string, 'ok' | 'fail'> = new Map();
 
   private readonly ACTIVE_POWER_THRESHOLD = 5; // watts
   private readonly ACTIVE_INTERVAL = 1_000; // ms -- persist every 1s during active charging
   private readonly IDLE_INTERVAL = 60_000; // ms -- persist every 60s during idle/standby
+  private readonly ID_CHECK_INTERVAL_MS = 60_000; // verify device-id at most once per minute per plug
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
+  }
+
+  /**
+   * Strip the channel suffix off a plug id to get the underlying Shelly
+   * device id. Channel-0 plugs are stored as bare `<deviceId>`, channels ≥1
+   * as `<deviceId>:<n>` (see CLAUDE.md "Naming"). The device-info endpoint
+   * answers with the bare id regardless of channel.
+   */
+  private baseDeviceId(plugId: string): string {
+    const idx = plugId.indexOf(':');
+    return idx >= 0 ? plugId.slice(0, idx) : plugId;
+  }
+
+  private markOffline(plugId: string): void {
+    try {
+      db.update(plugs)
+        .set({ online: false, updatedAt: Date.now() })
+        .where(eq(plugs.id, plugId))
+        .run();
+      this.eventBus.emitPlugOnline(plugId, false);
+    } catch { /* ignore */ }
   }
 
   /**
@@ -38,7 +70,47 @@ export class HttpPollingService {
 
     const safeChannel = Number.isInteger(channel) && channel >= 0 ? channel : 0;
 
+    const expectedBaseId = this.baseDeviceId(plugId);
+
     const poll = async () => {
+      // Device-id verification. While the last check is 'ok', re-verify every
+      // ID_CHECK_INTERVAL_MS (60s). While 'fail' (or unset), re-verify on
+      // every poll AND suppress Switch.GetStatus until we get back to 'ok' —
+      // otherwise a squatter at this IP would feed us bogus readings between
+      // re-checks.
+      const now = Date.now();
+      const lastResult = this.lastIdCheckResult.get(plugId);
+      const lastCheck = this.lastIdCheckAt.get(plugId) ?? 0;
+      const shouldVerifyId =
+        lastResult !== 'ok' || (now - lastCheck >= this.ID_CHECK_INTERVAL_MS);
+
+      if (shouldVerifyId) {
+        try {
+          const infoRes = await fetch(
+            `http://${ipAddress}/rpc/Shelly.GetDeviceInfo`,
+            { signal: AbortSignal.timeout(3000) }
+          );
+          if (!infoRes.ok) throw new Error(`GetDeviceInfo HTTP ${infoRes.status}`);
+          const info = await infoRes.json();
+          if (info.id !== expectedBaseId) {
+            console.warn(
+              `[HttpPolling] device-id mismatch at ${ipAddress} for plug ${plugId}: expected ${expectedBaseId}, got ${info.id}. Marking offline.`
+            );
+            this.lastIdCheckResult.set(plugId, 'fail');
+            this.lastIdCheckAt.set(plugId, now);
+            this.markOffline(plugId);
+            return;
+          }
+          this.lastIdCheckResult.set(plugId, 'ok');
+          this.lastIdCheckAt.set(plugId, now);
+        } catch {
+          this.lastIdCheckResult.set(plugId, 'fail');
+          this.lastIdCheckAt.set(plugId, now);
+          this.markOffline(plugId);
+          return;
+        }
+      }
+
       try {
         const res = await fetch(
           `http://${ipAddress}/rpc/Switch.GetStatus?id=${safeChannel}`,
@@ -69,14 +141,7 @@ export class HttpPollingService {
           } catch { /* plug may not exist yet */ }
         }
       } catch {
-        // Shelly unreachable -- mark offline
-        try {
-          db.update(plugs)
-            .set({ online: false, updatedAt: Date.now() })
-            .where(eq(plugs.id, plugId))
-            .run();
-          this.eventBus.emitPlugOnline(plugId, false);
-        } catch { /* ignore */ }
+        this.markOffline(plugId);
       }
     };
 
@@ -109,6 +174,8 @@ export class HttpPollingService {
         clearInterval(timer);
         this.pollers.delete(plugId);
       }
+      this.lastIdCheckAt.delete(plugId);
+      this.lastIdCheckResult.delete(plugId);
       return;
     }
 
@@ -118,6 +185,8 @@ export class HttpPollingService {
       clearInterval(timer);
     }
     this.pollers.clear();
+    this.lastIdCheckAt.clear();
+    this.lastIdCheckResult.clear();
     // Brief settle window so any fetch() that fired just before the interval
     // was cleared has a chance to resolve and land its DB write BEFORE the
     // caller checkpoints the WAL. 100ms is empirically enough -- the fetch
@@ -136,6 +205,8 @@ export class HttpPollingService {
       clearInterval(timer);
     }
     this.pollers.clear();
+    this.lastIdCheckAt.clear();
+    this.lastIdCheckResult.clear();
   }
 
   /**
