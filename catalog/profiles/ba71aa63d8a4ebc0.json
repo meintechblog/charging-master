@@ -1,0 +1,106 @@
+{
+  "id": "ba71aa63d8a4ebc0",
+  "schemaVersion": 1,
+  "kind": "profile",
+  "publishedAt": "2026-05-11T03:32:07.850Z",
+  "source": "192.168.3.185",
+  "name": "Bosch PowerTube 625",
+  "manufacturer": "Bosch",
+  "modelName": "PowerTube 625",
+  "articleNumber": "BBP3771",
+  "gtin": null,
+  "productUrl": "https://www.bosch-ebike.com/de/produkte/powertube-625",
+  "documentUrl": null,
+  "targetSoc": 80,
+  "capacityWh": 625,
+  "weightGrams": 3500,
+  "chemistry": null,
+  "cellDesignation": null,
+  "cellConfiguration": null,
+  "nominalVoltageV": null,
+  "nominalCapacityMah": null,
+  "maxChargeCurrentA": null,
+  "maxChargeVoltageV": null,
+  "chargeTempMinC": null,
+  "chargeTempMaxC": null,
+  "dischargeTempMinC": null,
+  "dischargeTempMaxC": null,
+  "batteryFormFactor": null,
+  "replaceable": null,
+  "chargerCatalogId": "d325f72ee9a62007",
+  "chargerModel": "Bosch eBike Standard Charger 4A",
+  "chargerEfficiency": 0.91,
+  "notes": null,
+  "photo": null,
+  "curve": {
+    "pointCount": 3396,
+    "durationSeconds": 17122,
+    "totalEnergyWh": 688.9833,
+    "peakPowerW": 191.5,
+    "startPowerW": 149.8,
+    "sha256": "ba71aa63d8a4ebc0183843387d7373150ba40512f2cf3a7198e5fc5bf5e65ec5",
+    "pointsFile": "ba71aa63d8a4ebc0.curve.csv"
+  },
+  "socBoundaries": [
+    {
+      "soc": 10,
+      "offsetSeconds": 1545,
+      "cumulativeWh": 68.8228,
+      "expectedPower": 165.6
+    },
+    {
+      "soc": 20,
+      "offsetSeconds": 3025,
+      "cumulativeWh": 137.7833,
+      "expectedPower": 170.1
+    },
+    {
+      "soc": 30,
+      "offsetSeconds": 4465,
+      "cumulativeWh": 206.5864,
+      "expectedPower": 173.7
+    },
+    {
+      "soc": 40,
+      "offsetSeconds": 5881,
+      "cumulativeWh": 275.5055,
+      "expectedPower": 177
+    },
+    {
+      "soc": 50,
+      "offsetSeconds": 7266,
+      "cumulativeWh": 344.4137,
+      "expectedPower": 181.1
+    },
+    {
+      "soc": 60,
+      "offsetSeconds": 8621,
+      "cumulativeWh": 413.3112,
+      "expectedPower": 184.8
+    },
+    {
+      "soc": 70,
+      "offsetSeconds": 9956,
+      "cumulativeWh": 482.4044,
+      "expectedPower": 188.1
+    },
+    {
+      "soc": 80,
+      "offsetSeconds": 11307,
+      "cumulativeWh": 551.0962,
+      "expectedPower": 152.1
+    },
+    {
+      "soc": 90,
+      "offsetSeconds": 13302,
+      "cumulativeWh": 620.0265,
+      "expectedPower": 107.3
+    },
+    {
+      "soc": 100,
+      "offsetSeconds": 17002,
+      "cumulativeWh": 688.9833,
+      "expectedPower": 28.9
+    }
+  ]
+}

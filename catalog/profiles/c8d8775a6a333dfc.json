@@ -1,0 +1,110 @@
+{
+  "id": "c8d8775a6a333dfc",
+  "schemaVersion": 1,
+  "kind": "profile",
+  "publishedAt": "2026-05-11T03:32:07.849Z",
+  "source": "192.168.2.117",
+  "name": "Sanorum V17MAX (VC-D2503) Akku-Stielsauger",
+  "manufacturer": "Sanorum",
+  "modelName": "VC-D2503",
+  "articleNumber": "552637844",
+  "gtin": null,
+  "productUrl": "https://www.kaufland.de/product/552637844/",
+  "documentUrl": null,
+  "targetSoc": 80,
+  "capacityWh": 118.4,
+  "weightGrams": null,
+  "chemistry": "Li-ion",
+  "cellDesignation": null,
+  "cellConfiguration": "8S",
+  "nominalVoltageV": 29.6,
+  "nominalCapacityMah": 4000,
+  "maxChargeCurrentA": null,
+  "maxChargeVoltageV": null,
+  "chargeTempMinC": 0,
+  "chargeTempMaxC": 50,
+  "dischargeTempMinC": null,
+  "dischargeTempMaxC": null,
+  "batteryFormFactor": "Akku-Pack (steckbar)",
+  "replaceable": true,
+  "chargerCatalogId": "95ecb7d8ef429a94",
+  "chargerModel": "JinJin JJ018W1-350050VX V1",
+  "chargerEfficiency": 0.85,
+  "notes": null,
+  "photo": {
+    "file": "c8d8775a6a333dfc.photo.jpg",
+    "contentType": "image/jpeg",
+    "sizeBytes": 161377
+  },
+  "curve": {
+    "pointCount": 3289,
+    "durationSeconds": 16734,
+    "totalEnergyWh": 85.478,
+    "peakPowerW": 20.5,
+    "startPowerW": 0,
+    "sha256": "c8d8775a6a333dfc044238ca7d280a7de1c64325f8b3de4e82245325ce5d7ffd",
+    "pointsFile": "c8d8775a6a333dfc.curve.csv"
+  },
+  "socBoundaries": [
+    {
+      "soc": 10,
+      "offsetSeconds": 1763,
+      "cumulativeWh": 8.5569,
+      "expectedPower": 17.7
+    },
+    {
+      "soc": 20,
+      "offsetSeconds": 3478,
+      "cumulativeWh": 17.0852,
+      "expectedPower": 18
+    },
+    {
+      "soc": 30,
+      "offsetSeconds": 5184,
+      "cumulativeWh": 25.6381,
+      "expectedPower": 18.1
+    },
+    {
+      "soc": 40,
+      "offsetSeconds": 6880,
+      "cumulativeWh": 34.1929,
+      "expectedPower": 18.2
+    },
+    {
+      "soc": 50,
+      "offsetSeconds": 8551,
+      "cumulativeWh": 42.7264,
+      "expectedPower": 18.6
+    },
+    {
+      "soc": 60,
+      "offsetSeconds": 10196,
+      "cumulativeWh": 51.2796,
+      "expectedPower": 18.8
+    },
+    {
+      "soc": 70,
+      "offsetSeconds": 11812,
+      "cumulativeWh": 59.8286,
+      "expectedPower": 19.2
+    },
+    {
+      "soc": 80,
+      "offsetSeconds": 13398,
+      "cumulativeWh": 68.3912,
+      "expectedPower": 19.6
+    },
+    {
+      "soc": 90,
+      "offsetSeconds": 14948,
+      "cumulativeWh": 76.9295,
+      "expectedPower": 20
+    },
+    {
+      "soc": 100,
+      "offsetSeconds": 16674,
+      "cumulativeWh": 85.478,
+      "expectedPower": 3
+    }
+  ]
+}

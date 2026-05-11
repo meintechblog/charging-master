@@ -1,0 +1,110 @@
+{
+  "id": "70f6cb467f412a50",
+  "schemaVersion": 1,
+  "kind": "profile",
+  "publishedAt": "2026-05-11T03:32:07.852Z",
+  "source": "192.168.3.185",
+  "name": "Winbot W3",
+  "manufacturer": "Taiding Innovation Energy (Zhejiang) Co., Ltd",
+  "modelName": "S40-LI-219-5200(F)",
+  "articleNumber": "55100627",
+  "gtin": null,
+  "productUrl": null,
+  "documentUrl": null,
+  "targetSoc": 80,
+  "capacityWh": 98.55,
+  "weightGrams": null,
+  "chemistry": "Li-ion",
+  "cellDesignation": "INR19/66",
+  "cellConfiguration": "6S2P",
+  "nominalVoltageV": 21.9,
+  "nominalCapacityMah": 4500,
+  "maxChargeCurrentA": null,
+  "maxChargeVoltageV": 21.9,
+  "chargeTempMinC": 0,
+  "chargeTempMaxC": 40,
+  "dischargeTempMinC": null,
+  "dischargeTempMaxC": null,
+  "batteryFormFactor": "pack",
+  "replaceable": true,
+  "chargerCatalogId": "7175aa4ffa7878ea",
+  "chargerModel": null,
+  "chargerEfficiency": 0.85,
+  "notes": null,
+  "photo": {
+    "file": "70f6cb467f412a50.photo.jpg",
+    "contentType": "image/jpeg",
+    "sizeBytes": 152872
+  },
+  "curve": {
+    "pointCount": 2039,
+    "durationSeconds": 10308,
+    "totalEnergyWh": 257.1857,
+    "peakPowerW": 122.9,
+    "startPowerW": 15.1,
+    "sha256": "70f6cb467f412a500f2e7ce58547cc5c266696a0e79b32ce4a437009cc063456",
+    "pointsFile": "70f6cb467f412a50.curve.csv"
+  },
+  "socBoundaries": [
+    {
+      "soc": 10,
+      "offsetSeconds": 1011,
+      "cumulativeWh": 25.7694,
+      "expectedPower": 99.3
+    },
+    {
+      "soc": 20,
+      "offsetSeconds": 1931,
+      "cumulativeWh": 51.3765,
+      "expectedPower": 101.3
+    },
+    {
+      "soc": 30,
+      "offsetSeconds": 2831,
+      "cumulativeWh": 77.185,
+      "expectedPower": 105.2
+    },
+    {
+      "soc": 40,
+      "offsetSeconds": 3691,
+      "cumulativeWh": 102.9089,
+      "expectedPower": 110.1
+    },
+    {
+      "soc": 50,
+      "offsetSeconds": 4521,
+      "cumulativeWh": 128.6385,
+      "expectedPower": 112.7
+    },
+    {
+      "soc": 60,
+      "offsetSeconds": 5331,
+      "cumulativeWh": 154.2412,
+      "expectedPower": 115.8
+    },
+    {
+      "soc": 70,
+      "offsetSeconds": 6126,
+      "cumulativeWh": 179.9739,
+      "expectedPower": 117.5
+    },
+    {
+      "soc": 80,
+      "offsetSeconds": 6907,
+      "cumulativeWh": 205.7234,
+      "expectedPower": 120
+    },
+    {
+      "soc": 90,
+      "offsetSeconds": 7672,
+      "cumulativeWh": 231.5173,
+      "expectedPower": 122.7
+    },
+    {
+      "soc": 100,
+      "offsetSeconds": 10188,
+      "cumulativeWh": 257.1857,
+      "expectedPower": 7.2
+    }
+  ]
+}

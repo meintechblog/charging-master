@@ -1,0 +1,106 @@
+{
+  "id": "8a0959b4cfd65be3",
+  "schemaVersion": 1,
+  "kind": "profile",
+  "publishedAt": "2026-05-11T03:32:07.851Z",
+  "source": "192.168.3.185",
+  "name": "iPad Pro 12.9\" (2022, M2)",
+  "manufacturer": "Apple",
+  "modelName": "iPad Pro 12.9\" 6. Gen (M2)",
+  "articleNumber": "A2436",
+  "gtin": null,
+  "productUrl": "https://support.apple.com/de-de/111841",
+  "documentUrl": null,
+  "targetSoc": 80,
+  "capacityWh": 40.88,
+  "weightGrams": 682,
+  "chemistry": null,
+  "cellDesignation": null,
+  "cellConfiguration": null,
+  "nominalVoltageV": null,
+  "nominalCapacityMah": null,
+  "maxChargeCurrentA": null,
+  "maxChargeVoltageV": null,
+  "chargeTempMinC": null,
+  "chargeTempMaxC": null,
+  "dischargeTempMinC": null,
+  "dischargeTempMaxC": null,
+  "batteryFormFactor": null,
+  "replaceable": null,
+  "chargerCatalogId": null,
+  "chargerModel": null,
+  "chargerEfficiency": 0.85,
+  "notes": null,
+  "photo": null,
+  "curve": {
+    "pointCount": 5782,
+    "durationSeconds": 8271,
+    "totalEnergyWh": 61.9466,
+    "peakPowerW": 44.6,
+    "startPowerW": 27.2,
+    "sha256": "8a0959b4cfd65be3a08c7fb9d5250f218ee30e3769188254c5152ac009e364e2",
+    "pointsFile": "8a0959b4cfd65be3.curve.csv"
+  },
+  "socBoundaries": [
+    {
+      "soc": 10,
+      "offsetSeconds": 562,
+      "cumulativeWh": 6.192,
+      "expectedPower": 39.8
+    },
+    {
+      "soc": 20,
+      "offsetSeconds": 1103,
+      "cumulativeWh": 12.3897,
+      "expectedPower": 42.4
+    },
+    {
+      "soc": 30,
+      "offsetSeconds": 1641,
+      "cumulativeWh": 18.5802,
+      "expectedPower": 42.6
+    },
+    {
+      "soc": 40,
+      "offsetSeconds": 2168,
+      "cumulativeWh": 24.7746,
+      "expectedPower": 42.9
+    },
+    {
+      "soc": 50,
+      "offsetSeconds": 2692,
+      "cumulativeWh": 30.963,
+      "expectedPower": 41.8
+    },
+    {
+      "soc": 60,
+      "offsetSeconds": 3237,
+      "cumulativeWh": 37.1671,
+      "expectedPower": 36.2
+    },
+    {
+      "soc": 70,
+      "offsetSeconds": 3960,
+      "cumulativeWh": 43.3659,
+      "expectedPower": 30.8
+    },
+    {
+      "soc": 80,
+      "offsetSeconds": 4800,
+      "cumulativeWh": 49.5554,
+      "expectedPower": 20.7
+    },
+    {
+      "soc": 90,
+      "offsetSeconds": 5819,
+      "cumulativeWh": 55.7509,
+      "expectedPower": 17.2
+    },
+    {
+      "soc": 100,
+      "offsetSeconds": 8271,
+      "cumulativeWh": 61.9466,
+      "expectedPower": 5.1
+    }
+  ]
+}

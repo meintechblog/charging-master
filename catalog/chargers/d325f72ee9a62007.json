@@ -1,0 +1,16 @@
+{
+  "id": "d325f72ee9a62007",
+  "schemaVersion": 1,
+  "kind": "charger",
+  "publishedAt": "2026-05-11T03:32:07.847Z",
+  "source": "192.168.3.185",
+  "name": "Bosch eBike Standard Charger 4A",
+  "manufacturer": "Robert Bosch GmbH",
+  "model": "BPC3400 / BPC3410",
+  "efficiency": 0.91,
+  "maxCurrentA": 4,
+  "maxVoltageV": 42,
+  "outputType": "DC",
+  "notes": "Standard-Lader fuer Bosch eBike PowerTube 500/625/750/800. Eingang 220-240V (EU) bzw. 90-132V (US), 47-63 Hz, IP40. Ladetemp 0-40 Grad C. Gewicht ca. 800 g. Wirkungsgrad 0.91 ist aus dem Lernvorgang am 2026-04-28 abgeleitet (689 Wh AC fuer 625 Wh Nennkapazitaet).",
+  "photo": null
+}

@@ -1,0 +1,20 @@
+{
+  "id": "95ecb7d8ef429a94",
+  "schemaVersion": 1,
+  "kind": "charger",
+  "publishedAt": "2026-05-11T03:32:07.847Z",
+  "source": "192.168.2.117",
+  "name": "JinJin JJ018W1-350050VX V1 (35V/0.5A)",
+  "manufacturer": "Dongguan JinJin Electronic Technology Co., Ltd",
+  "model": "JJ018W1-350050VX V1",
+  "efficiency": 0.85,
+  "maxCurrentA": 0.5,
+  "maxVoltageV": 35,
+  "outputType": "DC",
+  "notes": "Original-Ladegeraet zum Sanorum V17MAX. Input 100-240V AC 50-60Hz 0.5A, Output 35.0V DC 0.5A 17.5W. TUEV Rheinland zertifiziert (ID 0217009633), GS, T2A, CE. Made in China, Charge 2511.",
+  "photo": {
+    "file": "95ecb7d8ef429a94.photo.jpg",
+    "contentType": "image/jpeg",
+    "sizeBytes": 141586
+  }
+}

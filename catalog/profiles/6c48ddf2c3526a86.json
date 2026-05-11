@@ -1,0 +1,106 @@
+{
+  "id": "6c48ddf2c3526a86",
+  "schemaVersion": 1,
+  "kind": "profile",
+  "publishedAt": "2026-05-11T03:32:07.851Z",
+  "source": "192.168.3.185",
+  "name": "Bosch Professional GBA 10,8V 2.0Ah",
+  "manufacturer": "Bosch Professional",
+  "modelName": "GBA 10,8V 2.0Ah",
+  "articleNumber": "1600Z0002W",
+  "gtin": null,
+  "productUrl": "https://www.bosch-professional.com/de/de/products/gba-10-8v-2-0ah-1600Z0002W",
+  "documentUrl": null,
+  "targetSoc": 80,
+  "capacityWh": 21.6,
+  "weightGrams": 190,
+  "chemistry": null,
+  "cellDesignation": null,
+  "cellConfiguration": null,
+  "nominalVoltageV": null,
+  "nominalCapacityMah": null,
+  "maxChargeCurrentA": null,
+  "maxChargeVoltageV": null,
+  "chargeTempMinC": null,
+  "chargeTempMaxC": null,
+  "dischargeTempMinC": null,
+  "dischargeTempMaxC": null,
+  "batteryFormFactor": null,
+  "replaceable": null,
+  "chargerCatalogId": null,
+  "chargerModel": null,
+  "chargerEfficiency": 0.85,
+  "notes": null,
+  "photo": null,
+  "curve": {
+    "pointCount": 1512,
+    "durationSeconds": 2666,
+    "totalEnergyWh": 19.1839,
+    "peakPowerW": 42.8,
+    "startPowerW": 0,
+    "sha256": "6c48ddf2c3526a86ce9709740badcac0cccb9a45a950ea9fa1956f7ff2f32404",
+    "pointsFile": "6c48ddf2c3526a86.curve.csv"
+  },
+  "socBoundaries": [
+    {
+      "soc": 10,
+      "offsetSeconds": 305,
+      "cumulativeWh": 1.9169,
+      "expectedPower": 38.9
+    },
+    {
+      "soc": 20,
+      "offsetSeconds": 482,
+      "cumulativeWh": 3.8406,
+      "expectedPower": 39.3
+    },
+    {
+      "soc": 30,
+      "offsetSeconds": 656,
+      "cumulativeWh": 5.7543,
+      "expectedPower": 39.8
+    },
+    {
+      "soc": 40,
+      "offsetSeconds": 829,
+      "cumulativeWh": 7.6773,
+      "expectedPower": 40.3
+    },
+    {
+      "soc": 50,
+      "offsetSeconds": 999,
+      "cumulativeWh": 9.5942,
+      "expectedPower": 41
+    },
+    {
+      "soc": 60,
+      "offsetSeconds": 1166,
+      "cumulativeWh": 11.5075,
+      "expectedPower": 41.6
+    },
+    {
+      "soc": 70,
+      "offsetSeconds": 1332,
+      "cumulativeWh": 13.4386,
+      "expectedPower": 42.2
+    },
+    {
+      "soc": 80,
+      "offsetSeconds": 1496,
+      "cumulativeWh": 15.3462,
+      "expectedPower": 37.5
+    },
+    {
+      "soc": 90,
+      "offsetSeconds": 1759,
+      "cumulativeWh": 17.2646,
+      "expectedPower": 18.1
+    },
+    {
+      "soc": 100,
+      "offsetSeconds": 2426,
+      "cumulativeWh": 19.1839,
+      "expectedPower": 6.1
+    }
+  ]
+}
