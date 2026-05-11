@@ -30,12 +30,23 @@ function useAutoSave(key: string, value: string, initialValue: string) {
   return saveStatus;
 }
 
+const inputClasses = 'bg-neutral-800 border border-neutral-700 text-neutral-100 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none';
+
 export function CatalogSettings({ initialSettings }: Props) {
   const initialEnabled = initialSettings['catalog.enabled'] === 'true' ? 'true' : 'false';
+  const initialToken = initialSettings['github.contentsToken'] ?? '';
+  const initialRepo = initialSettings['github.repo'] ?? '';
+
   const [enabled, setEnabled] = useState(initialEnabled);
+  const [token, setToken] = useState(initialToken);
+  const [repo, setRepo] = useState(initialRepo);
+
   const saveStatus = useAutoSave('catalog.enabled', enabled, initialEnabled);
+  const tokenStatus = useAutoSave('github.contentsToken', token, initialToken);
+  const repoStatus = useAutoSave('github.repo', repo, initialRepo);
 
   const isOn = enabled === 'true';
+  const hasToken = token.trim().length > 0;
 
   return (
     <div className="space-y-3">
@@ -71,9 +82,56 @@ export function CatalogSettings({ initialSettings }: Props) {
         </div>
       )}
 
+      {isOn && (
+        <div className="border-t border-neutral-800 pt-3 space-y-2">
+          <div className="text-xs font-medium text-neutral-300">Eigene Profile in den Katalog publishen (optional)</div>
+          <p className="text-[11px] text-neutral-500 leading-relaxed">
+            Wenn ein GitHub Personal Access Token mit{' '}
+            <code className="text-neutral-400">contents:write</code> Scope hinterlegt ist, kann die App
+            geprüfte Profile mit einem Klick direkt ins Repo commiten. Sonst kannst du die Artefakte
+            herunterladen und manuell per PR einreichen.
+          </p>
+          <label className="block">
+            <span className="block text-[11px] text-neutral-400 mb-1">GitHub Personal Access Token</span>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="github_pat_…"
+              className={inputClasses + ' w-full font-mono text-xs'}
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[11px] text-neutral-400 mb-1">
+              GitHub Repository (Default: <code className="text-neutral-500">meintechblog/charging-master</code>)
+            </span>
+            <input
+              type="text"
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+              placeholder="owner/repo"
+              className={inputClasses + ' w-full text-xs'}
+              autoComplete="off"
+            />
+          </label>
+          <p className="text-[11px] text-neutral-500">
+            Status:{' '}
+            {hasToken ? (
+              <span className="text-green-400">Auto-Publish aktiv</span>
+            ) : (
+              <span className="text-neutral-400">Manuell — Artefakte werden zum Download angeboten</span>
+            )}
+          </p>
+        </div>
+      )}
+
       <div className="text-xs text-neutral-500 h-4">
-        {saveStatus === 'saving' && <span>Speichere…</span>}
-        {saveStatus === 'saved' && <span className="text-green-400">Gespeichert ✓</span>}
+        {(saveStatus === 'saving' || tokenStatus === 'saving' || repoStatus === 'saving') && <span>Speichere…</span>}
+        {(saveStatus === 'saved' || tokenStatus === 'saved' || repoStatus === 'saved') &&
+          !(saveStatus === 'saving' || tokenStatus === 'saving' || repoStatus === 'saving') && (
+            <span className="text-green-400">Gespeichert ✓</span>
+          )}
       </div>
     </div>
   );

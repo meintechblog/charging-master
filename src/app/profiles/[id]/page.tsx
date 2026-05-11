@@ -17,6 +17,7 @@ import { SocButtons } from '@/components/charging/soc-buttons';
 import { PowerChart } from '@/components/charts/power-chart';
 import { ProfilePhotoGallery, type ProfilePhoto } from '@/components/charging/profile-photo-gallery';
 import { BatteryHealthTrend } from '@/components/charging/battery-health-trend';
+import { SubmitToCatalogButton } from '@/components/profiles/submit-to-catalog-button';
 
 type ProfileData = {
   id: number;
@@ -437,6 +438,7 @@ export default function ProfileDetailPage() {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
+          <SubmitToCatalogButton profileId={profile.id} hasCurve={profile.hasCurve} />
           <button
             onClick={() => setEditing(!editing)}
             className="px-3 py-1.5 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"

@@ -6,17 +6,31 @@ import type { CatalogMatch, CurvePoint } from './types';
 const RESAMPLE_N = 100; // points each curve is reduced to before DTW
 const SIMILARITY_FLOOR = 0.6; // suppress matches below this score
 const TOP_N_DEFAULT = 5;
+// Peak-power filter window. Shape match alone surfaces other devices that
+// happen to share a similar charge profile (Sanorum at 20W "matches" Winbot
+// at 122W at 96% shape similarity). The same physical battery + charger
+// combination produces peaks within ±50% of each other across runs, so we
+// reject anything outside [0.5, 2] by default.
+const PEAK_RATIO_MIN_DEFAULT = 0.5;
+const PEAK_RATIO_MAX_DEFAULT = 2.0;
 
 /**
  * Find catalog profiles whose normalized shape resembles `query`.
  *
  * Both curves are linearly resampled to RESAMPLE_N points and scaled to
  * peak=1 before DTW. Returns up to `topN` matches sorted by similarity desc.
- * Matches with similarity < SIMILARITY_FLOOR are dropped.
+ * Matches with similarity < SIMILARITY_FLOOR or peakRatio outside the
+ * peakRatio window are dropped. Pass `peakRatioMin: 0, peakRatioMax: Infinity`
+ * to disable the magnitude filter.
  */
 export function findMatches(
   query: CurvePoint[],
-  opts: { topN?: number; minSimilarity?: number } = {}
+  opts: {
+    topN?: number;
+    minSimilarity?: number;
+    peakRatioMin?: number;
+    peakRatioMax?: number;
+  } = {}
 ): CatalogMatch[] {
   const idx = loadIndex();
   if (!idx || idx.profiles.length === 0) return [];
@@ -30,6 +44,8 @@ export function findMatches(
 
   const topN = opts.topN ?? TOP_N_DEFAULT;
   const minSim = opts.minSimilarity ?? SIMILARITY_FLOOR;
+  const peakMin = opts.peakRatioMin ?? PEAK_RATIO_MIN_DEFAULT;
+  const peakMax = opts.peakRatioMax ?? PEAK_RATIO_MAX_DEFAULT;
 
   const matches: CatalogMatch[] = [];
   for (const entry of idx.profiles) {
@@ -38,6 +54,8 @@ export function findMatches(
     const cResampled = resamplePower(cPts, RESAMPLE_N);
     const cPeak = peak(cResampled);
     if (cPeak <= 0) continue;
+    const peakRatio = qPeak / cPeak;
+    if (peakRatio < peakMin || peakRatio > peakMax) continue;
     const cNorm = cResampled.map((v) => v / cPeak);
 
     const d = dtwDistance(qNorm, cNorm); // 0..~1 on normalized curves
@@ -50,7 +68,7 @@ export function findMatches(
       manufacturer: entry.manufacturer,
       modelName: entry.modelName,
       similarity,
-      peakRatio: qPeak / cPeak,
+      peakRatio,
     });
   }
 

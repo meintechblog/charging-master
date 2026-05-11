@@ -18,3 +18,5 @@ export type { CatalogIndex, CatalogProfile, CatalogCharger, CatalogMatch, CurveP
 export { loadIndex, loadProfile, loadCharger, loadCurvePoints, readPhoto } from './loader';
 export { findMatches, resamplePower } from './match';
 export { importProfile, importChargerOnly } from './import';
+export { buildPublishBundle, rebuildIndex, type PublishBundle, type PublishArtifact, type ValidationIssue } from './publish';
+export { publishToGitHub, isGitHubPublishConfigured, type GitHubPushResult } from './github-publish';

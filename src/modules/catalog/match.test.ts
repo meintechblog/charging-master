@@ -83,6 +83,43 @@ describe('findMatches (against real seed catalog)', () => {
     expect(findMatches([{ offsetSeconds: 0, apower: 5 }])).toEqual([]);
   });
 
+  it('filters out matches outside the default peakRatio window', () => {
+    const idx = loadIndex();
+    expect(idx).not.toBeNull();
+    // Build a curve with the SAME shape as the seed[0] but 10x the peak.
+    // Default peakRatio window is [0.5, 2] — 10x should be filtered out.
+    const seedId = idx!.profiles[0].id;
+    const points = loadCurvePoints(seedId);
+    const scaled = points.map((p) => ({
+      offsetSeconds: p.offsetSeconds,
+      apower: p.apower * 10,
+    }));
+    const results = findMatches(scaled, { topN: 5, minSimilarity: 0.5 });
+    // The seed entry itself would shape-match perfectly but peakRatio=10 is
+    // outside [0.5, 2].
+    expect(results.find((r) => r.catalogId === seedId)).toBeUndefined();
+  });
+
+  it('peakRatio window can be widened explicitly', () => {
+    const idx = loadIndex();
+    const seedId = idx!.profiles[0].id;
+    const points = loadCurvePoints(seedId);
+    const scaled = points.map((p) => ({
+      offsetSeconds: p.offsetSeconds,
+      apower: p.apower * 10,
+    }));
+    const results = findMatches(scaled, {
+      topN: 5,
+      minSimilarity: 0.5,
+      peakRatioMin: 0,
+      peakRatioMax: Infinity,
+    });
+    // With the filter disabled, the self-match comes back at peakRatio=10
+    const self = results.find((r) => r.catalogId === seedId);
+    expect(self).toBeDefined();
+    expect(self!.peakRatio).toBeCloseTo(10, 1);
+  });
+
   it('does not surface matches below minSimilarity', () => {
     // Flat low-power curve unlike anything in the seed (all 0.5W for 1h)
     const flat: CurvePoint[] = Array.from({ length: 100 }, (_, i) => ({
