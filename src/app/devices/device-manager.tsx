@@ -196,36 +196,8 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Auto-Discovery Section */}
-      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
-        <h2 className="text-lg font-semibold text-neutral-100 mb-4">
-          Geräte-Erkennung
-        </h2>
-        <DiscoveryList
-          registeredIds={registeredIds}
-          onAddDevice={handleAddFromDiscovery}
-        />
-      </section>
-
-      {/* Manual Add Section */}
-      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
-        <button
-          onClick={() => setShowManual(!showManual)}
-          className="flex items-center justify-between w-full text-lg font-semibold text-neutral-100"
-        >
-          <span>Manuell hinzufügen</span>
-          <span className="text-neutral-500 text-sm">
-            {showManual ? 'Einklappen' : 'Aufklappen'}
-          </span>
-        </button>
-        {showManual && (
-          <div className="mt-4">
-            <AddDeviceForm onAdded={() => router.refresh()} />
-          </div>
-        )}
-      </section>
-
-      {/* Registered Devices */}
+      {/* Registered Devices — first so newly discovered entries below don't
+          push the user's known plugs further down on every refresh. */}
       {registeredPlugs.length > 0 && (
         <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
           <h2 className="text-lg font-semibold text-neutral-100 mb-4">
@@ -255,6 +227,35 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
           </div>
         </section>
       )}
+
+      {/* Auto-Discovery Section */}
+      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
+        <h2 className="text-lg font-semibold text-neutral-100 mb-4">
+          Geräte-Erkennung
+        </h2>
+        <DiscoveryList
+          registeredIds={registeredIds}
+          onAddDevice={handleAddFromDiscovery}
+        />
+      </section>
+
+      {/* Manual Add Section */}
+      <section className="bg-neutral-900 rounded-lg border border-neutral-800 p-4 md:p-6">
+        <button
+          onClick={() => setShowManual(!showManual)}
+          className="flex items-center justify-between w-full text-lg font-semibold text-neutral-100"
+        >
+          <span>Manuell hinzufügen</span>
+          <span className="text-neutral-500 text-sm">
+            {showManual ? 'Einklappen' : 'Aufklappen'}
+          </span>
+        </button>
+        {showManual && (
+          <div className="mt-4">
+            <AddDeviceForm onAdded={() => router.refresh()} />
+          </div>
+        )}
+      </section>
     </div>
   );
 }
