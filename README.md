@@ -43,6 +43,14 @@ Charging-Master übernimmt das für dich. Ein Shelly S3 Plug sitzt zwischen Stec
 - **Event-Typen** — Gerät erkannt, Ziel-SOC erreicht, Fehler, Lernvorgang abgeschlossen, Self-Update erfolgreich/fehlgeschlagen
 - **Differenzierte Prioritäten** — Normal für Info-Events, Hoch (Alarm-Sound) für Fehler und kritische Rollbacks
 - **Konfigurierbar** — Pushover User Key + API Token in den Einstellungen
+- **Multi-Instance** — Notification-Titel beginnen mit `[<label>]` (Default: primäre IPv4 der Box), damit bei mehreren Charging-Master-Instanzen klar ist, welche ausgelöst hat. Per Box überschreibbar via `config.instance.label`:
+    ```bash
+    curl -X PUT -H "Content-Type: application/json" \
+      -d '{"key":"instance.label","value":"Werkstatt"}' \
+      http://<host>/api/settings
+    # Greift beim nächsten Service-Restart (Label wird einmal beim ersten Send gecacht).
+    ```
+    Gilt sowohl für App-Notifications (Ladeevents) als auch für Updater-Notifications (Self-Update-Resultate).
 
 ### Lade-Historie
 - **Session-Übersicht** — Alle Ladevorgänge chronologisch mit Filtern (Gerät, Profil, Status, Zeitraum)

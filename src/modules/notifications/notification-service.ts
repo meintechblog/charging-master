@@ -51,6 +51,32 @@ const TERMINAL_STATES = new Set(['complete', 'error', 'aborted']);
 
 const COOLDOWN_MS = 60_000;
 
+/**
+ * Pure resolver for the instance label used to prefix push titles. Precedence:
+ *   1. configLabel (DB override — `config.instance.label`)
+ *   2. First non-internal IPv4 from os.networkInterfaces()
+ *   3. hostname (last resort, fed by caller)
+ *
+ * Pure function so tests don't have to mock node:os or the db module.
+ */
+export function resolveInstanceLabel(opts: {
+  configLabel: string | null | undefined;
+  interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  hostname: string;
+}): string {
+  if (opts.configLabel && opts.configLabel.trim() !== '') {
+    return opts.configLabel;
+  }
+  for (const addrs of Object.values(opts.interfaces)) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return opts.hostname;
+}
+
 export class NotificationService {
   private eventBus: EventBus;
   private lastNotifiedState = new Map<string, string>();
@@ -64,29 +90,16 @@ export class NotificationService {
   }
 
   // Identify which instance fired the push so multi-LXC users can tell them
-  // apart. Precedence: config(instance.label) → first non-internal IPv4 from
-  // os.networkInterfaces() → hostname. Cached after first lookup; restart to
-  // re-read.
+  // apart. Cached after first lookup; restart to re-read.
   private getInstanceLabel(): string {
     if (this.instanceLabel) return this.instanceLabel;
 
     const labelRow = db.select().from(config).where(eq(config.key, 'instance.label')).get();
-    if (labelRow?.value) {
-      this.instanceLabel = labelRow.value;
-      return this.instanceLabel;
-    }
-
-    const ifaces = os.networkInterfaces();
-    for (const addrs of Object.values(ifaces)) {
-      for (const addr of addrs ?? []) {
-        if (addr.family === 'IPv4' && !addr.internal) {
-          this.instanceLabel = addr.address;
-          return this.instanceLabel;
-        }
-      }
-    }
-
-    this.instanceLabel = os.hostname();
+    this.instanceLabel = resolveInstanceLabel({
+      configLabel: labelRow?.value ?? null,
+      interfaces: os.networkInterfaces(),
+      hostname: os.hostname(),
+    });
     return this.instanceLabel;
   }
 

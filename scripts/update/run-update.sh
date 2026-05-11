@@ -192,6 +192,25 @@ PYEOF
 # Pushover (P4/NOTF support — pitfall mitigation: never let a failed pushover
 # break the update, hence `|| true`)
 # -----------------------------------------------------------------------------
+
+# Resolve the instance label used to prefix push titles. Mirrors
+# NotificationService.getInstanceLabel() in the app — same precedence so push
+# from app and updater carry the same identifier on a given box.
+get_instance_label() {
+    local label
+    label=$(sqlite3 "${DB}" "SELECT value FROM config WHERE key='instance.label';" 2>/dev/null || echo "")
+    if [ -n "${label}" ]; then
+        echo "${label}"
+        return 0
+    fi
+    label=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [ -n "${label}" ]; then
+        echo "${label}"
+        return 0
+    fi
+    hostname
+}
+
 pushover_send() {
     local title="$1"
     local message="$2"
@@ -206,11 +225,15 @@ pushover_send() {
         return 0
     fi
 
+    local label
+    label=$(get_instance_label)
+    local prefixed_title="[${label}] ${title}"
+
     curl -sf -X POST https://api.pushover.net/1/messages.json \
         --max-time 10 \
         --data-urlencode "token=${api_token}" \
         --data-urlencode "user=${user_key}" \
-        --data-urlencode "title=${title}" \
+        --data-urlencode "title=${prefixed_title}" \
         --data-urlencode "message=${message}" \
         --data-urlencode "priority=${priority}" \
         >/dev/null 2>&1 || log "pushover send failed (non-fatal)"
