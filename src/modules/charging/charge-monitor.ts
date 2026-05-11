@@ -845,12 +845,18 @@ export class ChargeMonitor {
       return;
     }
 
+    // Capture sessionId BEFORE the await. switchRelayOff resolves on the next
+    // power reading via waitForPowerDrop, and that reading's feedReading() hits
+    // the recycle gate (stopping→idle), which fires handleTransition(idle)
+    // → cleanupSession() and clears sessionIds[plugId] before we get back here.
+    // Post-await reads see undefined and silently skip the terminal DB write,
+    // leaving the row as a 'countdown' zombie.
+    const sessionId = this.sessionIds.get(plugId);
+
     const success = await switchRelayOff(
       { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
       this.eventBus
     );
-
-    const sessionId = this.sessionIds.get(plugId);
 
     if (success) {
       this.lastRelayOff.set(plugId, Date.now());
