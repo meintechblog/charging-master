@@ -4,6 +4,7 @@ import { SettingsSection } from '@/components/settings/settings-section';
 import { PushoverSettings } from '@/components/settings/pushover-settings';
 import { ElectricitySettings } from '@/components/settings/electricity-settings';
 import { AutoUpdateSettings } from '@/components/settings/auto-update-settings';
+import { CatalogSettings } from '@/components/settings/catalog-settings';
 import { VersionBadge } from './version-badge';
 import { UpdateBanner } from './update-banner';
 import { UpdateHistory } from './update-history';
@@ -70,6 +71,13 @@ export default async function SettingsPage() {
         description="App aktualisiert sich automatisch in der gewählten Stunde, wenn keine aktive Lade-Session läuft"
       >
         <AutoUpdateSettings initialSettings={settings} />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Profil-Katalog"
+        description="Geteilter Wissens-Pool für Akku- und Ladegeräte-Profile mit allen anderen Charging-Master-Instanzen"
+      >
+        <CatalogSettings initialSettings={settings} />
       </SettingsSection>
     </div>
   );

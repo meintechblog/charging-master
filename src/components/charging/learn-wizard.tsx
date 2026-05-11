@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProfileForm, type ProfileFormValues } from '@/components/charging/profile-form';
 import { PowerChart } from '@/components/charts/power-chart';
+import { CatalogMatchHint } from '@/components/charging/catalog-match-hint';
 import { formatDuration, formatEnergy } from '@/lib/format';
 
 type Plug = {
@@ -596,6 +597,12 @@ export function LearnWizard({ initialProfileId, initialPlugId }: LearnWizardProp
                 </button>
               </div>
             </div>
+          )}
+
+          {/* Catalog match hint — only renders if catalog is enabled and a
+              ≥90% match exists. Otherwise silent. */}
+          {saveResult && createdProfileId && (
+            <CatalogMatchHint profileId={createdProfileId} />
           )}
 
           {/* Inline profile details panel */}
