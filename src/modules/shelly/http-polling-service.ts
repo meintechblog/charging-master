@@ -85,6 +85,7 @@ export class HttpPollingService {
         lastResult !== 'ok' || (now - lastCheck >= this.ID_CHECK_INTERVAL_MS);
 
       if (shouldVerifyId) {
+        const wasOk = lastResult === 'ok';
         try {
           const infoRes = await fetch(
             `http://${ipAddress}/rpc/Shelly.GetDeviceInfo`,
@@ -93,17 +94,34 @@ export class HttpPollingService {
           if (!infoRes.ok) throw new Error(`GetDeviceInfo HTTP ${infoRes.status}`);
           const info = await infoRes.json();
           if (info.id !== expectedBaseId) {
-            console.warn(
-              `[HttpPolling] device-id mismatch at ${ipAddress} for plug ${plugId}: expected ${expectedBaseId}, got ${info.id}. Marking offline.`
-            );
+            // Log only on transition (or first ever) so a persistent mismatch
+            // doesn't spam journalctl with the same line every poll.
+            if (wasOk || lastResult === undefined) {
+              console.warn(
+                `[HttpPolling] device-id mismatch at ${ipAddress} for plug ${plugId}: expected ${expectedBaseId}, got ${info.id}. Marking offline.`
+              );
+            }
             this.lastIdCheckResult.set(plugId, 'fail');
             this.lastIdCheckAt.set(plugId, now);
             this.markOffline(plugId);
             return;
           }
+          if (!wasOk && lastResult !== undefined) {
+            console.log(
+              `[HttpPolling] device-id at ${ipAddress} now matches plug ${plugId}. Resuming polling.`
+            );
+          }
           this.lastIdCheckResult.set(plugId, 'ok');
           this.lastIdCheckAt.set(plugId, now);
         } catch {
+          // Same transition-only logging so an offline plug doesn't fill the
+          // journal. The first failure logs; subsequent identical failures are
+          // suppressed until we get a successful match or a different error.
+          if (wasOk || lastResult === undefined) {
+            console.warn(
+              `[HttpPolling] device-id probe failed at ${ipAddress} for plug ${plugId} (device unreachable). Marking offline.`
+            );
+          }
           this.lastIdCheckResult.set(plugId, 'fail');
           this.lastIdCheckAt.set(plugId, now);
           this.markOffline(plugId);
