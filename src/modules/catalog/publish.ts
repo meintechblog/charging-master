@@ -2,6 +2,7 @@ import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import sharp from 'sharp';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db/client';
 import {
@@ -30,7 +31,29 @@ const LIMITS = {
   MAX_MODEL: 60,
   MAX_NOTES: 500,
   MAX_URL: 500,
+  PHOTO_MAX_EDGE_PX: 800,
+  PHOTO_JPEG_QUALITY: 80,
+  PHOTO_HARD_MAX_BYTES: 500 * 1024, // safety net after downscale
 };
+
+/**
+ * Resize an image buffer down to PHOTO_MAX_EDGE_PX longest edge and
+ * re-encode as JPEG q=PHOTO_JPEG_QUALITY. Matches the seed pipeline
+ * (sips -Z 800 -s formatOptions 80). Synchronously returns a buffer or
+ * throws.
+ */
+async function processPhoto(input: Buffer): Promise<Buffer> {
+  return sharp(input)
+    .rotate() // honor EXIF orientation
+    .resize({
+      width: LIMITS.PHOTO_MAX_EDGE_PX,
+      height: LIMITS.PHOTO_MAX_EDGE_PX,
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: LIMITS.PHOTO_JPEG_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
 
 const CATALOG_DIR = path.join(process.cwd(), 'catalog');
 
@@ -129,7 +152,7 @@ export function getInstanceLabel(): string {
 // bundle generation
 // ---------------------------------------------------------------------------
 
-export function buildPublishBundle(localProfileId: number): PublishBundle | null {
+export async function buildPublishBundle(localProfileId: number): Promise<PublishBundle | null> {
   const profile = db.select().from(deviceProfiles).where(eq(deviceProfiles.id, localProfileId)).get();
   if (!profile) return null;
   const curve = db.select().from(referenceCurves).where(eq(referenceCurves.profileId, localProfileId)).get();
@@ -223,9 +246,8 @@ export function buildPublishBundle(localProfileId: number): PublishBundle | null
   const fullHash = sha256Hex(canonicalCurve(points));
   const profileCatalogId = fullHash.slice(0, 16);
 
-  // Photo (optional) — pick primary; downscale + recompress is the
-  // submitter's responsibility, here we just include the bytes as-is. If the
-  // raw photo is huge, we warn (catalog gates max ~300KB per photo).
+  // Profile photo (optional) — pick primary, sharp-downscale to
+  // PHOTO_MAX_EDGE_PX longest edge / JPEG q=80, re-encoded.
   let photoArtifact: PublishArtifact | null = null;
   const primaryPhoto = db
     .select()
@@ -236,42 +258,48 @@ export function buildPublishBundle(localProfileId: number): PublishBundle | null
   if (primaryPhoto) {
     const photoPath = path.join(process.cwd(), 'data', 'profile-photos', String(localProfileId), primaryPhoto.fileName);
     try {
-      const buf = fs.readFileSync(photoPath);
-      if (buf.byteLength > 500 * 1024) {
+      const raw = fs.readFileSync(photoPath);
+      const processed = await processPhoto(raw);
+      if (processed.byteLength > LIMITS.PHOTO_HARD_MAX_BYTES) {
         issues.push({
           field: 'photo',
-          message: `Foto ist ${(buf.byteLength / 1024).toFixed(0)} KB — wird über die Pipeline nicht herunterskaliert (Phase 1 limitation).`,
+          message: `Foto bleibt nach Downscale ${(processed.byteLength / 1024).toFixed(0)} KB (Limit ${LIMITS.PHOTO_HARD_MAX_BYTES / 1024} KB) — wird trotzdem mitgesendet.`,
           severity: 'warning',
         });
       }
       photoArtifact = {
         path: `catalog/profiles/${profileCatalogId}.photo.jpg`,
-        contentType: primaryPhoto.contentType,
-        contentBase64: buf.toString('base64'),
+        contentType: 'image/jpeg',
+        contentBase64: processed.toString('base64'),
       };
     } catch (err) {
       issues.push({
         field: 'photo',
-        message: `Foto-Datei nicht lesbar: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Foto konnte nicht verarbeitet werden: ${err instanceof Error ? err.message : String(err)}`,
         severity: 'warning',
       });
     }
   }
 
-  // Charger photo (optional)
+  // Charger photo (optional) — same sharp pipeline
   let chargerPhotoArtifact: PublishArtifact | null = null;
-  if (charger && charger.photoFileName) {
+  if (charger && charger.photoFileName && chargerCatalogId) {
     const chPath = path.join(process.cwd(), 'data', 'charger-photos', charger.photoFileName);
     try {
-      const buf = fs.readFileSync(chPath);
-      if (chargerCatalogId) {
-        chargerPhotoArtifact = {
-          path: `catalog/chargers/${chargerCatalogId}.photo.jpg`,
-          contentType: charger.photoContentType ?? 'image/jpeg',
-          contentBase64: buf.toString('base64'),
-        };
-      }
-    } catch { /* ignore */ }
+      const raw = fs.readFileSync(chPath);
+      const processed = await processPhoto(raw);
+      chargerPhotoArtifact = {
+        path: `catalog/chargers/${chargerCatalogId}.photo.jpg`,
+        contentType: 'image/jpeg',
+        contentBase64: processed.toString('base64'),
+      };
+    } catch (err) {
+      issues.push({
+        field: 'chargerPhoto',
+        message: `Ladegerät-Foto konnte nicht verarbeitet werden: ${err instanceof Error ? err.message : String(err)}`,
+        severity: 'warning',
+      });
+    }
   }
 
   // Catalog profile JSON

@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'invalid_profile_id' }, { status: 400 });
   }
 
-  const bundle = buildPublishBundle(body.profileId);
+  const bundle = await buildPublishBundle(body.profileId);
   if (!bundle) {
     return Response.json({ error: 'profile_not_found_or_no_curve' }, { status: 404 });
   }
