@@ -845,13 +845,15 @@ export class ChargeMonitor {
       return;
     }
 
-    // Capture sessionId BEFORE the await. switchRelayOff resolves on the next
-    // power reading via waitForPowerDrop, and that reading's feedReading() hits
-    // the recycle gate (stopping→idle), which fires handleTransition(idle)
-    // → cleanupSession() and clears sessionIds[plugId] before we get back here.
-    // Post-await reads see undefined and silently skip the terminal DB write,
-    // leaving the row as a 'countdown' zombie.
-    const sessionId = this.sessionIds.get(plugId);
+    // Snapshot event context BEFORE the await. switchRelayOff resolves on the
+    // next power reading via waitForPowerDrop, and that reading's feedReading()
+    // hits the recycle gate (stopping→idle), which resets machine.estimatedSoc
+    // to 0 and fires handleTransition(idle) → cleanupSession() that clears
+    // matchData/sessionIds before we get back here. Without the snapshot, the
+    // post-await 'complete' event would emit profileName=undefined and
+    // estimatedSoc=0, producing a "Akku voll: Akku -> 0% erreicht." Pushover.
+    const completionCtx = this.captureEventContext(plugId);
+    const sessionId = completionCtx.sessionId;
 
     const success = await switchRelayOff(
       { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
@@ -877,7 +879,7 @@ export class ChargeMonitor {
           console.error('[Calibration] recalibrateChargerEta failed:', err instanceof Error ? err.message : err);
         }
       }
-      this.emitChargeEvent(plugId, 'complete');
+      this.emitChargeEvent(plugId, 'complete', false, completionCtx);
       this.cleanupSession(plugId);
     } else {
       if (sessionId) {
@@ -887,16 +889,50 @@ export class ChargeMonitor {
           stopReason: 'relay_switch_failed',
         }).where(eq(chargeSessions.id, sessionId)).run();
       }
-      this.emitChargeEvent(plugId, 'error');
+      this.emitChargeEvent(plugId, 'error', false, completionCtx);
     }
   }
 
-  private emitChargeEvent(plugId: string, state: ChargeState, detectionExhausted = false): void {
+  /**
+   * Snapshot the per-plug state that emitChargeEvent reads, so callers
+   * spanning an async boundary can preserve event context across the
+   * state-machine recycle gate (which resets estimatedSoc) and the
+   * idle-transition cleanupSession() (which drops matchData/sessionIds).
+   * Without this snapshot, the post-await 'complete' event emits
+   * profileName=undefined and estimatedSoc=0, producing the bogus
+   * "Akku voll: Akku -> 0% erreicht." Pushover message.
+   */
+  private captureEventContext(plugId: string): {
+    match: MatchResult | undefined;
+    estimatedSoc: number | undefined;
+    targetSoc: number | undefined;
+    sessionId: number | undefined;
+    startedAt: number | undefined;
+    etaSeconds: number | undefined;
+    sessionWh: number | undefined;
+    energyRemainingWh: number | undefined;
+  } {
     const machine = this.machines.get(plugId);
-    const match = this.matchData.get(plugId);
-    const sessionId = this.sessionIds.get(plugId);
-    const startedAt = this.sessionStartedAt.get(plugId);
-    const etaSeconds = this.sessionEtaSeconds.get(plugId);
+    return {
+      match: this.matchData.get(plugId),
+      estimatedSoc: machine?.estimatedSoc,
+      targetSoc: machine?.targetSoc,
+      sessionId: this.sessionIds.get(plugId),
+      startedAt: this.sessionStartedAt.get(plugId),
+      etaSeconds: this.sessionEtaSeconds.get(plugId),
+      sessionWh: this.sessionWh.get(plugId),
+      energyRemainingWh: this.sessionEnergyRemainingWh.get(plugId),
+    };
+  }
+
+  private emitChargeEvent(
+    plugId: string,
+    state: ChargeState,
+    detectionExhausted = false,
+    ctx?: ReturnType<typeof this.captureEventContext>
+  ): void {
+    const effective = ctx ?? this.captureEventContext(plugId);
+    const { match, estimatedSoc, targetSoc, sessionId, startedAt, etaSeconds, sessionWh, energyRemainingWh } = effective;
 
     // During detection the matchData entry is a speculative candidate, not
     // a committed match — it must not surface as profileName (the UI would
@@ -912,14 +948,14 @@ export class ChargeMonitor {
       profileId: isDetecting ? undefined : match?.profileId,
       profileName: isDetecting ? undefined : match?.profileName,
       confidence: isDetecting ? undefined : match?.confidence,
-      estimatedSoc: machine?.estimatedSoc,
-      targetSoc: machine?.targetSoc,
+      estimatedSoc,
+      targetSoc,
       sessionId,
       detectionExhausted,
       elapsedMs: startedAt !== undefined ? Date.now() - startedAt : undefined,
       etaSeconds,
-      energyChargedWh: this.sessionWh.get(plugId),
-      energyRemainingWh: this.sessionEnergyRemainingWh.get(plugId),
+      energyChargedWh: sessionWh,
+      energyRemainingWh,
       // Detection-progress fields. Only meaningful while state==='detecting'.
       detectionSamples: isDetecting ? (buffer?.length ?? 0) : undefined,
       detectionTargetSamples: isDetecting ? DETECTION_TARGET_READINGS : undefined,
