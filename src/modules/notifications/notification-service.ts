@@ -14,10 +14,24 @@
 import os from 'node:os';
 import type { EventBus } from '@/modules/events/event-bus';
 import type { ChargeStateEvent } from '@/modules/charging/types';
+import { renderSocBandAscii } from '@/modules/charging/soc-band-ascii';
 import { sendPushover } from './pushover-client';
 import { db } from '@/db/client';
 import { config, deviceProfiles, chargers, chargeSessions, plugs, powerReadings } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
+
+/**
+ * Built message shape returned by buildMessage / buildMatchedMessage /
+ * buildCompleteMessage. Phase 11-03 W4 (closed): monospace is on the builder
+ * return type so handleEvent threads ONE locked flag through to sendPushover.
+ * No parallel OR-fork in the call site.
+ */
+type BuiltMessage = {
+  title: string;
+  message: string;
+  priority: number;
+  monospace?: 0 | 1;
+};
 
 const DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH = 0.40;
 
@@ -140,6 +154,7 @@ export class NotificationService {
       title: `[${label}] ${msg.title}`,
       message: msg.message,
       priority: msg.priority,
+      monospace: msg.monospace,
     });
 
     if (sent) {
@@ -163,7 +178,7 @@ export class NotificationService {
     return { userKey: userKeyRow.value, apiToken: apiTokenRow.value };
   }
 
-  private buildMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
+  private buildMessage(event: ChargeStateEvent): BuiltMessage {
     switch (event.state) {
       case 'detecting':
         return this.buildDetectingMessage(event);
@@ -175,7 +190,33 @@ export class NotificationService {
         ];
         if (event.estimatedSoc != null) lines.push(`Start-SOC ~${event.estimatedSoc} %.`);
         if (event.targetSoc != null) lines.push(`Ziel: ${event.targetSoc} %.`);
-        return { title: 'Ladevorgang erkannt', message: lines.join(' '), priority: 0 };
+
+        // Phase 11-03 SOCB-05: attach the ASCII SOC band when the matcher
+        // produced one (event has socMin/socMax + estimatedSoc + targetSoc).
+        // Back-compat: when band fields are absent, the message stays in the
+        // legacy single-line form and monospace is omitted (W4 locked path).
+        const built: BuiltMessage = {
+          title: 'Ladevorgang erkannt',
+          message: lines.join(' '),
+          priority: 0,
+        };
+        if (
+          event.socMin != null &&
+          event.socMax != null &&
+          event.estimatedSoc != null &&
+          event.targetSoc != null
+        ) {
+          const bar = renderSocBandAscii({
+            socMin: event.socMin,
+            socMax: event.socMax,
+            socBest: event.estimatedSoc,
+            targetSoc: event.targetSoc,
+            mode: 'pushover',
+          });
+          built.message = `${built.message}\n${bar}`;
+          built.monospace = 1;
+        }
+        return built;
       }
 
       case 'complete':
@@ -203,7 +244,7 @@ export class NotificationService {
     }
   }
 
-  private buildDetectingMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
+  private buildDetectingMessage(event: ChargeStateEvent): BuiltMessage {
     const plugRow = db.select().from(plugs).where(eq(plugs.id, event.plugId)).get();
     const plugName = plugRow?.name ?? event.plugId;
 
@@ -227,7 +268,7 @@ export class NotificationService {
     };
   }
 
-  private buildCompleteMessage(event: ChargeStateEvent): { title: string; message: string; priority: number } {
+  private buildCompleteMessage(event: ChargeStateEvent): BuiltMessage {
     const name = event.profileName ?? 'Akku';
     const soc = event.estimatedSoc != null ? `${event.estimatedSoc} %` : '?';
 
@@ -272,10 +313,32 @@ export class NotificationService {
     if (cost != null) parts.push(`Strompreis ${formatEur(cost)}.`);
     parts.push('Plug abgeschaltet, sicher zum Abnehmen.');
 
-    return {
+    // Phase 11-03 SOCB-05: attach the ASCII SOC band when band fields are
+    // present on the captureEventContext snapshot. handleStopping snapshots
+    // before the relay-off await, so socMin/socMax are populated here even
+    // after cleanupSession has cleared the per-plug Maps (2640873 bug class
+    // closed for the band — same shape as the original estimatedSoc fix).
+    const built: BuiltMessage = {
       title: `Akku voll: ${name}`,
       message: parts.join(' '),
       priority: 0,
     };
+    if (
+      event.socMin != null &&
+      event.socMax != null &&
+      event.estimatedSoc != null &&
+      event.targetSoc != null
+    ) {
+      const bar = renderSocBandAscii({
+        socMin: event.socMin,
+        socMax: event.socMax,
+        socBest: event.estimatedSoc,
+        targetSoc: event.targetSoc,
+        mode: 'pushover',
+      });
+      built.message = `${built.message}\n${bar}`;
+      built.monospace = 1;
+    }
+    return built;
   }
 }

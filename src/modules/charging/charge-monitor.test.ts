@@ -365,7 +365,7 @@ describe('ChargeMonitor — Plan 11-02 Task 3a', () => {
     expect(widthAfter).toBeGreaterThanOrEqual(19);
   });
 
-  it('captureEventContext returns socMin/socMax/socBandConfidence/socAsciiBar fields', () => {
+  it('captureEventContext returns socMin/socMax/socBandConfidence and a populated socAsciiBar (W1 closed in Plan 11-03)', () => {
     seedProfile(1, 'iPad', 100, 8000);
     seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
     const match = makeMatch({ socMin: 45, socMax: 55, socBest: 50, bandConfidence: 0.9, estimatedStartSoc: 50 });
@@ -377,9 +377,12 @@ describe('ChargeMonitor — Plan 11-02 Task 3a', () => {
     expect(ctx).toHaveProperty('socMin', 45);
     expect(ctx).toHaveProperty('socMax', 55);
     expect(ctx).toHaveProperty('socBandConfidence', 0.9);
-    expect(ctx).toHaveProperty('socAsciiBar');
-    // Plan 11-03 populates socAsciiBar — for now it's declared but undefined.
-    expect((ctx as { socAsciiBar?: string }).socAsciiBar).toBeUndefined();
+    // Plan 11-03 W1 (closed): socAsciiBar is rendered at SNAPSHOT time so the
+    // post-await 'complete' event carries it. Unicode mode for SSE/dashboard.
+    const bar = (ctx as { socAsciiBar?: string }).socAsciiBar;
+    expect(typeof bar).toBe('string');
+    expect(bar!.length).toBeGreaterThan(0);
+    expect(bar!.split('\n')).toHaveLength(3); // locked 3-line shape from Task 1
   });
 
   it('emitChargeEvent forwards band fields on every emitted ChargeStateEvent', () => {
@@ -424,6 +427,100 @@ describe('ChargeMonitor — Plan 11-02 Task 3a', () => {
     expect(completeEvent!.socBandConfidence).toBeCloseTo(0.96, 5);
     // estimatedSoc snapshot also non-zero (the original 2640873 fix).
     expect(completeEvent!.estimatedSoc).toBe(80);
+  });
+
+  it('captureEventContext socAsciiBar is undefined when band fields are missing (legacy fallback)', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
+    const match = makeMatch({ socMin: 45, socMax: 55, socBest: 50, bandConfidence: 0.9, estimatedStartSoc: 50 });
+    injectActiveSession(monitor, 'plug-1', 1, match);
+
+    // Clear the per-plug band Maps to simulate the legacy / pre-band path.
+    const internals = monitor as unknown as MonitorInternals;
+    internals.sessionSocMin.delete('plug-1');
+    internals.sessionSocMax.delete('plug-1');
+
+    const ctx = (monitor as unknown as {
+      captureEventContext(p: string): Record<string, unknown>;
+    }).captureEventContext('plug-1');
+    // No band → no rendered string.
+    expect((ctx as { socAsciiBar?: string }).socAsciiBar).toBeUndefined();
+  });
+
+  it('fireAnomalyNotification embeds rendered bar AND POSTs monospace=1 (SOCB-05 anomaly path)', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
+    // Pushover credentials in fake config table.
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+
+    const match = makeMatch({ socMin: 40, socMax: 60, socBest: 50, bandConfidence: 0.6, estimatedStartSoc: 50 });
+    injectActiveSession(monitor, 'plug-1', 1, match);
+
+    const fetchSpy = vi.fn(async (_url: string, _init: { body: string; method: string; headers: Record<string, string> }) => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    (monitor as unknown as {
+      fireAnomalyNotification(p: string, n: string, a: number, e: number): void;
+    }).fireAnomalyNotification('plug-1', 'iPad', 60, 40);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('https://api.pushover.net/1/messages.json');
+    // URL-encoded body — parse it.
+    const params = new URLSearchParams(init.body);
+    expect(params.get('monospace')).toBe('1');
+    const message = params.get('message') ?? '';
+    // Bar glyphs from pushover mode.
+    expect(message).toMatch(/[#=.]/);
+    // 3-line bar appended → original message + 3 newlines/lines.
+    expect(message.split('\n').length).toBeGreaterThanOrEqual(4);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('fireAnomalyNotification omits monospace when band fields are missing (back-compat)', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+
+    const match = makeMatch({ socMin: 40, socMax: 60, socBest: 50, bandConfidence: 0.6, estimatedStartSoc: 50 });
+    injectActiveSession(monitor, 'plug-1', 1, match);
+
+    // Clear the band Maps so the renderer is bypassed.
+    const internals = monitor as unknown as MonitorInternals;
+    internals.sessionSocMin.delete('plug-1');
+    internals.sessionSocMax.delete('plug-1');
+
+    const fetchSpy = vi.fn(async (_url: string, _init: { body: string; method: string; headers: Record<string, string> }) => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    (monitor as unknown as {
+      fireAnomalyNotification(p: string, n: string, a: number, e: number): void;
+    }).fireAnomalyNotification('plug-1', 'iPad', 60, 40);
+
+    const init = fetchSpy.mock.calls[0][1];
+    const params = new URLSearchParams(init.body);
+    expect(params.get('monospace')).toBeNull();
+    expect(params.get('message') ?? '').not.toMatch(/[#=]/);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('emitChargeEvent forwards socAsciiBar from captureEventContext onto the event', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
+    const match = makeMatch({ socMin: 45, socMax: 55, socBest: 50, bandConfidence: 0.9, estimatedStartSoc: 50 });
+    injectActiveSession(monitor, 'plug-1', 1, match);
+
+    captured.length = 0;
+    (monitor as unknown as { emitChargeEvent(p: string, s: string): void }).emitChargeEvent('plug-1', 'charging');
+
+    expect(captured.length).toBeGreaterThan(0);
+    const last = captured[captured.length - 1];
+    expect(typeof last.socAsciiBar).toBe('string');
+    expect(last.socAsciiBar!.split('\n')).toHaveLength(3);
   });
 
   it('MatchResult band fields are typed as REQUIRED (Plan 11-02 Task 3a — B3 closed)', () => {

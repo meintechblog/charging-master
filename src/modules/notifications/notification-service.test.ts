@@ -1,6 +1,80 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type os from 'node:os';
-import { resolveInstanceLabel } from './notification-service';
+
+// Mock db + drizzle for NotificationService unit tests. The
+// resolveInstanceLabel tests below use the pure exported function and are
+// unaffected by these mocks.
+interface FakeRow {
+  [k: string]: unknown;
+}
+
+const fakeState = {
+  configRows: [] as FakeRow[],
+  plugRows: [] as FakeRow[],
+  chargeSessionRows: [] as FakeRow[],
+  deviceProfileRows: [] as FakeRow[],
+  chargerRows: [] as FakeRow[],
+  powerReadingRows: [] as FakeRow[],
+};
+
+function tableToRows(table: unknown): FakeRow[] {
+  switch (table) {
+    case 'config': return fakeState.configRows;
+    case 'plugs': return fakeState.plugRows;
+    case 'chargeSessions': return fakeState.chargeSessionRows;
+    case 'deviceProfiles': return fakeState.deviceProfileRows;
+    case 'chargers': return fakeState.chargerRows;
+    case 'powerReadings': return fakeState.powerReadingRows;
+    default: return [];
+  }
+}
+
+vi.mock('@/db/client', () => ({
+  db: {
+    select: vi.fn(() => ({
+      from: vi.fn((table: unknown) => ({
+        where: vi.fn((pred: { col: unknown; val: unknown }) => ({
+          get: vi.fn(() => {
+            const rows = tableToRows(table);
+            const val = pred.val;
+            return rows.find((r) => r.id === val) ??
+                   rows.find((r) => r.key === val) ??
+                   rows.find((r) => r.plugId === val) ??
+                   undefined;
+          }),
+          orderBy: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              get: vi.fn(() => undefined),
+            })),
+          })),
+        })),
+      })),
+    })),
+  },
+}));
+
+vi.mock('@/db/schema', () => ({
+  config: 'config',
+  plugs: 'plugs',
+  chargeSessions: 'chargeSessions',
+  deviceProfiles: 'deviceProfiles',
+  chargers: 'chargers',
+  powerReadings: 'powerReadings',
+}));
+
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((col, val) => ({ col, val })),
+  desc: vi.fn((col) => ({ col, dir: 'desc' })),
+}));
+
+vi.mock('./pushover-client', () => ({
+  sendPushover: vi.fn(async () => true),
+}));
+
+import { resolveInstanceLabel, NotificationService } from './notification-service';
+import { EventBus } from '@/modules/events/event-bus';
+import type { ChargeStateEvent } from '@/modules/charging/types';
+import { sendPushover } from './pushover-client';
 
 type Ifaces = NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 
@@ -107,5 +181,147 @@ describe('resolveInstanceLabel', () => {
         hostname: 'charging-master',
       })
     ).toBe('Buero');
+  });
+});
+
+// --- Phase 11-03 SOCB-05 — ASCII bar in matched/complete messages ----------
+//
+// W4 closed: monospace threads through buildMessage's return type onto
+// sendPushover via ONE locked path. handleEvent reads msg.monospace and
+// forwards it directly — no parallel OR-fork at the call site.
+
+function baseEvent(state: ChargeStateEvent['state'], extra: Partial<ChargeStateEvent> = {}): ChargeStateEvent {
+  return {
+    plugId: 'plug-1',
+    state,
+    profileName: 'iPad',
+    confidence: 0.92,
+    estimatedSoc: 50,
+    targetSoc: 80,
+    sessionId: 1,
+    energyChargedWh: 30,
+    elapsedMs: 600_000,
+    ...extra,
+  };
+}
+
+function resetFakeState() {
+  fakeState.configRows = [];
+  fakeState.plugRows = [];
+  fakeState.chargeSessionRows = [];
+  fakeState.deviceProfileRows = [];
+  fakeState.chargerRows = [];
+  fakeState.powerReadingRows = [];
+}
+
+function seedPushoverCredentials() {
+  fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+  fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+}
+
+describe('NotificationService — matched message with SOC band (SOCB-05)', () => {
+  let bus: EventBus;
+  let svc: NotificationService;
+
+  beforeEach(() => {
+    resetFakeState();
+    seedPushoverCredentials();
+    vi.mocked(sendPushover).mockClear();
+    vi.mocked(sendPushover).mockResolvedValue(true);
+    bus = new EventBus();
+    svc = new NotificationService(bus);
+    svc.start();
+  });
+
+  afterEach(() => {
+    svc.stop();
+  });
+
+  it('matched: appends rendered ASCII bar AND forwards monospace=1 to sendPushover', async () => {
+    bus.emitChargeState(baseEvent('matched', {
+      socMin: 40, socMax: 60, estimatedSoc: 50, targetSoc: 80,
+    }));
+    // Give the async handleEvent a tick to resolve sendPushover.
+    await new Promise((r) => setImmediate(r));
+
+    expect(sendPushover).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendPushover).mock.calls[0][0];
+    // Bar glyphs present in message body
+    expect(arg.message).toMatch(/[#=.]/);
+    // 3-line output → message contains at least 2 '\n' separators after appending the bar
+    expect(arg.message.split('\n').length).toBeGreaterThanOrEqual(4); // leading line + 3 bar lines
+    expect(arg.monospace).toBe(1);
+  });
+
+  it('matched: NO bar and monospace omitted when band fields are missing (back-compat)', async () => {
+    // Same event, but WITHOUT socMin/socMax — legacy producer.
+    bus.emitChargeState(baseEvent('matched', {
+      socMin: undefined, socMax: undefined, estimatedSoc: 50, targetSoc: 80,
+    }));
+    await new Promise((r) => setImmediate(r));
+
+    expect(sendPushover).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendPushover).mock.calls[0][0];
+    // Legacy single-line message — no bar glyphs.
+    expect(arg.message.includes('#')).toBe(false);
+    expect(arg.message.includes('=')).toBe(false);
+    expect(arg.monospace).toBeUndefined();
+  });
+
+  it('complete: appends rendered ASCII bar AND forwards monospace=1', async () => {
+    bus.emitChargeState(baseEvent('complete', {
+      socMin: 78, socMax: 82, estimatedSoc: 80, targetSoc: 80,
+    }));
+    await new Promise((r) => setImmediate(r));
+
+    expect(sendPushover).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendPushover).mock.calls[0][0];
+    expect(arg.message).toMatch(/[#=.]/);
+    expect(arg.monospace).toBe(1);
+  });
+
+  it('complete: NO bar when band fields missing (legacy session row)', async () => {
+    bus.emitChargeState(baseEvent('complete', {
+      socMin: undefined, socMax: undefined, estimatedSoc: 80, targetSoc: 80,
+    }));
+    await new Promise((r) => setImmediate(r));
+
+    expect(sendPushover).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendPushover).mock.calls[0][0];
+    expect(arg.message.includes('#')).toBe(false);
+    expect(arg.monospace).toBeUndefined();
+  });
+
+  it('detecting/error/aborted/learn_complete: monospace omitted (frequency restraint per CONTEXT §3)', async () => {
+    // detecting fires the start announcement; even with band fields the bar
+    // would spam during detection. The builder MUST omit the bar.
+    bus.emitChargeState(baseEvent('error', {
+      socMin: 40, socMax: 60, estimatedSoc: 50, targetSoc: 80,
+    }));
+    await new Promise((r) => setImmediate(r));
+
+    expect(sendPushover).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendPushover).mock.calls[0][0];
+    expect(arg.monospace).toBeUndefined();
+    expect(arg.message.includes('#')).toBe(false);
+  });
+
+  it('Pushover ASCII safety — matched message body uses ONLY ASCII bytes (Pitfall 3)', async () => {
+    bus.emitChargeState(baseEvent('matched', {
+      socMin: 40, socMax: 60, estimatedSoc: 50, targetSoc: 80,
+    }));
+    await new Promise((r) => setImmediate(r));
+
+    const arg = vi.mocked(sendPushover).mock.calls[0][0];
+    // Pushover lock-screen safety: the bar must contain NO non-ASCII bytes.
+    // (German prose in the lead-in line uses umlauts; restrict the check to
+    // only the lines that ARE the bar — index 1, 2, 3 of the split.)
+    const lines = arg.message.split('\n');
+    const barLines = lines.slice(1); // first line is German prose, rest is the 3-line bar
+    for (const line of barLines) {
+      for (let i = 0; i < line.length; i++) {
+        expect(line.charCodeAt(i)).toBeLessThan(128);
+      }
+    }
   });
 });

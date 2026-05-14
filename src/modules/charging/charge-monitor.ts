@@ -17,6 +17,7 @@ import {
 } from './calibration';
 import { estimateSoc } from './soc-estimator';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
+import { renderSocBandAscii } from './soc-band-ascii';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
 import type { EventBus, PowerReading } from '../events/event-bus';
 import { db } from '@/db/client';
@@ -508,20 +509,44 @@ export class ChargeMonitor {
     const direction = actual > expected ? 'höher' : 'niedriger';
     const deltaPct = Math.round(Math.abs(actual - expected) / expected * 100);
     const title = `Lade-Anomalie: ${profileName}`;
-    const message =
+    const baseMessage =
       `Live-Power ${actual.toFixed(0)} W liegt ${deltaPct} % ${direction} als die Referenzkurve erwartet (${expected.toFixed(0)} W). ` +
       `Mögliche Ursachen: Zell-Alterung, Charger-Defekt, falsche Profil-Erkennung. Plug bleibt aktiv — bitte prüfen.`;
+
+    // Phase 11-03 SOCB-05: attach the rendered ASCII band when the plug's
+    // session Maps carry one. Pushover ASCII-mode glyphs (Pitfall 3 — lock
+    // screen rendering can mangle Unicode box-drawing chars).
+    const socMin = this.sessionSocMin.get(plugId);
+    const socMax = this.sessionSocMax.get(plugId);
+    const machine = this.machines.get(plugId);
+    const hasBand = socMin !== undefined && socMax !== undefined && machine !== undefined;
+    let message = baseMessage;
+    let monospace: '1' | undefined;
+    if (hasBand) {
+      const bar = renderSocBandAscii({
+        socMin: socMin!,
+        socMax: socMax!,
+        socBest: machine!.socBest,
+        targetSoc: machine!.targetSoc,
+        mode: 'pushover',
+      });
+      message = `${baseMessage}\n${bar}`;
+      monospace = '1';
+    }
+
+    const body: Record<string, string> = {
+      token: tokenRow.value,
+      user: userKeyRow.value,
+      title,
+      message,
+      priority: '1',
+    };
+    if (monospace) body.monospace = monospace;
 
     fetch('https://api.pushover.net/1/messages.json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        token: tokenRow.value,
-        user: userKeyRow.value,
-        title,
-        message,
-        priority: '1',
-      }).toString(),
+      body: new URLSearchParams(body).toString(),
     }).catch(() => { /* non-fatal */ });
   }
 
@@ -1003,6 +1028,27 @@ export class ChargeMonitor {
     socAsciiBar: string | undefined;
   } {
     const machine = this.machines.get(plugId);
+    const socMin = this.sessionSocMin.get(plugId);
+    const socMax = this.sessionSocMax.get(plugId);
+    // Phase 11-03 W1 (closed): render the bar at SNAPSHOT time so the post-await
+    // 'complete' event carries a non-empty bar string for the SSE/dashboard
+    // payload. The snapshot must precede the relay-off await — otherwise
+    // cleanupSession() clears the Maps and the dashboard sees socAsciiBar=undefined
+    // even though the user's Pushover already received the rendered bar (same
+    // 2640873 bug class as the original estimatedSoc snapshot fix).
+    //
+    // Unicode mode here: this string feeds the SSE / dashboard / server log.
+    // The Pushover-mode bar is rendered separately inside
+    // NotificationService.buildCompleteMessage (lock-screen safety).
+    const socAsciiBar = socMin !== undefined && socMax !== undefined && machine !== undefined
+      ? renderSocBandAscii({
+          socMin,
+          socMax,
+          socBest: machine.socBest,
+          targetSoc: machine.targetSoc,
+          mode: 'unicode',
+        })
+      : undefined;
     return {
       match: this.matchData.get(plugId),
       estimatedSoc: machine?.estimatedSoc,
@@ -1012,13 +1058,10 @@ export class ChargeMonitor {
       etaSeconds: this.sessionEtaSeconds.get(plugId),
       sessionWh: this.sessionWh.get(plugId),
       energyRemainingWh: this.sessionEnergyRemainingWh.get(plugId),
-      socMin: this.sessionSocMin.get(plugId),
-      socMax: this.sessionSocMax.get(plugId),
+      socMin,
+      socMax,
       socBandConfidence: this.sessionBandConfidence.get(plugId),
-      // socAsciiBar is populated by Plan 11-03's NotificationService renderer
-      // at the boundary; keeping it undefined here means the field is on
-      // every event with a defined type but no value yet.
-      socAsciiBar: undefined,
+      socAsciiBar,
     };
   }
 
