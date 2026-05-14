@@ -191,6 +191,12 @@ export const chargeSessions = sqliteTable('charge_sessions', {
   // Wh stays correct across service restarts AND SOC corrections.
   startTotalEnergy: real('start_total_energy'),
   dtwScore: real('dtw_score'),
+  // Phase 11 SOC confidence band persistence. Nullable — legacy rows produced
+  // before plan 11-02 have NULL; resume code reads NULL as "use estimatedSoc
+  // for socMin and socMax, bandConfidence=1" (zero-width band).
+  socMin: integer('soc_min'),
+  socMax: integer('soc_max'),
+  bandConfidence: real('band_confidence'),
   createdAt: integer('created_at').notNull(),
 });
 
