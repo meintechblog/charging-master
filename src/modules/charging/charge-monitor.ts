@@ -254,7 +254,12 @@ export class ChargeMonitor {
       }
 
       db.update(chargeSessions)
-        .set({ estimatedSoc: opts.estimatedSoc })
+        .set({
+          estimatedSoc: opts.estimatedSoc,
+          socMin: opts.estimatedSoc,
+          socMax: opts.estimatedSoc,
+          bandConfidence: 1,
+        })
         .where(eq(chargeSessions.id, sessionId))
         .run();
     }
@@ -886,12 +891,16 @@ export class ChargeMonitor {
       this.sessionEtaSeconds.delete(plugId);
     }
 
-    // Update session in DB
+    // Update session in DB — also persist the band fields landed in the
+    // Maps above so resume-after-restart reconstructs the correct band.
     const sessionId = this.sessionIds.get(plugId);
     if (sessionId) {
       db.update(chargeSessions).set({
         estimatedSoc: soc,
         energyWh: sessionWh,
+        socMin: socMinNew,
+        socMax: socMaxNew,
+        bandConfidence: this.sessionBandConfidence.get(plugId) ?? null,
       }).where(eq(chargeSessions.id, sessionId)).run();
     }
 
@@ -1149,24 +1158,36 @@ export class ChargeMonitor {
               // Otherwise updateSocTracking's first call recomputes
               // soc = estimateSoc(0, totalWh, 0) = 0 and clobbers the saved
               // value, wiping out any prior "SOC korrigieren" correction.
-              // Plan 11-02 Task 3a: stub band fields from estimatedSoc so the
-              // tightened MatchResult type compiles. Task 3b refines this to
-              // read session.socMin / session.socMax / session.bandConfidence
-              // from the DB row (with NULL fallback to zero-width at
-              // estimatedSoc).
+              // Plan 11-02 Task 3b: read socMin / socMax / bandConfidence
+              // from the DB row. Legacy rows (created before migration 0009)
+              // have NULL columns — degrade to a zero-width band at the
+              // saved estimatedSoc.
               const fallbackSoc = session.estimatedSoc ?? 0;
+              const resumedSocMin = session.socMin ?? fallbackSoc;
+              const resumedSocMax = session.socMax ?? fallbackSoc;
+              const resumedBandConfidence = session.bandConfidence ?? 1;
               const match: MatchResult = {
                 profileId: profile.id,
                 profileName: profile.name,
                 confidence: session.detectionConfidence ?? 1,
                 curveOffsetSeconds: session.curveOffsetSeconds ?? 0,
                 estimatedStartSoc: fallbackSoc,
-                socMin: fallbackSoc,
-                socMax: fallbackSoc,
+                socMin: resumedSocMin,
+                socMax: resumedSocMax,
                 socBest: fallbackSoc,
-                bandConfidence: 1,
+                bandConfidence: resumedBandConfidence,
               };
               this.matchData.set(session.plugId, match);
+              // Seed the band Maps so updateSocTracking's first call after
+              // resume reads the correct anchors. Sync onto the state-machine
+              // instance so shouldStop reads correct values immediately.
+              this.sessionSocMin.set(session.plugId, resumedSocMin);
+              this.sessionSocMax.set(session.plugId, resumedSocMax);
+              this.sessionBandConfidence.set(session.plugId, resumedBandConfidence);
+              machine.socMin = resumedSocMin;
+              machine.socMax = resumedSocMax;
+              machine.socBest = fallbackSoc;
+              machine.socBandConfidence = resumedBandConfidence;
             }
           }
           machine.state = session.state as ChargeState;

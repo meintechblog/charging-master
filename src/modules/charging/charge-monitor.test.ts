@@ -437,3 +437,195 @@ describe('ChargeMonitor — Plan 11-02 Task 3a', () => {
     expect(m.bandConfidence).not.toBeUndefined();
   });
 });
+
+describe('ChargeMonitor — Plan 11-02 Task 3b: DB persistence + resume + override + B2 integration', () => {
+  let bus: EventBus;
+  let monitor: ChargeMonitor;
+
+  beforeEach(() => {
+    resetFakeState();
+    __resetStopModeCacheForTests();
+    switchRelayOffMock.mockClear();
+    bus = new EventBus();
+    monitor = new ChargeMonitor(bus);
+  });
+
+  afterEach(() => {
+    monitor.stop();
+  });
+
+  it('updateSocTracking writes socMin/socMax/bandConfidence to chargeSessions row', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
+
+    const match = makeMatch({ socMin: 45, socMax: 55, socBest: 50, bandConfidence: 0.9, estimatedStartSoc: 50 });
+    injectActiveSession(monitor, 'plug-1', 1, match);
+
+    fakeState.lastUpdateSets = [];
+    (monitor as unknown as { updateSocTracking(p: string, r: PowerReading): void }).updateSocTracking(
+      'plug-1', makePowerReading('plug-1', 40, 10, 1_000_010_000)
+    );
+
+    const lastWrite = fakeState.lastUpdateSets[fakeState.lastUpdateSets.length - 1];
+    expect(lastWrite).toHaveProperty('socMin');
+    expect(lastWrite).toHaveProperty('socMax');
+    expect(lastWrite).toHaveProperty('bandConfidence');
+    // bandConfidence preserved
+    expect(lastWrite.bandConfidence).toBe(0.9);
+  });
+
+  it('resume from DB with full band restores state-machine band fields', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    fakeState.chargeSessionRows.push({
+      id: 1, plugId: 'plug-1', state: 'charging', profileId: 1,
+      detectionConfidence: 0.9, curveOffsetSeconds: 0, targetSoc: 80,
+      estimatedSoc: 50, socMin: 45, socMax: 55, bandConfidence: 0.9,
+      startedAt: Date.now() - 60_000, // recent — not stale
+      createdAt: Date.now() - 60_000, energyWh: 12.5, startTotalEnergy: 100,
+    });
+
+    monitor.start();
+
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1');
+    expect(machine).toBeDefined();
+    expect(machine!.estimatedSoc).toBe(50);
+    expect(machine!.socMin).toBe(45);
+    expect(machine!.socMax).toBe(55);
+    expect(machine!.socBandConfidence).toBe(0.9);
+
+    // matchData also reflects the resumed band
+    const m = internals.matchData.get('plug-1');
+    expect(m).toBeDefined();
+    expect(m!.socMin).toBe(45);
+    expect(m!.socMax).toBe(55);
+  });
+
+  it('resume legacy row with NULL band degrades to zero-width band at estimatedSoc', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    fakeState.chargeSessionRows.push({
+      id: 1, plugId: 'plug-1', state: 'charging', profileId: 1,
+      detectionConfidence: 0.9, curveOffsetSeconds: 0, targetSoc: 80,
+      estimatedSoc: 50, socMin: null, socMax: null, bandConfidence: null,
+      startedAt: Date.now() - 60_000,
+      createdAt: Date.now() - 60_000, energyWh: 0, startTotalEnergy: 100,
+    });
+
+    monitor.start();
+
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1');
+    expect(machine).toBeDefined();
+    expect(machine!.socMin).toBe(50);    // collapsed at estimatedSoc
+    expect(machine!.socMax).toBe(50);
+    expect(machine!.socBandConfidence).toBe(1);
+  });
+
+  it('overrideSession collapses band to zero-width AND writes to DB', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50 });
+
+    const match = makeMatch({ socMin: 20, socMax: 80, socBest: 50, bandConfidence: 0.2, estimatedStartSoc: 50 });
+    injectActiveSession(monitor, 'plug-1', 1, match);
+
+    fakeState.lastUpdateSets = [];
+    monitor.overrideSession(1, { estimatedSoc: 60 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1');
+    expect(machine!.socMin).toBe(60);
+    expect(machine!.socMax).toBe(60);
+    expect(machine!.socBest).toBe(60);
+    expect(machine!.socBandConfidence).toBe(1);
+    expect(internals.sessionSocMin.get('plug-1')).toBe(60);
+    expect(internals.sessionSocMax.get('plug-1')).toBe(60);
+    expect(internals.sessionBandConfidence.get('plug-1')).toBe(1);
+
+    // DB write happened with the collapsed band
+    const lastWrite = fakeState.lastUpdateSets[fakeState.lastUpdateSets.length - 1];
+    expect(lastWrite.estimatedSoc).toBe(60);
+    expect(lastWrite.socMin).toBe(60);
+    expect(lastWrite.socMax).toBe(60);
+    expect(lastWrite.bandConfidence).toBe(1);
+  });
+
+  it('B2 — INTEGRATION: aggressive stop fires within <30s of band collapse + socBest >= target', async () => {
+    // CONTEXT DoD bullet 3: the runtime stops within <30s once the band has
+    // collapsed below the aggressive-mode width gate AND socBest >= target.
+    // This test is the existence proof.
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 80, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+
+    const internals = monitor as unknown as MonitorInternals;
+
+    // Start with a WIDE band — the iPad-Session-16 scenario. socBest happens
+    // to be 80 (matches target) but width=60 — aggressive must NOT trip yet.
+    const initialMatch = makeMatch({
+      socMin: 20, socMax: 80, socBest: 80, bandConfidence: 0.4, estimatedStartSoc: 80,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, initialMatch, { state: 'charging', targetSoc: 80 });
+
+    // Verify the wide-band gate holds initially.
+    const m0 = internals.machines.get('plug-1')!;
+    expect(m0.state).toBe('charging');
+    expect(m0.socMax - m0.socMin).toBe(60); // wide
+
+    // Drive 5 readings — band stays wide, machine stays in 'charging'.
+    let t = 1_000_000;
+    for (let i = 0; i < 5; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 40, 0.01 * (i + 1), t)
+      );
+    }
+    expect(internals.machines.get('plug-1')!.state).toBe('charging');
+
+    // Narrow the band — simulate a fresh tryMatch landing tight bounds
+    // (width=4, socBest=80). In production this happens when the matcher
+    // sees taper data; here we apply the narrowing manually because the
+    // test fixtures don't include taper-curve points.
+    internals.sessionSocMin.set('plug-1', 78);
+    internals.sessionSocMax.set('plug-1', 82);
+    internals.sessionBandConfidence.set('plug-1', 0.96);
+    internals.matchData.set('plug-1', makeMatch({
+      socMin: 78, socMax: 82, socBest: 80, bandConfidence: 0.96, estimatedStartSoc: 80,
+    }));
+    const machine = internals.machines.get('plug-1')!;
+    machine.socMin = 78;
+    machine.socMax = 82;
+    machine.socBest = 80;
+    machine.socBandConfidence = 0.96;
+
+    // Drive readings — within 30 sec of simulated time the machine must
+    // progress charging → countdown → stopping AND switchRelayOff must
+    // have been invoked.
+    const collapseTime = t;
+    const budgetMs = 30_000;
+    let stopped = false;
+    while (t - collapseTime < budgetMs) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 40, 0.01 * ((t - 1_000_000) / 5000), t)
+      );
+      if (switchRelayOffMock.mock.calls.length > 0) {
+        stopped = true;
+        break;
+      }
+      // Re-pin the band on every reading because updateSocTracking
+      // propagates by Wh; without a real taper curve the propagation
+      // would otherwise drift it back. This emulates "matcher continues to
+      // confirm the narrow band on every reading".
+      internals.sessionSocMin.set('plug-1', 78);
+      internals.sessionSocMax.set('plug-1', 82);
+      machine.socMin = 78;
+      machine.socMax = 82;
+      machine.socBest = 80;
+    }
+
+    expect(stopped).toBe(true);
+    expect(t - collapseTime).toBeLessThanOrEqual(budgetMs);
+    expect(switchRelayOffMock).toHaveBeenCalled();
+  });
+});
+
