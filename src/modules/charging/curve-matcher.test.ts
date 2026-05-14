@@ -8,6 +8,7 @@ import {
 } from './curve-matcher';
 import { subsequenceDtw } from './dtw';
 import ipadFixture from './fixtures/ipad-reference-curve.json';
+import session14 from './fixtures/ipad-session-14-readings.json';
 
 type CurvePoint = ProfileWithCurve['curvePoints'][number];
 
@@ -173,38 +174,88 @@ describe('findBestCandidate — synthetic-iPad-shaped fixture property tests', (
   });
 });
 
-describe('DEFAULT_BAND_THRESHOLD_PCT empirical calibration sweep (B1 / RESEARCH Pitfall 4)', () => {
-  // This test IS the source of truth for the exported default. The constant
-  // is pinned to the smallest threshold in the sweep that collapses the
-  // synthetic-iPad-shaped band to ≤ 5 % in the taper region. If no threshold
-  // satisfies, the test FAILS and the plan is blocked (per B1).
-  it('finds the smallest threshold collapsing the band ≤ 5 % in taper and matches DEFAULT_BAND_THRESHOLD_PCT', () => {
+describe('DEFAULT_BAND_THRESHOLD_PCT empirical calibration sweep (B1 / RESEARCH Pitfall 4 / 260515 real-data calibration)', () => {
+  // Dual-criterion calibration. The exported constant must satisfy BOTH:
+  //
+  //   (A) Taper precision — synthetic-iPad taper query against the synthetic
+  //       reference curve collapses the band to ≤ 5. If this fails, the
+  //       threshold is too LOOSE: the taper region no longer uniquely
+  //       localizes and consumers see falsely wide bands in the precision
+  //       phase.
+  //
+  //   (B) Flat-region honest uncertainty — first 120 readings (~10 min at 5 s
+  //       polling) of real production Session 14 against the same synthetic
+  //       reference curve yield bandwidth ≥ 10. If this fails, the threshold
+  //       is too TIGHT: flat-region matching collapses to a point — the
+  //       false-confidence anti-pattern that motivated v1.3.1.
+  //
+  // Plan 11-01 originally pinned 0.05 by picking the smallest threshold
+  // satisfying (A) alone. A real-data sweep on 192.168.3.185 (profile_id=4,
+  // Session 14) showed 0.05 collapsed the band to Δ=0 on real flat power.
+  // The constant moved to 0.20; both criteria hold there. Lowering it back
+  // toward 0.10/0.05 will eventually fail Criterion B; raising it past ~0.30
+  // risks failing Criterion A.
+  //
+  // The test consumes `DEFAULT_BAND_THRESHOLD_PCT` directly — it must NOT
+  // hardcode the value. A future calibration can move the constant without
+  // touching this test as long as both criteria still pass at the new value.
+  it('enforces both taper-precision (Criterion A) and flat-region honest-uncertainty (Criterion B) at DEFAULT_BAND_THRESHOLD_PCT', () => {
     const { profile, totalDurationSeconds } = ipadFixtureProfile();
-    // Build a taper-region query that is the same shape used in the property
-    // test above so the calibration matches what consumers will actually see.
-    const taperQuery = Array.from({ length: 60 }, (_, i) => 10 - i * (5 / 60));
     const referencePowers = profile.curvePoints.map((p) => p.apower);
 
-    const dtwResult = subsequenceDtw(taperQuery, referencePowers);
-
+    // --- Diagnostic sweep over both queries (kept for failure debugging) ---
     const thresholds = [0.05, 0.10, 0.15, 0.20, 0.30];
+    const taperQuery = Array.from({ length: 60 }, (_, i) => 10 - i * (5 / 60));
+    const flatQuery = session14.readings.slice(0, 120).map((r) => r.apower);
+
+    const taperDtw = subsequenceDtw(taperQuery, referencePowers);
+    const flatDtw = subsequenceDtw(flatQuery, referencePowers);
+
     const sweep = thresholds.map((threshold) => {
-      const band = deriveBand(
-        dtwResult.distances,
-        dtwResult.windowStep,
+      const taperBand = deriveBand(
+        taperDtw.distances,
+        taperDtw.windowStep,
         profile.curvePoints,
         totalDurationSeconds,
         threshold,
       );
-      return { threshold, bandWidth: band.socMax - band.socMin };
+      const flatBand = deriveBand(
+        flatDtw.distances,
+        flatDtw.windowStep,
+        profile.curvePoints,
+        totalDurationSeconds,
+        threshold,
+      );
+      return {
+        threshold,
+        taperBandWidth: taperBand.socMax - taperBand.socMin,
+        flatBandWidth: flatBand.socMax - flatBand.socMin,
+      };
     });
 
-    // Surface the sweep so a failure prints the table that informs B1
     // eslint-disable-next-line no-console
     console.log('[calibration-sweep]', sweep);
 
-    const winning = sweep.find((row) => row.bandWidth <= 5);
-    expect(winning).toBeDefined();
-    expect(DEFAULT_BAND_THRESHOLD_PCT).toBe(winning!.threshold);
+    // --- Criterion A: taper precision at the current constant ---
+    const taperBandAtConstant = deriveBand(
+      taperDtw.distances,
+      taperDtw.windowStep,
+      profile.curvePoints,
+      totalDurationSeconds,
+      DEFAULT_BAND_THRESHOLD_PCT,
+    );
+    const taperWidth = taperBandAtConstant.socMax - taperBandAtConstant.socMin;
+    expect(taperWidth).toBeLessThanOrEqual(5);
+
+    // --- Criterion B: real flat-region honest uncertainty at the current constant ---
+    const flatBandAtConstant = deriveBand(
+      flatDtw.distances,
+      flatDtw.windowStep,
+      profile.curvePoints,
+      totalDurationSeconds,
+      DEFAULT_BAND_THRESHOLD_PCT,
+    );
+    const flatWidth = flatBandAtConstant.socMax - flatBandAtConstant.socMin;
+    expect(flatWidth).toBeGreaterThanOrEqual(10);
   });
 });
