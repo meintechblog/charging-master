@@ -5,6 +5,7 @@ import { useChargeStream } from '@/hooks/use-charge-stream';
 import { SocButtons } from '@/components/charging/soc-buttons';
 import { CountdownDisplay } from '@/components/charging/countdown-display';
 import { UnknownDeviceDialog } from '@/components/charging/unknown-device-dialog';
+import { SocBandIndicator } from '@/components/charging/soc-band-indicator';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 
 type Profile = { id: number; name: string };
@@ -31,6 +32,12 @@ type SessionState = {
   detectionTargetSamples?: number;
   bestCandidateName?: string;
   bestCandidateConfidence?: number;
+  // Phase 11 band fields — retained so SocBandIndicator below has a
+  // server-rendered initialAsciiBar fallback on first paint.
+  socMin?: number;
+  socMax?: number;
+  socBandConfidence?: number;
+  socAsciiBar?: string;
 };
 
 function formatWh(wh: number | undefined): string {
@@ -118,6 +125,10 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
       detectionTargetSamples: event.detectionTargetSamples,
       bestCandidateName: event.bestCandidateName,
       bestCandidateConfidence: event.bestCandidateConfidence,
+      socMin: event.socMin,
+      socMax: event.socMax,
+      socBandConfidence: event.socBandConfidence,
+      socAsciiBar: event.socAsciiBar,
     });
 
     // Reset dismissed flag when transitioning from idle to a new detection
@@ -404,6 +415,12 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
               className={`h-full ${fill} rounded-full transition-all duration-1000 ease-linear`}
               style={{ width: `${progressPct}%` }}
             />
+          </div>
+          {/* Phase 11 SOC confidence band — renders live CSS-animated band when
+              ChargeStateEvent carries socMin/socMax; degrades to <pre> ASCII
+              fallback or nothing on idle. Does not replace the percent above. */}
+          <div className="mt-2">
+            <SocBandIndicator plugId={plugId} initialAsciiBar={session.socAsciiBar} />
           </div>
         </div>
       )}
