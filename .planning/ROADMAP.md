@@ -4,7 +4,8 @@
 
 - v1.0 MVP - Phases 1-4 (shipped 2026-04-09)
 - v1.1 MQTT raus, HTTP rein - Phases 5-6 (complete)
-- v1.2 Self-Update - Phases 7-10 (planning)
+- v1.2 Self-Update - Phases 7-10 (complete)
+- v1.3 SOC Intelligence - Phase 11 (active)
 
 ## Phases
 
@@ -207,10 +208,30 @@ Plans:
 - [x] 10-01-PLAN.md — Type extensions + trigger/log/ack-rollback backend routes with dev-mode fallbacks
 - [x] 10-02-PLAN.md — InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay + UpdateBanner state machine + rollback banner
 
+### Phase 11: SOC Confidence Band + ASCII Visualization
+**Goal**: Replace the single-point `estimatedStartSoc` with a confidence band `{socMin, socMax, socBest}` that visually narrows as the live charge curve disambiguates against the reference — surfaced as an ASCII bar in Pushover notifications, server logs, and the dashboard — so user-visible SOC mis-estimations on flat-power phases (root cause of the 2026-05-13 iPad mis-stop at 47 % → "80 %") become impossible.
+**Depends on**: Phase 3 (Charge Intelligence — curve-matcher, charge-monitor, state-machine, soc-estimator), Phase 4 (Notifications — Pushover client)
+**Requirements**: SOCB-01, SOCB-02, SOCB-03, SOCB-04, SOCB-05, SOCB-06
+**Success Criteria** (what must be TRUE):
+  1. `curve-matcher.findBestCandidate` returns `{ socMin, socMax, socBest, bandConfidence }` in addition to the existing `estimatedStartSoc` (= socBest), derived from all DTW offsets whose score is within the configured threshold (initial 15 %) of the best score; verified by a property test on synthetic flat-power-then-taper reference curves.
+  2. `charge-monitor.updateSocTracking` forwards `socMin` and `socMax` alongside `socBest` so the band is available on every emitted `ChargeStateEvent`; the band narrows only when a new matcher run reduces the plausible-offset set, not on Wh accumulation alone.
+  3. Stop logic in `charge-state-machine.handleCharging`/`handleCountdown` supports both modes via a `config.stopMode` setting: **conservative** (`socMin >= targetSoc`) and **aggressive** (`socBest >= targetSoc` AND `socMax - socMin <= 5`); default is aggressive; toggle exposed in `/settings`.
+  4. Pure function `renderSocBandAscii({ socMin, socMax, socBest, targetSoc, width = 40 })` produces a deterministic 0-100 % monospace bar using `▓` (best ± 5 %), `▒` (band), `░` (outside band), `↑` (best), `▲` (target); ≥ 6 snapshot tests cover representative inputs including full-uncertainty band (0-100), narrow band, exact-target, band crossing target.
+  5. `NotificationService.buildCompleteMessage`, `buildMatchedMessage`, and the `fireAnomalyNotification` path attach the ASCII bar and send Pushover with `monospace=1`; verified in unit tests by asserting the message body contains the rendered bar.
+  6. `ChargeStateEvent` (`types.ts`) carries `socMin`, `socMax`, `socBandConfidence`, `socAsciiBar`; SSE payloads on `/api/sse/charge` expose them; the dashboard renders a live band component with CSS-animated narrowing that falls back to the inline ASCII bar without JS.
+  7. Existing override path (`PUT /api/charging/sessions/[id]` with `estimatedSoc`) continues to work, collapses the band to a zero-width point, and logs a `soc_corrections` row exactly as before — no regression in the calibration learning loop.
+**Plans:** 4 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — DTW distances vector + deriveBand + MatchResult band fields + iPad fixture (wave 1)
+- [ ] 11-02-PLAN.md — Drizzle migration + stop-mode module + state-machine band-aware stop + charge-monitor band propagation, captureEventContext, resume, override (wave 2)
+- [ ] 11-03-PLAN.md — Pure renderSocBandAscii + Pushover monospace flag + NotificationService matched/complete bar + anomaly bar (wave 2)
+- [ ] 11-04-PLAN.md — SocBandIndicator component (CSS-animated, ASCII fallback) + ChargingSettings stop-mode + bandThreshold + SSE active-replay band hydration (wave 3)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -224,6 +245,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
+| 11. SOC Confidence Band + ASCII Visualization | v1.3 | 0/4 | Planning | - |
 
 ## Backlog
 

@@ -183,6 +183,22 @@ All 34 requirements shipped. See traceability below.
 | Post-Restart Watchdog für "boot-loop crashes" | Rollback fängt Pipeline-Fehler; wenn neuer Commit beim Start crasht nach Health-Fail, per SSH eingreifen |
 | Auto-Update-Kanal (stable/beta) | Single Branch (main) reicht, kein Release-Kanal-Konzept |
 
+## v1.3 Requirements (SOC Intelligence)
+
+**Context (2026-05-14):** Aus Session 16 (iPad Pro 12.9", 2026-05-13) wurde sichtbar, dass der DTW-Curve-Matcher bei flachen Power-Phasen (z.B. iPad: ~30 min konstant 40 W am Anfang) einen arbitraeren Curve-Offset waehlt und damit `estimatedStartSoc` voellig falsch raten kann — die Session stoppte bei "80 %" obwohl der iPad real bei ~47 % war. Der Bandansatz ersetzt die single-point Schaetzung durch einen Konfidenzkorridor, der sich zusammenzieht sobald die Kurve in die Taper-Phase laeuft und der Match eindeutig wird.
+
+### SOC Confidence Band
+
+- [ ] **SOCB-01**: Curve-Matcher liefert ein SOC-Konfidenzband `{socMin, socMax, socBest, bandConfidence}` basierend auf allen DTW-Offset-Scores, die innerhalb von X % (initial 15 %, finaler Wert empirisch zu waehlen) vom Best-Score liegen. Single-Point `estimatedStartSoc` bleibt fuer Backwards-Compatibility erhalten und entspricht `socBest`.
+- [ ] **SOCB-02**: SOC-Tracking (`updateSocTracking` in `charge-monitor.ts`) rechnet `socMin` und `socMax` vorwaerts (nicht nur `socBest`), sodass das Band ueber die gesamte Session erhalten bleibt und sich nur durch neue Matcher-Runs (nicht durch Wh-Akkumulation) zusammenzieht.
+- [ ] **SOCB-03**: Stop-Logik konfigurierbar via Settings-Toggle: **konservativ** (`socMin >= targetSoc` → garantiert kein Undershoot) oder **aggressiv** (`socBest >= targetSoc` und `socMax - socMin <= 5` → schnelleres Stoppen, akzeptiert ±2-3 % Toleranz). Default: aggressiv.
+
+### ASCII Visualization
+
+- [ ] **SOCB-04**: Pure-function ASCII-Renderer rendert `{socMin, socMax, socBest, targetSoc}` als 40-Zeichen breite 0-100 % Skala mit Tick-Marks, `▓` (best ±5 %), `▒` (Band), `░` (unwahrscheinlich), `↑` Best-Marker, `▲` Target-Marker. Snapshot-getestet mit ≥ 6 representativen Inputs.
+- [ ] **SOCB-05**: NotificationService haengt ASCII-Bar an Pushover-Messages an (`matched`, `complete`, `anomalie` States), sendet mit `monospace=1` Flag. Frequenz minimal: nicht bei jeder Charging-Wh-Aenderung, sondern nur bei State-Transitions + initial-matched.
+- [ ] **SOCB-06**: Dashboard UI zeigt das SOC-Band live mit CSS-Animation, die das Zusammenziehen visualisiert. Fallback (no-JS) rendert die ASCII-Bar inline. ChargeStateEvent traegt `socMin`, `socMax`, `socBandConfidence`, `socAsciiBar` als neue Felder.
+
 ## Traceability
 
 ### v1.0 (Complete)
@@ -227,6 +243,15 @@ All 34 requirements shipped. See traceability below.
 - v1.1 requirements: 14 total, 14 complete
 - v1.2 requirements: 35 total, 35 mapped (Phase 7: 6, Phase 8: 6, Phase 9: 15, Phase 10: 8)
 
+### v1.3 (Active)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| SOCB-01..06 | Phase 11 | Planned |
+
+**Coverage:**
+- v1.3 requirements: 6 total, 6 mapped to Phase 11
+
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-04-10 — Plan 10-02 complete (LIVE-03..08, ROLL-06 done; milestone v1.2 self-update code-complete)*
+*Last updated: 2026-05-14 — v1.3 milestone seeded: SOCB-01..06 (Confidence-Band + ASCII Visualization) added in response to iPad Session 16 mis-estimation*
