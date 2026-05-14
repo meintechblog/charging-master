@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Self-Update
-status: executing
-stopped_at: v1.2.1 charge-banner/SOC/Wh polish deployed to LXC charging-master.local; live iPad session 5 running
-last_updated: "2026-05-14T21:51:36.867Z"
-last_activity: 2026-05-14
+milestone: v1.3
+milestone_name: SOC Intelligence
+status: completed
+stopped_at: Phase 11 SOC Confidence Band code-complete; 171/171 tests green, tsc clean, VERIFICATION.md PASS-with-deferrals (manual Pushover render = post-deploy)
+last_updated: "2026-05-15T00:09:00.000Z"
+last_activity: 2026-05-15 -- Phase 11 complete; milestone v1.3 code-complete; ready for LXC deployment + Pushover lock-screen check
 progress:
-  total_phases: 8
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 12
-  percent: 92
+  total_phases: 11
+  completed_phases: 11
+  total_plans: 22
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt -- kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
-**Current focus:** Phase 11 — soc-confidence-band-ascii-visualization
+**Current focus:** Milestone v1.3 SOC Intelligence — code-complete; LXC deployment + on-device Pushover render pending
 
 ## Current Position
 
-Phase: 11 (soc-confidence-band-ascii-visualization) — EXECUTING
+Phase: 11 — COMPLETE (milestone v1.3 code-complete)
 Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-05-14
+Status: Phase 11 complete; VERIFICATION.md PASS-with-deferrals (6/6 SOCB reqs covered, manual on-device Pushover bar render deferred to post-deploy)
+Last activity: 2026-05-15 -- Phase 11 marked complete; SOC Confidence Band shipped end-to-end (DTW math → DB persistence → ASCII renderer → Pushover → UI)
 
-Progress: [##########] 100% (v1.0 + v1.1 + v1.2 code-complete; milestone v1.2 ready for LXC deployment)
+Progress: [##########] 100% (v1.0 + v1.1 + v1.2 + v1.3 code-complete; v1.3 ready for LXC deployment + on-device Pushover lock-screen check)
+
+**v1.3 Phase Map:**
+
+- ✅ Phase 11: SOC Confidence Band + ASCII Visualization (SOCB-01..06) — 6 reqs — complete (171/171 tests, tsc clean)
 
 **v1.2 Phase Map:**
 
@@ -102,12 +106,15 @@ Recent decisions affecting current work:
 - [Phase 09-02]: `http://127.0.0.1:80` hard-coded in script per CONTEXT §Security (no env-var parametrization — less surface for mischief).
 - [Phase 09-03]: dry-run-helpers.sh uses a temp file (not `source <(...)`) because bash 3.2 on macOS has a long-standing process-substitution bug that truncates the sourced stream before function definitions are parsed. sed filter also rewrites `set -euo pipefail` → `set -uo pipefail` (strip -e) and deletes the `mkdir -p "${STATE_DIR}"` line before the flock block. The plan's `timeout 5` wrapper was replaced with a portable background-subshell + kill pattern because `timeout` is not available on macOS by default.
 - [Phase 09-03]: Checkpoint (Task 2) was auto-approved via orchestrator execution — the orchestrator ran the harness itself and asserted all four tests (preflight, snapshot, drain, health_probe) hit PASS markers. All deviations were Rule-3 blocking fixes discovered during that run.
+- [Phase 11]: SOC Confidence Band replaces single-value `estimatedStartSoc` with `{socMin, socMax, socBest, bandConfidence}`. subsequenceDtw now exposes the full per-offset distances vector; deriveBand picks all offsets within `DEFAULT_BAND_THRESHOLD_PCT` (= 0.05, empirically pinned via calibration sweep on synthetic-iPad fixture, not guessed) of the best score. Band is monotonic forward-propagated through ChargeMonitor (Wh never widens it), snapshot in captureEventContext before the relay-off await (closes 2640873-class for the bar), persisted to charge_sessions via drizzle 0009 (soc_min/soc_max/band_confidence nullable cols → resume restores them, NULL legacy rows degrade to zero-width). Stop modes: conservative `socMin >= target` / aggressive `(socMax - socMin) <= 5 AND socBest >= target` — aggressive ordering trap (wide band whose socBest hits target must NOT trigger) locked by unit test. B2 integration test PROVES <30s aggressive stop after band collapse (iPad-Session-16 wide-band → narrow scenario). Override path collapses band to zero-width in memory + DB. ASCII renderer is pure, 3-line locked, dual-mode (pushover ASCII-only `# = . ^ T` / unicode `▓ ▒ ░ ↑ ▲`) — bar attached to `matched` + `complete` Pushover with `monospace=1` and to anomaly notifications. SocBandIndicator React component drives CSS variables `--soc-min` / `--soc-max` for compositor-only animation with `<pre>{socAsciiBar}</pre>` + `<noscript>` fallback. ChargingSettings page exposes `charging.stopMode` (default aggressive) + advanced `charging.bandThreshold` via existing useAutoSave; values take effect on NEXT session start (state machine caches stopMode at setMatch). MatchResult band fields tightened OPTIONAL→REQUIRED in 11-02 once every producer was wired. RTL/jsdom test infra (@testing-library/react + jest-dom + @vitejs/plugin-react + jsdom + vitest.setup.ts) added during 11-04 — was missing before; flagged as Rule-3 deviation, documented in 11-04 SUMMARY. Plan 11-02 SUMMARY.md was lost in the worktree teardown (#2070 — narration between Write and commit); reconstructed by the orchestrator from the executor's structured return report. 171/171 vitest pass, tsc clean. VERIFICATION.md commits as `f381d50` — recommendation: SHIP.
 - [Phase 10]: [Phase 10-01]: Three localhost-guarded update routes landed. POST /api/update/trigger pre-writes state to 'installing', uses detached spawn + .unref() + --no-block, 200ms sync race catches ENOENT + exit 4/5 for dev-mode 503 fallback with state rollback. GET /api/update/log SSE with DOUBLE cleanup hook (request.signal.abort AND ReadableStream cancel) calling idempotent cleanup (SIGTERM + 1s unref'd SIGKILL). Line-buffered stdout, 10s heartbeat as SSE comment, ENOENT + exit 4/5 fall back to synthetic dev frames. POST /api/update/ack-rollback clears rollbackHappened/rollbackReason/rollbackStage via spread-merge write. Zero orphan journalctl verified on macOS.
 - [Phase 10-02]: Four new client components (InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay) + UpdateBanner extended with FlowState discriminated union state machine (idle → confirm → triggered → streaming → reconnecting → error). Rollback red banner renders top-priority when info.rollbackHappened === true with Verstanden → POST /api/update/ack-rollback ack. EventSource effect on /api/update/log keyed on [flow.kind, info.currentSha] (not logLines) so message handler doesn't thrash subscription; onmessage appends to capped 2000-line buffer and parses [stage=X] last-match-wins into currentStage. onerror while streaming → transitions to reconnecting → mounts ReconnectOverlay. Overlay polls /api/version every 2s via setTimeout chain (no overlap on slow restarts), 90s timeout, success gated on sha !== initialSha AND dbHealthy === true. InstallModal focus trap bounces Tab between exactly two buttons (cancel/confirm), ESC closes unless submitting, backdrop cancels unless submitting. ReconnectOverlay backdrop is a no-op (non-dismissable). 503 dev_mode from trigger maps to inline "Dev-Modus: ..." warning in modal. Auto-verified via curl harness: tsc clean, HTTP 200, Installieren <button> present, Update verfügbar renders, rollback banner seed → render → ack endpoint clears state.json → banner stays gone on reload. Milestone v1.2 self-update is code-complete; post-deploy smoke test on charging-master.local LXC required before declaring done-done.
 
 ### Pending Todos
 
 - Post-deploy smoke test on charging-master.local LXC (verify real 202 trigger, full streaming flow, SHA auto-reload)
+- **v1.3 deploy + on-device verify**: After LXC pull, run a real iPad charge with the band UI on; confirm the Pushover `matched` + `complete` lock-screen rendering shows a readable monospace bar (CONTEXT DoD bullet 4 — deferred per design).
+- **v1.3 calibration**: Optionally export a real iPad reference-curve fixture via `tsx scripts/fixtures/export-reference-curve.ts --profile-id <N>` and re-run the calibration sweep against the real curve to confirm `DEFAULT_BAND_THRESHOLD_PCT = 0.05` still hits ≤5% in taper (synthetic-iPad fixture pinned it today).
 
 ### Blockers/Concerns
 
@@ -130,7 +137,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-19T18:40:00.000Z
-Stopped at: v1.2.1 charge-banner/SOC/Wh polish deployed to LXC charging-master.local; live iPad session 5 running
+Last session: 2026-05-15T00:09:00.000Z
+Stopped at: Phase 11 SOC Confidence Band code-complete; milestone v1.3 ready for LXC deployment + on-device Pushover lock-screen verify.
 Resume file: None
-Next command: User-driven — next bug report or feature. Self-update pipeline is deployed in repo but NOT installed on LXC (flat `/opt/charging-master` served by `tsx server.ts`, no .git). Installing self-update requires running `install.sh` on the LXC.
+Next command: User-driven — typical next steps are (a) deploy v1.3 to charging-master.local LXC via self-update (or manual git pull + pnpm install + pnpm build + restart), then (b) run a real iPad charge to validate the Pushover bar rendering on the user's phone, then (c) optionally export a real iPad reference-curve fixture and re-confirm the `DEFAULT_BAND_THRESHOLD_PCT = 0.05` calibration against real-curve data. Open `/gsd:complete-milestone` to archive v1.3 once the on-device check passes.
