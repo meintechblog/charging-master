@@ -69,6 +69,13 @@ export class ChargeMonitor {
   private sessionStartedAt = new Map<string, number>();
   private sessionEtaSeconds = new Map<string, number>();
   private sessionEnergyRemainingWh = new Map<string, number>();
+  // Phase 11 SOC confidence band, forward-propagated per reading.
+  // Narrows ONLY on new tryMatch results (monotonic) and on override (collapse
+  // to zero-width); Wh accumulation translates the band forward without
+  // changing its width.
+  private sessionSocMin = new Map<string, number>();
+  private sessionSocMax = new Map<string, number>();
+  private sessionBandConfidence = new Map<string, number>();
   // SOC-math baseline: shifts forward on estimatedSoc overrides so updateSocTracking
   // reads currentWh = 0 immediately after a correction. Distinct from sessionStartEnergy
   // which stays anchored at session start and drives the user-visible "Wh geladen".
@@ -179,6 +186,13 @@ export class ChargeMonitor {
             confidence: 1.0,
             curveOffsetSeconds: 0,
             estimatedStartSoc: machine.estimatedSoc,
+            // Synthetic MatchResult from a user profile-override has no
+            // matcher-derived band — collapse to a zero-width band at the
+            // current estimatedSoc. The next tryMatch run can re-derive.
+            socMin: machine.estimatedSoc,
+            socMax: machine.estimatedSoc,
+            socBest: machine.estimatedSoc,
+            bandConfidence: 1,
           });
         }
       }
@@ -211,10 +225,24 @@ export class ChargeMonitor {
       // sessionStartEnergy / sessionWh stay anchored at session creation and
       // keep the "Wh geladen" display stable across corrections.
       machine.estimatedSoc = opts.estimatedSoc;
+      // Collapse the band to zero-width at the user-supplied value. The
+      // matcher's plausible-offset set is no longer the source of truth — the
+      // user just told us the actual SOC. Next tryMatch run may re-widen.
+      machine.socMin = opts.estimatedSoc;
+      machine.socMax = opts.estimatedSoc;
+      machine.socBest = opts.estimatedSoc;
+      machine.socBandConfidence = 1;
+      this.sessionSocMin.set(targetPlugId, opts.estimatedSoc);
+      this.sessionSocMax.set(targetPlugId, opts.estimatedSoc);
+      this.sessionBandConfidence.set(targetPlugId, 1);
 
       const existingMatch = this.matchData.get(targetPlugId);
       if (existingMatch) {
         existingMatch.estimatedStartSoc = opts.estimatedSoc;
+        existingMatch.socMin = opts.estimatedSoc;
+        existingMatch.socMax = opts.estimatedSoc;
+        existingMatch.socBest = opts.estimatedSoc;
+        existingMatch.bandConfidence = 1;
       }
 
       const oldBaseline = this.socBaselineEnergy.get(targetPlugId);
@@ -654,6 +682,32 @@ export class ChargeMonitor {
       console.log(`[Calibration] applied start-SOC bias ${biasApplied >= 0 ? '+' : ''}${biasApplied} for profile ${candidate.profileId} → estimatedStartSoc=${biasedStartSoc}`);
     }
 
+    // Commit the band to the per-plug Maps. Monotonic narrowing (Pitfall 1):
+    // if a prior band exists for this plug, never widen — take max of socMin
+    // and min of socMax. Override is the only path that widens (sets band to
+    // zero-width at the user-supplied value).
+    const candidateSocMin = candidate.socMin ?? candidate.estimatedStartSoc;
+    const candidateSocMax = candidate.socMax ?? candidate.estimatedStartSoc;
+    const candidateSocBest = candidate.socBest ?? candidate.estimatedStartSoc;
+    const candidateBandConfidence = candidate.bandConfidence ?? 1;
+    const priorSocMin = this.sessionSocMin.get(plugId);
+    const priorSocMax = this.sessionSocMax.get(plugId);
+    const newSocMin = priorSocMin !== undefined
+      ? Math.max(priorSocMin, candidateSocMin)
+      : candidateSocMin;
+    const newSocMax = priorSocMax !== undefined
+      ? Math.min(priorSocMax, candidateSocMax)
+      : candidateSocMax;
+    this.sessionSocMin.set(plugId, newSocMin);
+    this.sessionSocMax.set(plugId, newSocMax);
+    this.sessionBandConfidence.set(plugId, candidateBandConfidence);
+    // Sync the band onto the state-machine instance immediately so the next
+    // handleCharging's shouldStop sees fresh values.
+    machine.socMin = newSocMin;
+    machine.socMax = newSocMax;
+    machine.socBest = candidateSocBest;
+    machine.socBandConfidence = candidateBandConfidence;
+
     machine.setMatch(candidate, sessionId, Date.now());
 
     // Persist match to DB directly — handleTransition('detecting','matched')
@@ -797,6 +851,25 @@ export class ChargeMonitor {
     const soc = estimateSoc(socWh, curve.totalEnergyWh, match.estimatedStartSoc);
     machine.estimatedSoc = soc;
 
+    // Forward-propagate the band edges in lock-step with socBest (Pattern 2,
+    // RESEARCH.md). Width stays constant during Wh accumulation; the band
+    // only narrows on new tryMatch runs (which already wrote the Maps in
+    // tryMatch above) or on override (collapse to zero-width).
+    const bandSocBestAnchor = match.socBest ?? match.estimatedStartSoc;
+    const bandSocMinAnchor = match.socMin ?? bandSocBestAnchor;
+    const bandSocMaxAnchor = match.socMax ?? bandSocBestAnchor;
+    const socBestNew = estimateSoc(socWh, curve.totalEnergyWh, bandSocBestAnchor);
+    const socMinNew = estimateSoc(socWh, curve.totalEnergyWh, bandSocMinAnchor);
+    const socMaxNew = estimateSoc(socWh, curve.totalEnergyWh, bandSocMaxAnchor);
+    this.sessionSocMin.set(plugId, socMinNew);
+    this.sessionSocMax.set(plugId, socMaxNew);
+    if (!this.sessionBandConfidence.has(plugId)) {
+      this.sessionBandConfidence.set(plugId, match.bandConfidence ?? 1);
+    }
+    machine.socBest = socBestNew;
+    machine.socMin = socMinNew;
+    machine.socMax = socMaxNew;
+
     // Remaining energy to reach targetSoc. Always computed (even at apower=0)
     // so the banner can still show "X Wh fehlen" when a charger pauses.
     const targetSoc = machine.targetSoc;
@@ -911,6 +984,14 @@ export class ChargeMonitor {
     etaSeconds: number | undefined;
     sessionWh: number | undefined;
     energyRemainingWh: number | undefined;
+    // Phase 11 band — captured here so the post-await 'complete' event
+    // (handleStopping → switchRelayOff await → cleanupSession clears the
+    // Maps) still emits a populated band. Same bug class as 2640873; that
+    // commit fixed estimatedSoc, this snapshot fixes the band fields too.
+    socMin: number | undefined;
+    socMax: number | undefined;
+    socBandConfidence: number | undefined;
+    socAsciiBar: string | undefined;
   } {
     const machine = this.machines.get(plugId);
     return {
@@ -922,6 +1003,13 @@ export class ChargeMonitor {
       etaSeconds: this.sessionEtaSeconds.get(plugId),
       sessionWh: this.sessionWh.get(plugId),
       energyRemainingWh: this.sessionEnergyRemainingWh.get(plugId),
+      socMin: this.sessionSocMin.get(plugId),
+      socMax: this.sessionSocMax.get(plugId),
+      socBandConfidence: this.sessionBandConfidence.get(plugId),
+      // socAsciiBar is populated by Plan 11-03's NotificationService renderer
+      // at the boundary; keeping it undefined here means the field is on
+      // every event with a defined type but no value yet.
+      socAsciiBar: undefined,
     };
   }
 
@@ -932,7 +1020,20 @@ export class ChargeMonitor {
     ctx?: ReturnType<typeof this.captureEventContext>
   ): void {
     const effective = ctx ?? this.captureEventContext(plugId);
-    const { match, estimatedSoc, targetSoc, sessionId, startedAt, etaSeconds, sessionWh, energyRemainingWh } = effective;
+    const {
+      match,
+      estimatedSoc,
+      targetSoc,
+      sessionId,
+      startedAt,
+      etaSeconds,
+      sessionWh,
+      energyRemainingWh,
+      socMin,
+      socMax,
+      socBandConfidence,
+      socAsciiBar,
+    } = effective;
 
     // During detection the matchData entry is a speculative candidate, not
     // a committed match — it must not surface as profileName (the UI would
@@ -962,6 +1063,10 @@ export class ChargeMonitor {
       bestCandidateProfileId: isDetecting ? match?.profileId : undefined,
       bestCandidateName: isDetecting ? match?.profileName : undefined,
       bestCandidateConfidence: isDetecting ? match?.confidence : undefined,
+      socMin,
+      socMax,
+      socBandConfidence,
+      socAsciiBar,
     };
 
     this.eventBus.emitChargeState(event);
@@ -990,6 +1095,9 @@ export class ChargeMonitor {
     this.socBaselineEnergy.delete(plugId);
     this.sessionPriorEnergyWh.delete(plugId);
     this.matchData.delete(plugId);
+    this.sessionSocMin.delete(plugId);
+    this.sessionSocMax.delete(plugId);
+    this.sessionBandConfidence.delete(plugId);
     this.anomalyCurve.delete(plugId);
     this.anomalyDeviationCount.delete(plugId);
     this.anomalyNotifiedAt.delete(plugId);
@@ -1041,12 +1149,22 @@ export class ChargeMonitor {
               // Otherwise updateSocTracking's first call recomputes
               // soc = estimateSoc(0, totalWh, 0) = 0 and clobbers the saved
               // value, wiping out any prior "SOC korrigieren" correction.
+              // Plan 11-02 Task 3a: stub band fields from estimatedSoc so the
+              // tightened MatchResult type compiles. Task 3b refines this to
+              // read session.socMin / session.socMax / session.bandConfidence
+              // from the DB row (with NULL fallback to zero-width at
+              // estimatedSoc).
+              const fallbackSoc = session.estimatedSoc ?? 0;
               const match: MatchResult = {
                 profileId: profile.id,
                 profileName: profile.name,
                 confidence: session.detectionConfidence ?? 1,
                 curveOffsetSeconds: session.curveOffsetSeconds ?? 0,
-                estimatedStartSoc: session.estimatedSoc ?? 0,
+                estimatedStartSoc: fallbackSoc,
+                socMin: fallbackSoc,
+                socMax: fallbackSoc,
+                socBest: fallbackSoc,
+                bandConfidence: 1,
               };
               this.matchData.set(session.plugId, match);
             }
