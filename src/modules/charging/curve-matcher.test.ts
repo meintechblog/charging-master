@@ -233,7 +233,6 @@ describe('DEFAULT_BAND_THRESHOLD_PCT empirical calibration sweep (B1 / RESEARCH 
       };
     });
 
-    // eslint-disable-next-line no-console
     console.log('[calibration-sweep]', sweep);
 
     // --- Criterion A: taper precision at the current constant ---
