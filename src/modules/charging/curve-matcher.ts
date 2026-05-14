@@ -20,17 +20,36 @@ export const DEFAULT_CONFIDENCE_THRESHOLD = 0.70;
 /**
  * Plausible-offset cutoff for the confidence band: every offset whose DTW
  * distance is within (1 + DEFAULT_BAND_THRESHOLD_PCT) × best is considered a
- * plausible start-SOC. Pinned empirically by the calibration sweep test in
- * curve-matcher.test.ts against the synthetic-iPad-shaped fixture — it is the
- * smallest threshold from [0.05, 0.10, 0.15, 0.20, 0.30] that collapses the
- * band to ≤ 5 % during the taper region. The test is the source of truth;
+ * plausible start-SOC.
+ *
+ * Pinned at 0.20 by a dual-criterion calibration enforced in
+ * curve-matcher.test.ts. Both criteria must hold at the current value:
+ *   (a) Synthetic-iPad taper precision — bandwidth ≤ 5 (matcher is confident
+ *       when the query uniquely localizes to the taper region).
+ *   (b) Real Session 14 first-120 flat-region honest uncertainty —
+ *       bandwidth ≥ 10 (matcher reports honest doubt when the query
+ *       matches an ambiguous flat plateau).
+ *
+ * Plan 11-01 originally pinned 0.05 by picking the smallest threshold that
+ * satisfied (a) alone against synthetic data. A real-data sweep against
+ * production Session 14 (192.168.3.185, profile_id=4, 2026-04-29) showed
+ * 0.05 collapsed the band to Δ=0 on real flat-power readings after only
+ * ~10 min — exactly the false-confidence anti-pattern v1.3 was designed
+ * to prevent. 0.20 keeps Δ ≥ 17 in flat region while still collapsing to
+ * Δ ≤ 5 in taper. Use scripts/calibration/sweep-real.ts to re-verify this
+ * trade-off against new device profiles before adjusting.
+ *
+ * Note: `socBest` can still anchor to a wrong-offset (~31 %) on real
+ * flat-region data regardless of threshold — a fundamental DTW-flat-power
+ * ambiguity. Mitigation (stale-power watchdog) is v1.4 scope.
+ *
  * Plan 11-02 reads this value from a `charging.bandThreshold` config row at
  * runtime, defaulting to this constant.
  *
  * See audiolabs-erlangen MIR C7S2 (Subsequence DTW matching function
  * Δ_DTW(m)) for the underlying technique.
  */
-export const DEFAULT_BAND_THRESHOLD_PCT = 0.05;
+export const DEFAULT_BAND_THRESHOLD_PCT = 0.20;
 
 export interface ProfileWithCurve {
   id: number;
