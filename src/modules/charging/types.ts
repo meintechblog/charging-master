@@ -83,4 +83,13 @@ export interface ChargeStateEvent {
   bestCandidateProfileId?: number;
   bestCandidateName?: string;
   bestCandidateConfidence?: number;
+  // Phase 11 SOC confidence band. socAsciiBar is populated by Plan 11-03's
+  // notification-side renderer; declared here so 11-02 types compile while
+  // the field stays undefined on the wire. All optional — legacy SSE
+  // snapshot synthesizers (the /api/sse/power on-connect emit) don't need
+  // to set them.
+  socMin?: number;
+  socMax?: number;
+  socBandConfidence?: number;
+  socAsciiBar?: string;
 }

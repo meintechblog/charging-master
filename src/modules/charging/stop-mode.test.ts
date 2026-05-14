@@ -1,0 +1,161 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Mock db client + drizzle BEFORE importing the module under test. The
+// stop-mode resolver reads `config` rows via db.select().from(config).where(eq(...)).get().
+const cfgRows = new Map<string, { key: string; value: string; updatedAt: number }>();
+function resetCfg() {
+  cfgRows.clear();
+}
+function seedCfg(key: string, value: string): void {
+  cfgRows.set(key, { key, value, updatedAt: Date.now() });
+}
+
+vi.mock('@/db/client', () => ({
+  db: {
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn((pred: { col: unknown; val: unknown }) => ({
+          get: vi.fn(() => {
+            // The eq mock packs the queried key into pred.val
+            const key = (pred as { val?: string }).val;
+            return key ? cfgRows.get(key) ?? undefined : undefined;
+          }),
+        })),
+      })),
+    })),
+  },
+}));
+
+vi.mock('@/db/schema', () => ({
+  config: { key: 'key', value: 'value', updatedAt: 'updatedAt' },
+}));
+
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((col, val) => ({ col, val })),
+}));
+
+import {
+  DEFAULT_STOP_MODE,
+  DEFAULT_BAND_WIDTH_LIMIT,
+  shouldStop,
+  readStopMode,
+  readBandThreshold,
+  __resetStopModeCacheForTests,
+  __resetBandThresholdCacheForTests,
+} from './stop-mode';
+import { DEFAULT_BAND_THRESHOLD_PCT } from './curve-matcher';
+
+beforeEach(() => {
+  resetCfg();
+  __resetStopModeCacheForTests();
+  __resetBandThresholdCacheForTests();
+});
+
+describe('shouldStop — conservative mode', () => {
+  it('returns true when socMin >= target', () => {
+    expect(
+      shouldStop({ mode: 'conservative', socMin: 80, socMax: 90, socBest: 85, targetSoc: 80 })
+    ).toBe(true);
+  });
+
+  it('returns false when socMin < target (band straddles target)', () => {
+    expect(
+      shouldStop({ mode: 'conservative', socMin: 79, socMax: 81, socBest: 80, targetSoc: 80 })
+    ).toBe(false);
+  });
+});
+
+describe('shouldStop — aggressive mode (Pitfall 5 ordering)', () => {
+  it('does NOT trip on a wide band whose socBest happens to land on target', () => {
+    // The exact production case that caused iPad Session 16 mis-stop. width=60.
+    expect(
+      shouldStop({ mode: 'aggressive', socMin: 20, socMax: 80, socBest: 80, targetSoc: 80 })
+    ).toBe(false);
+  });
+
+  it('trips on a narrow band with socBest >= target', () => {
+    // width=4 ≤ 5, socBest=80 ≥ target=80
+    expect(
+      shouldStop({ mode: 'aggressive', socMin: 78, socMax: 82, socBest: 80, targetSoc: 80 })
+    ).toBe(true);
+  });
+
+  it('does NOT trip on a narrow band below target', () => {
+    expect(
+      shouldStop({ mode: 'aggressive', socMin: 73, socMax: 77, socBest: 75, targetSoc: 80 })
+    ).toBe(false);
+  });
+
+  it('uses DEFAULT_BAND_WIDTH_LIMIT (=5) as the width cutoff (boundary check)', () => {
+    expect(DEFAULT_BAND_WIDTH_LIMIT).toBe(5);
+    // Width exactly at the boundary (5) AND socBest at target → trip
+    expect(
+      shouldStop({ mode: 'aggressive', socMin: 77, socMax: 82, socBest: 80, targetSoc: 80 })
+    ).toBe(true);
+    // Width just over (6) → do NOT trip
+    expect(
+      shouldStop({ mode: 'aggressive', socMin: 77, socMax: 83, socBest: 80, targetSoc: 80 })
+    ).toBe(false);
+  });
+});
+
+describe('readStopMode', () => {
+  it('defaults to aggressive when no config row', () => {
+    expect(readStopMode()).toBe(DEFAULT_STOP_MODE);
+    expect(DEFAULT_STOP_MODE).toBe('aggressive');
+  });
+
+  it('reads "conservative" from a seeded config row', () => {
+    seedCfg('charging.stopMode', 'conservative');
+    expect(readStopMode()).toBe('conservative');
+  });
+
+  it('falls back to aggressive on invalid value (does not throw)', () => {
+    seedCfg('charging.stopMode', 'garbage');
+    expect(readStopMode()).toBe('aggressive');
+  });
+
+  it('caches result within the 30s TTL window', () => {
+    const realNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      seedCfg('charging.stopMode', 'conservative');
+      expect(readStopMode()).toBe('conservative');
+      // Mutate cfg behind the cache; advance < TTL
+      seedCfg('charging.stopMode', 'aggressive');
+      now += 5_000; // 5s
+      expect(readStopMode()).toBe('conservative'); // still cached
+      // Advance past TTL → re-read from DB
+      now += 26_000; // total +31s
+      expect(readStopMode()).toBe('aggressive');
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe('readBandThreshold', () => {
+  it('defaults to DEFAULT_BAND_THRESHOLD_PCT from curve-matcher', () => {
+    expect(readBandThreshold()).toBe(DEFAULT_BAND_THRESHOLD_PCT);
+  });
+
+  it('parses a valid numeric string from config', () => {
+    seedCfg('charging.bandThreshold', '0.20');
+    expect(readBandThreshold()).toBe(0.20);
+  });
+
+  it('falls back on empty string or invalid number', () => {
+    seedCfg('charging.bandThreshold', '');
+    expect(readBandThreshold()).toBe(DEFAULT_BAND_THRESHOLD_PCT);
+    __resetBandThresholdCacheForTests();
+    seedCfg('charging.bandThreshold', 'NaN-garbage');
+    expect(readBandThreshold()).toBe(DEFAULT_BAND_THRESHOLD_PCT);
+    __resetBandThresholdCacheForTests();
+    seedCfg('charging.bandThreshold', '0'); // not >0
+    expect(readBandThreshold()).toBe(DEFAULT_BAND_THRESHOLD_PCT);
+    __resetBandThresholdCacheForTests();
+    seedCfg('charging.bandThreshold', '1.5'); // not <1
+    expect(readBandThreshold()).toBe(DEFAULT_BAND_THRESHOLD_PCT);
+  });
+});
