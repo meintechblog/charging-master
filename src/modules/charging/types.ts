@@ -21,6 +21,14 @@ export interface MatchResult {
   confidence: number;
   curveOffsetSeconds: number;
   estimatedStartSoc: number;
+  // Phase 11 SOCB-01 confidence band. OPTIONAL in 11-01 so existing producers
+  // (charge-monitor.ts overrideSession / tryMatch / resumeActiveSessions and
+  // the in-place mutation site) keep compiling without a tide-over patch. Plan
+  // 11-02 Task 3 tightens these to required after every producer is wired.
+  socMin?: number;
+  socMax?: number;
+  socBest?: number;
+  bandConfidence?: number;
 }
 
 export interface SocBoundary {

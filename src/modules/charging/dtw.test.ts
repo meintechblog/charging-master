@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { dtwDistance, subsequenceDtw } from './dtw';
+import type { SubsequenceDtwResult } from './dtw';
 
 describe('dtwDistance', () => {
   it('returns 0 for identical sequences', () => {
@@ -65,5 +66,82 @@ describe('subsequenceDtw', () => {
     // With step=5, the offset should be a multiple of 5, closest to 50
     expect(result.offset).toBe(50);
     expect(result.distance).toBe(0);
+  });
+});
+
+describe('subsequenceDtw — distances vector (SOCB-01 band foundation)', () => {
+  it('returns distances of length (refLen - queryLen + 1) for windowStep=1 and identical query/reference start', () => {
+    const reference = Array.from({ length: 20 }, (_, i) => i * 10);
+    const query = reference.slice(0, 5);
+
+    const result = subsequenceDtw(query, reference, 1);
+
+    expect(result.distances.length).toBe(reference.length - query.length + 1);
+    // bestIdx for windowStep=1 equals offset; result.distances[offset] === result.distance
+    expect(result.distances[result.offset]).toBe(result.distance);
+    // Query is the prefix of reference → distances[0] is 0
+    expect(result.distances[0]).toBe(0);
+  });
+
+  it('returns distances sized to Math.floor((refLen - queryLen) / windowStep) + 1 for windowStep=5', () => {
+    const reference = Array.from({ length: 80 }, (_, i) => i);
+    const query = reference.slice(40, 50);
+
+    const result = subsequenceDtw(query, reference, 5);
+
+    expect(result.distances.length).toBe(Math.floor((80 - 10) / 5) + 1);
+    expect(result.distances.length).toBe(15);
+    expect(result.windowStep).toBe(5);
+  });
+
+  it('returns distances as a Float64Array (dense numeric indexing)', () => {
+    const reference = Array.from({ length: 10 }, (_, i) => i);
+    const query = [3, 4, 5];
+
+    const result = subsequenceDtw(query, reference, 1);
+
+    expect(result.distances).toBeInstanceOf(Float64Array);
+  });
+
+  it('legacy destructuring of { offset, distance } stays valid (back-compat)', () => {
+    const reference = [10, 20, 30, 40, 50, 60];
+    const query = [30, 40];
+
+    // Existing callers in curve-matcher.ts do this exact destructure
+    const { offset, distance } = subsequenceDtw(query, reference, 1);
+
+    expect(offset).toBe(2);
+    expect(distance).toBe(0);
+  });
+
+  it('returns degenerate result when query is empty', () => {
+    const result = subsequenceDtw([], [1, 2, 3], 1);
+
+    expect(result.distances.length).toBe(0);
+    expect(result.distance).toBe(Infinity);
+    expect(result.offset).toBe(0);
+  });
+
+  it('returns degenerate result when query is longer than reference', () => {
+    const result = subsequenceDtw([1, 2, 3, 4, 5], [1, 2], 1);
+
+    expect(result.distances.length).toBe(0);
+    expect(result.distance).toBe(Infinity);
+    expect(result.offset).toBe(0);
+  });
+
+  it('distances[bestIdx] equals Math.min over all evaluated windows (regression: best distance unchanged)', () => {
+    const reference = [5, 5, 5, 100, 200, 300, 200, 100, 5, 5];
+    const query = [100, 200, 300];
+
+    const result: SubsequenceDtwResult = subsequenceDtw(query, reference, 1);
+
+    let min = Infinity;
+    for (let i = 0; i < result.distances.length; i++) {
+      if (result.distances[i] < min) min = result.distances[i];
+    }
+    expect(result.distance).toBe(min);
+    const bestIdx = result.offset / result.windowStep;
+    expect(result.distances[bestIdx]).toBe(min);
   });
 });

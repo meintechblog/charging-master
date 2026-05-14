@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Self-Update
-status: completed
-stopped_at: Phase 10 complete, milestone v1.2 ready for verification
-last_updated: "2026-04-19T18:40:00.000Z"
-last_activity: 2026-04-21 — Quick 260421-669: multi-channel Shelly support pulled forward from 999.1 backlog (schema `plugs.channel` + composite id + removed all `?id=0` hardcoding). Plus quick 260421-6f6 umlaut sweep. LXC + origin on f72ef68.
+status: executing
+stopped_at: v1.2.1 charge-banner/SOC/Wh polish deployed to LXC charging-master.local; live iPad session 5 running
+last_updated: "2026-05-14T21:08:01.180Z"
+last_activity: 2026-05-14 -- Phase 11 execution started
 progress:
-  total_phases: 4
+  total_phases: 8
   completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_plans: 13
+  completed_plans: 9
+  percent: 69
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** Der Akku wird automatisch beim gewuenschten SOC-Level gestoppt -- kein manuelles Nachschauen, kein Ueberladen, laengere Akku-Lebensdauer.
-**Current focus:** Milestone v1.2 -- Self-Update (roadmap complete, ready for Phase 7 planning)
+**Current focus:** Phase 11 — soc-confidence-band-ascii-visualization
 
 ## Current Position
 
-Phase: 10 complete — milestone v1.2 code-complete
-Plan: None — all 10 plans across 4 phases shipped; ready for verification and LXC deployment
-Status: Phase 10-02 complete — UI integration landed. InstallModal, UpdateStageStepper, UpdateLogPanel, ReconnectOverlay shipped. UpdateBanner extended with FlowState machine and red rollback banner. All verified via curl harness on the dev server.
-Last activity: 2026-04-10 — Plan 10-02 complete (3 tasks + auto-verified checkpoint, 4 files created + update-banner.tsx extended, all typecheck + HTML + rollback seed/ack tests PASS)
+Phase: 11 (soc-confidence-band-ascii-visualization) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 11
+Last activity: 2026-05-14 -- Phase 11 execution started
 
 Progress: [##########] 100% (v1.0 + v1.1 + v1.2 code-complete; milestone v1.2 ready for LXC deployment)
 
