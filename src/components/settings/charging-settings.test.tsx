@@ -33,7 +33,7 @@ describe('ChargingSettings', () => {
     const toggle = screen.getByRole('button', { name: /Erweitert anzeigen/i });
     fireEvent.click(toggle);
 
-    // Threshold input is now in the DOM, placeholder = DEFAULT_BAND_THRESHOLD_PCT (0.05).
+    // Threshold input is now in the DOM, placeholder = DEFAULT_BAND_THRESHOLD_PCT.
     const input = screen.getByLabelText(/Band-Schwellenwert/i) as HTMLInputElement;
     expect(input).toBeInTheDocument();
     expect(input.placeholder).toBe(String(DEFAULT_BAND_THRESHOLD_PCT));
