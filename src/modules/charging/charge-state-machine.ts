@@ -7,6 +7,7 @@
  */
 
 import type { ChargeState, MatchResult } from './types';
+import { DEFAULT_STOP_MODE, readStopMode, shouldStop, type StopMode } from './stop-mode';
 
 // Thresholds (in Watts)
 export const CHARGE_THRESHOLD = 5;
@@ -35,6 +36,16 @@ export class ChargeStateMachine {
   sessionId: number | null = null;
   targetSoc: number = 80;
   estimatedSoc: number = 0;
+  // Phase 11 SOC confidence band. Defaults express "full uncertainty" until
+  // setMatch runs. socBest mirrors estimatedSoc but is tracked separately so
+  // the shouldStop call reads the matcher's best estimate rather than the
+  // forward-propagated value (they diverge only if a future plan ever splits
+  // them; for 11-02 they advance in lock-step via ChargeMonitor.updateSocTracking).
+  socMin: number = 0;
+  socMax: number = 100;
+  socBest: number = 0;
+  socBandConfidence: number = 0;
+  stopMode: StopMode = DEFAULT_STOP_MODE;
 
   onTransition: ((from: ChargeState, to: ChargeState, data?: unknown) => void) | null = null;
 
@@ -124,6 +135,17 @@ export class ChargeStateMachine {
     this.matchedAt = timestamp;
     this.targetSoc = 80; // Default, can be overridden
     this.estimatedSoc = match.estimatedStartSoc;
+    // Plan 11-01 left band fields OPTIONAL on MatchResult; fall back to
+    // estimatedStartSoc when a producer hasn't been wired yet. Plan 11-02
+    // Task 3a tightens the type to required after every producer is wired.
+    this.socMin = match.socMin ?? match.estimatedStartSoc;
+    this.socMax = match.socMax ?? match.estimatedStartSoc;
+    this.socBest = match.socBest ?? match.estimatedStartSoc;
+    this.socBandConfidence = match.bandConfidence ?? 1;
+    // Read the stop-mode policy once per session start. Cached at module
+    // scope with a 30s TTL — changes from /settings take effect on the next
+    // detecting→matched transition (acceptable for a single-user app).
+    this.stopMode = readStopMode();
     this.state = 'matched';
     this.onTransition?.(from, 'matched', match);
   }
@@ -170,14 +192,31 @@ export class ChargeStateMachine {
   }
 
   private handleCharging(_apower: number, _timestamp: number): ChargeState {
-    if (this.targetSoc > 0 && this.estimatedSoc >= this.targetSoc - 5) {
+    if (this.targetSoc <= 0) return this.state;
+    if (
+      shouldStop({
+        mode: this.stopMode,
+        socMin: this.socMin,
+        socMax: this.socMax,
+        socBest: this.socBest,
+        targetSoc: this.targetSoc,
+      })
+    ) {
       this.transition('countdown');
     }
     return this.state;
   }
 
   private handleCountdown(_apower: number, _timestamp: number): ChargeState {
-    if (this.estimatedSoc >= this.targetSoc) {
+    if (
+      shouldStop({
+        mode: this.stopMode,
+        socMin: this.socMin,
+        socMax: this.socMax,
+        socBest: this.socBest,
+        targetSoc: this.targetSoc,
+      })
+    ) {
       this.transition('stopping');
     }
     return this.state;
@@ -255,6 +294,11 @@ export class ChargeStateMachine {
     this.matchResult = null;
     this.sessionId = null;
     this.estimatedSoc = 0;
+    this.socMin = 0;
+    this.socMax = 100;
+    this.socBest = 0;
+    this.socBandConfidence = 0;
+    this.stopMode = DEFAULT_STOP_MODE;
     this.learnStartTimestamp = null;
     this.learnSessionMaxPower = 0;
     this.learnReadings = [];

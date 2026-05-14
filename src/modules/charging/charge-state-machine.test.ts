@@ -1,4 +1,23 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Mock db client + drizzle BEFORE importing the state machine, because
+// setMatch() now calls readStopMode() which queries the config table.
+vi.mock('@/db/client', () => ({
+  db: {
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ get: vi.fn(() => undefined) })),
+      })),
+    })),
+  },
+}));
+vi.mock('@/db/schema', () => ({
+  config: { key: 'key', value: 'value', updatedAt: 'updatedAt' },
+}));
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((col, val) => ({ col, val })),
+}));
+
 import {
   ChargeStateMachine,
   CHARGE_THRESHOLD,
@@ -10,9 +29,31 @@ import {
   PLATEAU_MIN_PEAK_W,
 } from './charge-state-machine';
 import type { MatchResult } from './types';
+import { __resetStopModeCacheForTests } from './stop-mode';
+
+beforeEach(() => {
+  __resetStopModeCacheForTests();
+});
 
 function createMachine() {
   return new ChargeStateMachine();
+}
+
+// Helper to build a MatchResult — Plan 11-02 tightened the band fields to
+// required, so every test that constructs one needs them. Defaults match
+// the "no band info yet" semantics (collapsed to estimatedStartSoc).
+function makeMatch(overrides: Partial<MatchResult> & { estimatedStartSoc: number }): MatchResult {
+  return {
+    profileId: 1,
+    profileName: 'E-Bike',
+    confidence: 0.85,
+    curveOffsetSeconds: 0,
+    socMin: overrides.estimatedStartSoc,
+    socMax: overrides.estimatedStartSoc,
+    socBest: overrides.estimatedStartSoc,
+    bandConfidence: 1,
+    ...overrides,
+  };
 }
 
 function feedReadings(machine: ChargeStateMachine, power: number, count: number, startTime = 0, interval = 5000) {
@@ -58,13 +99,7 @@ describe('ChargeStateMachine', () => {
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     expect(machine.state).toBe('detecting');
 
-    const match: MatchResult = {
-      profileId: 1,
-      profileName: 'E-Bike',
-      confidence: 0.85,
-      curveOffsetSeconds: 0,
-      estimatedStartSoc: 0,
-    };
+    const match: MatchResult = makeMatch({ estimatedStartSoc: 0 });
     machine.setMatch(match, 42);
     expect(machine.state).toBe('matched');
     expect(machine.sessionId).toBe(42);
@@ -74,13 +109,7 @@ describe('ChargeStateMachine', () => {
     const machine = createMachine();
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
 
-    machine.setMatch({
-      profileId: 1,
-      profileName: 'E-Bike',
-      confidence: 0.85,
-      curveOffsetSeconds: 0,
-      estimatedStartSoc: 0,
-    }, 42);
+    machine.setMatch(makeMatch({ estimatedStartSoc: 0 }), 42);
     expect(machine.state).toBe('matched');
 
     // Feed a reading after the display period (5 seconds)
@@ -88,42 +117,33 @@ describe('ChargeStateMachine', () => {
     expect(machine.state).toBe('charging');
   });
 
-  it('transitions CHARGING -> COUNTDOWN when SOC reaches target - 5', () => {
+  it('transitions CHARGING -> COUNTDOWN when band collapses with socBest >= target (aggressive)', () => {
     const machine = createMachine();
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
-    machine.setMatch({
-      profileId: 1,
-      profileName: 'E-Bike',
-      confidence: 0.85,
-      curveOffsetSeconds: 0,
-      estimatedStartSoc: 0,
-    }, 42);
+    machine.setMatch(makeMatch({ estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
 
-    // Set target and simulate SOC reaching threshold
+    // Collapse the band (width <= 5) with socBest at target → aggressive stop.
     machine.targetSoc = 80;
-    machine.estimatedSoc = 75; // target - 5
+    machine.socMin = 78;
+    machine.socMax = 82;
+    machine.socBest = 80;
     machine.feedReading(CHARGE_THRESHOLD + 10, 20000);
     expect(machine.state).toBe('countdown');
   });
 
-  it('transitions COUNTDOWN -> STOPPING when SOC reaches target', () => {
+  it('transitions COUNTDOWN -> STOPPING when band stays narrow with socBest >= target', () => {
     const machine = createMachine();
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
-    machine.setMatch({
-      profileId: 1,
-      profileName: 'E-Bike',
-      confidence: 0.85,
-      curveOffsetSeconds: 0,
-      estimatedStartSoc: 0,
-    }, 42);
+    machine.setMatch(makeMatch({ estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
 
     machine.targetSoc = 80;
-    machine.estimatedSoc = 75;
+    machine.socMin = 78;
+    machine.socMax = 82;
+    machine.socBest = 80;
     machine.feedReading(CHARGE_THRESHOLD + 10, 20000); // -> countdown
 
-    machine.estimatedSoc = 80;
     machine.feedReading(CHARGE_THRESHOLD + 10, 30000);
     expect(machine.state).toBe('stopping');
   });
@@ -284,5 +304,65 @@ describe('ChargeStateMachine', () => {
     // Then sudden drop to 0W (charger powered off) — fast path fires after LEARN_IDLE_READINGS
     const state = feedReadings(machine, IDLE_THRESHOLD - 0.5, LEARN_IDLE_READINGS, t);
     expect(state).toBe('learn_complete');
+  });
+
+  // --- Plan 11-02 band-aware stop logic (SOCB-03) ---
+
+  it('handleCharging does NOT transition on wide band even if socBest >= target (Pitfall 5)', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
+    machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+
+    // The exact iPad-Session-16 scenario: wide band 20-80, socBest happens
+    // to land on target. Aggressive mode MUST hold off — the width gate is
+    // primary.
+    machine.targetSoc = 80;
+    machine.stopMode = 'aggressive';
+    machine.socMin = 20;
+    machine.socMax = 80;
+    machine.socBest = 80;
+    machine.feedReading(CHARGE_THRESHOLD + 10, 20000);
+    expect(machine.state).toBe('charging');
+  });
+
+  it('handleCharging then handleCountdown progress when band collapses (aggressive)', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
+    machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+
+    machine.targetSoc = 80;
+    machine.stopMode = 'aggressive';
+    machine.socMin = 78;
+    machine.socMax = 82;
+    machine.socBest = 80;
+    machine.feedReading(CHARGE_THRESHOLD + 10, 20000);
+    expect(machine.state).toBe('countdown');
+
+    // handleCountdown re-evaluates the same gate; transitions to stopping
+    machine.feedReading(CHARGE_THRESHOLD + 10, 30000);
+    expect(machine.state).toBe('stopping');
+  });
+
+  it('handleCharging conservative gating waits for socMin >= target', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
+    machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+
+    machine.targetSoc = 80;
+    machine.stopMode = 'conservative';
+    // socMin=79 < target=80 → do NOT trip (band straddles target).
+    machine.socMin = 79;
+    machine.socMax = 81;
+    machine.socBest = 85;
+    machine.feedReading(CHARGE_THRESHOLD + 10, 20000);
+    expect(machine.state).toBe('charging');
+
+    // Propagate socMin to 80 (Wh accumulation in production) → conservative trips.
+    machine.socMin = 80;
+    machine.feedReading(CHARGE_THRESHOLD + 10, 30000);
+    expect(machine.state).toBe('countdown');
   });
 });

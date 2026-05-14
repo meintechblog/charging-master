@@ -64,6 +64,13 @@
       "when": 1778403578194,
       "tag": "0008_absurd_misty_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778793716269,
+      "tag": "0009_add_soc_band_columns",
+      "breakpoints": true
     }
   ]
 }
