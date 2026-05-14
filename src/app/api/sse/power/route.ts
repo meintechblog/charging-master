@@ -40,6 +40,12 @@ export async function GET(request: Request) {
             estimatedSoc: chargeSessions.estimatedSoc,
             detectionConfidence: chargeSessions.detectionConfidence,
             startedAt: chargeSessions.startedAt,
+            // Phase 11: hydrate the SOC confidence band on mid-session reconnect
+            // so the dashboard's CSS-driven band paints immediately instead of
+            // waiting for the next live charge event.
+            socMin: chargeSessions.socMin,
+            socMax: chargeSessions.socMax,
+            bandConfidence: chargeSessions.bandConfidence,
           })
           .from(chargeSessions)
           .leftJoin(deviceProfiles, eq(chargeSessions.profileId, deviceProfiles.id))
@@ -57,6 +63,13 @@ export async function GET(request: Request) {
             targetSoc: row.targetSoc ?? undefined,
             estimatedSoc: row.estimatedSoc ?? undefined,
             elapsedMs: now - row.startedAt,
+            socMin: row.socMin ?? undefined,
+            socMax: row.socMax ?? undefined,
+            socBandConfidence: row.bandConfidence ?? undefined,
+            // socAsciiBar is intentionally undefined here — the next live event
+            // from ChargeMonitor's captureEventContext will populate it. The
+            // dashboard's SocBandIndicator renders the CSS band from min/max/best
+            // without needing the ASCII string.
           };
           controller.enqueue(
             encoder.encode(`event: charge\ndata: ${JSON.stringify(snapshot)}\n\n`)

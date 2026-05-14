@@ -3,6 +3,7 @@ import { config } from '@/db/schema';
 import { SettingsSection } from '@/components/settings/settings-section';
 import { PushoverSettings } from '@/components/settings/pushover-settings';
 import { ElectricitySettings } from '@/components/settings/electricity-settings';
+import { ChargingSettings } from '@/components/settings/charging-settings';
 import { AutoUpdateSettings } from '@/components/settings/auto-update-settings';
 import { CatalogSettings } from '@/components/settings/catalog-settings';
 import { VersionBadge } from './version-badge';
@@ -64,6 +65,13 @@ export default async function SettingsPage() {
         description="Wird für Kosten-Anzeige in Notifications und Session-Details verwendet"
       >
         <ElectricitySettings initialSettings={settings} />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Laden"
+        description="Stopp-Verhalten und Band-Konfiguration"
+      >
+        <ChargingSettings initialSettings={settings} />
       </SettingsSection>
 
       <SettingsSection

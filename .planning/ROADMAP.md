@@ -220,12 +220,12 @@ Plans:
   5. `NotificationService.buildCompleteMessage`, `buildMatchedMessage`, and the `fireAnomalyNotification` path attach the ASCII bar and send Pushover with `monospace=1`; verified in unit tests by asserting the message body contains the rendered bar.
   6. `ChargeStateEvent` (`types.ts`) carries `socMin`, `socMax`, `socBandConfidence`, `socAsciiBar`; SSE payloads on `/api/sse/charge` expose them; the dashboard renders a live band component with CSS-animated narrowing that falls back to the inline ASCII bar without JS.
   7. Existing override path (`PUT /api/charging/sessions/[id]` with `estimatedSoc`) continues to work, collapses the band to a zero-width point, and logs a `soc_corrections` row exactly as before — no regression in the calibration learning loop.
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [x] 11-01-PLAN.md — DTW distances vector + deriveBand + MatchResult band fields + iPad fixture (wave 1)
 - [x] 11-02-PLAN.md — Drizzle migration + stop-mode module + state-machine band-aware stop + charge-monitor band propagation, captureEventContext, resume, override (wave 2)
-- [ ] 11-03-PLAN.md — Pure renderSocBandAscii + Pushover monospace flag + NotificationService matched/complete bar + anomaly bar (wave 2)
+- [x] 11-03-PLAN.md — Pure renderSocBandAscii + Pushover monospace flag + NotificationService matched/complete bar + anomaly bar (wave 2)
 - [ ] 11-04-PLAN.md — SocBandIndicator component (CSS-animated, ASCII fallback) + ChargingSettings stop-mode + bandThreshold + SSE active-replay band hydration (wave 3)
 
 ## Progress
@@ -245,7 +245,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. GitHub Polling & Detection | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
-| 11. SOC Confidence Band + ASCII Visualization | v1.3 | 2/4 | In Progress|  |
+| 11. SOC Confidence Band + ASCII Visualization | v1.3 | 3/4 | In Progress|  |
 
 ## Backlog
 
