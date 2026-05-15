@@ -337,6 +337,23 @@ export class ChargeMonitor {
         .run();
     }
 
+    // Cut power BEFORE state cleanup. Earlier path left the relay 'on' because
+    // handleTransition('aborted') intentionally no-ops for user_abort (DB row
+    // already written above) and the relay-off pathway only lives inside
+    // handleStopping / the stale_power|timeout arm. Session 19 incident
+    // 2026-05-15: POST /abort returned ok:true while plug 192.168.3.135 kept
+    // delivering 38W. Fire-and-forget mirrors the learn_complete / stale_power
+    // arms — same canSwitchRelay throttle, same non-fatal catch.
+    const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+    if (plug && plug.ipAddress && canSwitchRelay(this.lastRelayOff.get(plugId) ?? 0)) {
+      switchRelayOff(
+        { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
+        this.eventBus,
+      ).then((ok) => {
+        if (ok) this.lastRelayOff.set(plugId, Date.now());
+      }).catch(() => { /* non-fatal */ });
+    }
+
     machine.abort();
     this.cleanupSession(plugId);
     this.emitChargeEvent(plugId, 'aborted');
@@ -1491,6 +1508,7 @@ export class ChargeMonitor {
           socBest: machine.socBest,
           targetSoc: machine.targetSoc,
           mode: 'unicode',
+          width: 80,
         })
       : undefined;
 

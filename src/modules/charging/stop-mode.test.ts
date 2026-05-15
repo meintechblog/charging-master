@@ -86,37 +86,35 @@ describe('shouldStop — conservative mode', () => {
   });
 });
 
-describe('shouldStop — aggressive mode (Pitfall 5 ordering)', () => {
-  it('does NOT trip on a wide band whose socBest happens to land on target', () => {
-    // The exact production case that caused iPad Session 16 mis-stop. width=60.
+describe('shouldStop — aggressive mode (socBest-only)', () => {
+  it('trips on a wide band as soon as socBest crosses target', () => {
+    // Session 19 incident (2026-05-15): earlier "width gate" lock-out left the
+    // charge running past target. Aggressive now trusts socBest unconditionally
+    // — the FPD-04 wall-clock timeout remains the runaway backstop.
     expect(
       shouldStop({ mode: 'aggressive', socMin: 20, socMax: 80, socBest: 80, targetSoc: 80 })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('trips on a narrow band with socBest >= target', () => {
-    // width=4 ≤ 5, socBest=80 ≥ target=80
     expect(
       shouldStop({ mode: 'aggressive', socMin: 78, socMax: 82, socBest: 80, targetSoc: 80 })
     ).toBe(true);
   });
 
-  it('does NOT trip on a narrow band below target', () => {
+  it('does NOT trip below target regardless of band width', () => {
     expect(
       shouldStop({ mode: 'aggressive', socMin: 73, socMax: 77, socBest: 75, targetSoc: 80 })
     ).toBe(false);
+    expect(
+      shouldStop({ mode: 'aggressive', socMin: 0, socMax: 60, socBest: 30, targetSoc: 80 })
+    ).toBe(false);
   });
 
-  it('uses DEFAULT_BAND_WIDTH_LIMIT (=5) as the width cutoff (boundary check)', () => {
+  it('DEFAULT_BAND_WIDTH_LIMIT still exported for downstream consumers', () => {
+    // Constant retained for backward-compat (used by the ASCII renderer's
+    // best±5 core glyph window). The shouldStop branch no longer consults it.
     expect(DEFAULT_BAND_WIDTH_LIMIT).toBe(5);
-    // Width exactly at the boundary (5) AND socBest at target → trip
-    expect(
-      shouldStop({ mode: 'aggressive', socMin: 77, socMax: 82, socBest: 80, targetSoc: 80 })
-    ).toBe(true);
-    // Width just over (6) → do NOT trip
-    expect(
-      shouldStop({ mode: 'aggressive', socMin: 77, socMax: 83, socBest: 80, targetSoc: 80 })
-    ).toBe(false);
   });
 });
 

@@ -308,22 +308,23 @@ describe('ChargeStateMachine', () => {
 
   // --- Plan 11-02 band-aware stop logic (SOCB-03) ---
 
-  it('handleCharging does NOT transition on wide band even if socBest >= target (Pitfall 5)', () => {
+  it('handleCharging transitions to countdown when socBest >= target even on a wide band', () => {
     const machine = createMachine();
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
 
-    // The exact iPad-Session-16 scenario: wide band 20-80, socBest happens
-    // to land on target. Aggressive mode MUST hold off — the width gate is
-    // primary.
+    // Session 19 (2026-05-15) incident: wide band 20-80 with socBest landing
+    // on target previously locked aggressive out. Behaviour is now flipped —
+    // socBest >= target is sufficient. FPD-04 wall-clock timeout remains the
+    // backstop for noisy curve matches that hover near target indefinitely.
     machine.targetSoc = 80;
     machine.stopMode = 'aggressive';
     machine.socMin = 20;
     machine.socMax = 80;
     machine.socBest = 80;
     machine.feedReading(CHARGE_THRESHOLD + 10, 20000);
-    expect(machine.state).toBe('charging');
+    expect(machine.state).toBe('countdown');
   });
 
   it('handleCharging then handleCountdown progress when band collapses (aggressive)', () => {

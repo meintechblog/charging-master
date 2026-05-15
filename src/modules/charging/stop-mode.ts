@@ -82,10 +82,17 @@ export function shouldStop(opts: {
   if (opts.mode === 'conservative') {
     return opts.socMin >= opts.targetSoc;
   }
-  // Aggressive — Pitfall 5: width check FIRST, then target check.
-  // Do NOT reorder.
-  const width = opts.socMax - opts.socMin;
-  return width <= DEFAULT_BAND_WIDTH_LIMIT && opts.socBest >= opts.targetSoc;
+  // Aggressive — trust socBest as soon as it crosses target.
+  //
+  // Earlier versions required band width ≤ 5pp before honouring socBest. That
+  // created a structural lock-out: when bandConfidence ≥ low-confidence
+  // threshold (0.5, i.e. width ≤ 50pp) the FPD-03 energy-fallback gate stays
+  // closed AND when width > 5pp this aggressive branch refused to stop. The
+  // result was an unbounded charge — observed Session 19 (2026-05-15) on real
+  // iPad, ran from estSoc=43 → 88 past target=80 with no stop. FPD-04
+  // wall-clock timeout remains the last-line backstop for runaway aggressive
+  // calls (e.g. socBest cresting target on a noisy curve match).
+  return opts.socBest >= opts.targetSoc;
 }
 
 export function readStopMode(): StopMode {

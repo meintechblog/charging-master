@@ -62,12 +62,12 @@ export function SocBandIndicator({ plugId, initialAsciiBar }: Props) {
       <>
         <pre
           data-testid="soc-band-ascii"
-          className="font-mono text-[10px] text-neutral-500 whitespace-pre"
+          className="font-mono text-sm text-neutral-400 whitespace-pre leading-tight"
         >
           {band?.asciiBar ?? initialAsciiBar}
         </pre>
         <noscript>
-          <pre className="font-mono text-xs whitespace-pre">{initialAsciiBar}</pre>
+          <pre className="font-mono text-sm whitespace-pre">{initialAsciiBar}</pre>
         </noscript>
       </>
     );
@@ -86,7 +86,7 @@ export function SocBandIndicator({ plugId, initialAsciiBar }: Props) {
     <>
       <div
         data-testid="band-container"
-        className="relative h-6 bg-neutral-900 rounded-full overflow-hidden w-full"
+        className="relative h-10 bg-neutral-900 rounded-full overflow-hidden w-full"
         style={containerStyle}
       >
         <div
@@ -109,12 +109,12 @@ export function SocBandIndicator({ plugId, initialAsciiBar }: Props) {
         />
       </div>
       {band.asciiBar && (
-        <pre className="font-mono text-[10px] text-neutral-500 whitespace-pre mt-1 hidden xl:block">
+        <pre className="font-mono text-sm text-neutral-400 whitespace-pre mt-2 leading-tight overflow-x-auto">
           {band.asciiBar}
         </pre>
       )}
       <noscript>
-        <pre className="font-mono text-xs whitespace-pre">{initialAsciiBar}</pre>
+        <pre className="font-mono text-sm whitespace-pre">{initialAsciiBar}</pre>
       </noscript>
     </>
   );
