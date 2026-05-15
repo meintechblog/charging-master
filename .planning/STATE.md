@@ -5,7 +5,7 @@ milestone_name: SOC Intelligence
 status: verifying
 stopped_at: Phase 11 SOC Confidence Band code-complete; milestone v1.3 ready for LXC deployment + on-device Pushover lock-screen verify.
 last_updated: "2026-05-15T00:09:47.887Z"
-last_activity: 2026-05-15 -- v1.3.1 quick-260515-2e4: BAND_THRESHOLD 0.05→0.20 (real iPad Session 14 calibration) + dual-criterion test + sweep-real diagnostic, deployed both LXCs (d4242b3)
+last_activity: 2026-05-15 -- v1.4 Phase 12 planned: 4 plans across 3 waves seeded (FPD-01..05)
 progress:
   total_phases: 8
   completed_phases: 5

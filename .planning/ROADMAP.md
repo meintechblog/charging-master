@@ -239,7 +239,13 @@ Plans:
   3. A band-confidence-aware fallback prevents premature aggressive stops on low-confidence bands: if `socBandConfidence < 0.5` (= band width > 50% SOC), the state machine refuses BOTH aggressive and conservative band-mode stops and falls back to the legacy energy-based stop (`(target - estimatedStartSoc) × totalEnergyWh`). The fallback is observable in `ChargeStateEvent.stopMode='energy_fallback'` for the UI/Pushover. Unit-tested for ordering and threshold edges.
   4. A session-max-duration watchdog aborts any session that runs longer than `config.charging.maxSessionHours` (default 24h) with `stop_reason='timeout'`. Configurable via Settings page. Prevents runaway sessions when no other defense fires (e.g., matcher never re-detects taper because the device disconnects and reconnects partial). Unit-tested for boundary.
   5. The dashboard charge banner surfaces watchdog state: when `apower=0 W` for > 60s during `state=charging`, the banner shows a yellow "Watchdog: 0W seit Xs" indicator (CSS-animated). When the watchdog actually fires at 5min, the banner transitions to red "Session abgebrochen — Battery full?" with a manual "Acknowledge"-button that clears it. RTL tests cover both warning and fired states.
-**Plans:** TBD plans (to be created via /gsd:plan-phase 12)
+**Plans:** 4 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — Stale-Power Watchdog (FPD-01): counter on state machine, abort path through ChargeMonitor, Pushover anomaly, config rows, ChargeStateEvent watchdog fields (wave 1)
+- [ ] 12-02-PLAN.md — Adaptive Matcher Refresh + Energy-Fallback (FPD-02 + FPD-03): chargingBuffers map, monotonic-narrowing refresh, shouldStopEnergyFallback predicate, stopMode='energy_fallback' event field (wave 2)
+- [ ] 12-03-PLAN.md — Session Max-Duration Watchdog (FPD-04): wall-clock check, reason-routing in handleTransition('aborted'), fireTimeoutNotification (wave 2)
+- [ ] 12-04-PLAN.md — UI Watchdog Indicators + Settings exposure (FPD-05): yellow countdown, red fired banner with localStorage ack, 5 new Settings inputs (wave 3)
 
 ### Phase 13: Update Pipeline Hardening
 **Goal**: The self-updater survives operational mess on production LXCs (untracked diagnostics, partial commits, stale state.json after early failure). No more "one wrong scp + the whole pipeline is bricked until manual SSH recovery" like 2026-05-15.
@@ -270,7 +276,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 11. SOC Confidence Band + ASCII Visualization | v1.3 | 4/4 | Complete   | 2026-05-14 |
-| 12. Flat-Power Defense | v1.4 | 0/? | Planning | - |
+| 12. Flat-Power Defense | v1.4 | 0/4 | Planning | - |
 | 13. Update Pipeline Hardening | v1.4 | 0/? | Planned | - |
 
 ## Backlog
