@@ -209,6 +209,20 @@ export class ChargeStateMachine {
     this.transition('stopping', { reason });
   }
 
+  /**
+   * FPD-04 max-session-duration watchdog. Synchronous transition to 'aborted'
+   * with reason='timeout'. Unlike forceStop, destination is 'aborted' (NOT
+   * 'stopping') — the session exceeded its absolute time budget and is being
+   * killed defensively, not gracefully stopped.
+   *
+   * Caller (ChargeMonitor.checkSessionTimeout) MUST early-return after invoking
+   * forceTimeout so the recycle gate (feedReading entry) does not recycle
+   * 'aborted' to 'idle' before handleTransition('aborted') runs.
+   */
+  forceTimeout(): void {
+    this.transition('aborted', { reason: 'timeout' });
+  }
+
   // --- State handlers ---
 
   private handleIdle(apower: number): ChargeState {

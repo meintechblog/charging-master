@@ -41,6 +41,7 @@ import {
   DEFAULT_STALE_POWER_WINDOW_SEC,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
   DEFAULT_MATCHER_REFRESH_READINGS,
+  DEFAULT_MAX_SESSION_HOURS,
   shouldStop,
   shouldStopEnergyFallback,
   readStopMode,
@@ -49,12 +50,14 @@ import {
   readStalePowerWindowSec,
   readLowConfidenceThreshold,
   readMatcherRefreshReadings,
+  readMaxSessionHours,
   __resetStopModeCacheForTests,
   __resetBandThresholdCacheForTests,
   __resetStalePowerThresholdCacheForTests,
   __resetStalePowerWindowCacheForTests,
   __resetLowConfidenceThresholdCacheForTests,
   __resetMatcherRefreshReadingsCacheForTests,
+  __resetMaxSessionHoursCacheForTests,
 } from './stop-mode';
 import { DEFAULT_BAND_THRESHOLD_PCT } from './curve-matcher';
 
@@ -66,6 +69,7 @@ beforeEach(() => {
   __resetStalePowerWindowCacheForTests();
   __resetLowConfidenceThresholdCacheForTests();
   __resetMatcherRefreshReadingsCacheForTests();
+  __resetMaxSessionHoursCacheForTests();
 });
 
 describe('shouldStop — conservative mode', () => {
@@ -354,6 +358,54 @@ describe('readMatcherRefreshReadings (FPD-02)', () => {
       expect(readMatcherRefreshReadings()).toBe(30); // cached
       now += 26_000;
       expect(readMatcherRefreshReadings()).toBe(90);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe('readMaxSessionHours (FPD-04)', () => {
+  it('exposes a 24h default', () => {
+    expect(DEFAULT_MAX_SESSION_HOURS).toBe(24);
+    expect(readMaxSessionHours()).toBe(24);
+  });
+
+  it('parses a valid integer from config', () => {
+    seedCfg('charging.maxSessionHours', '48');
+    expect(readMaxSessionHours()).toBe(48);
+  });
+
+  it('falls back on empty / non-integer / non-positive values (T-12-08)', () => {
+    // T-12-08 mitigation: 0/negative would abort every session at startup.
+    // Float values (e.g., '12.5') are rejected — hours must be an integer.
+    seedCfg('charging.maxSessionHours', '');
+    expect(readMaxSessionHours()).toBe(DEFAULT_MAX_SESSION_HOURS);
+    __resetMaxSessionHoursCacheForTests();
+    seedCfg('charging.maxSessionHours', 'abc');
+    expect(readMaxSessionHours()).toBe(DEFAULT_MAX_SESSION_HOURS);
+    __resetMaxSessionHoursCacheForTests();
+    seedCfg('charging.maxSessionHours', '0');
+    expect(readMaxSessionHours()).toBe(DEFAULT_MAX_SESSION_HOURS);
+    __resetMaxSessionHoursCacheForTests();
+    seedCfg('charging.maxSessionHours', '-12');
+    expect(readMaxSessionHours()).toBe(DEFAULT_MAX_SESSION_HOURS);
+    __resetMaxSessionHoursCacheForTests();
+    seedCfg('charging.maxSessionHours', '12.5');
+    expect(readMaxSessionHours()).toBe(DEFAULT_MAX_SESSION_HOURS);
+  });
+
+  it('caches result within the 30s TTL window', () => {
+    const realNow = Date.now;
+    let now = 6_000_000;
+    Date.now = () => now;
+    try {
+      seedCfg('charging.maxSessionHours', '12');
+      expect(readMaxSessionHours()).toBe(12);
+      seedCfg('charging.maxSessionHours', '36');
+      now += 5_000;
+      expect(readMaxSessionHours()).toBe(12); // cached
+      now += 26_000; // total +31s — past TTL
+      expect(readMaxSessionHours()).toBe(36);
     } finally {
       Date.now = realNow;
     }

@@ -241,6 +241,7 @@ type MonitorInternals = {
     stopMode: 'aggressive' | 'conservative';
     stalePowerCount: number;
     forceStop?: (reason: string) => void;
+    forceTimeout?: () => void;
   }>;
 };
 
@@ -273,7 +274,12 @@ function injectActiveSession(monitor: ChargeMonitor, plugId: string, sessionId: 
   internals.sessionIds.set(plugId, sessionId);
   internals.sessionStartEnergy.set(plugId, opts.startTotalEnergy ?? 0);
   internals.socBaselineEnergy.set(plugId, opts.startTotalEnergy ?? 0);
-  internals.sessionStartedAt.set(plugId, 1_000_000);
+  // Anchor sessionStartedAt to Date.now() so FPD-04's wall-clock check
+  // (Date.now() - startedAt) does not false-fire in tests that don't
+  // explicitly manage session age. Tests that DO care about
+  // sessionStartedAt (FPD-04 boundary tests) overwrite this immediately
+  // via internals.sessionStartedAt.set(plugId, t0).
+  internals.sessionStartedAt.set(plugId, Date.now());
   internals.sessionWh.set(plugId, 0);
   internals.sessionSocMin.set(plugId, match.socMin);
   internals.sessionSocMax.set(plugId, match.socMax);
@@ -1587,5 +1593,257 @@ describe('ChargeMonitor — Phase 12 FPD-03: energy-fallback dispatch + stopMode
     expect(machine.forceStop).toBeTypeOf('function');
     machine.forceStop!('energy_fallback');
     expect(machine.state).toBe('stopping');
+  });
+});
+
+// --- Phase 12 FPD-04: max-session-duration watchdog (wall-clock, RESEARCH Pitfall 10) ---
+import { __resetMaxSessionHoursCacheForTests } from './stop-mode';
+
+describe('ChargeMonitor — Phase 12 FPD-04: max-session-duration watchdog', () => {
+  let bus: EventBus;
+  let monitor: ChargeMonitor;
+  let captured: ChargeStateEvent[];
+
+  beforeEach(() => {
+    resetFakeState();
+    __resetStopModeCacheForTests();
+    __resetMaxSessionHoursCacheForTests();
+    switchRelayOffMock.mockClear();
+    // FPD-04 reads wall-clock via Date.now(). Fake the date/timer family
+    // but keep microtasks live (RESEARCH Pitfall 13 — vi defaults to mocking
+    // setImmediate/process.nextTick which breaks flushPromises patterns).
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'Date'] });
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    bus = new EventBus();
+    captured = [];
+    bus.on('charge:*', (e) => captured.push(e as ChargeStateEvent));
+    monitor = new ChargeMonitor(bus);
+  });
+
+  afterEach(() => {
+    monitor.stop();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function seedFpd04Plug() {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+  }
+
+  function makeWideBandMatch(): MatchResult {
+    // Wide band so the regular shouldStop never trips — FPD-04 must be the
+    // only exit path.
+    return makeMatch({
+      socMin: 20, socMax: 80, socBest: 50, bandConfidence: 0.4, estimatedStartSoc: 50,
+    });
+  }
+
+  function setSessionStartedAt(plugId: string, t: number) {
+    const internals = monitor as unknown as MonitorInternals;
+    internals.sessionStartedAt.set(plugId, t);
+  }
+
+  it('FPD-04 boundary — just UNDER 24h (23h 59m 59s): no fire, state still charging', () => {
+    seedFpd04Plug();
+    const match = makeWideBandMatch();
+    const t0 = Date.now();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+    setSessionStartedAt('plug-1', t0);
+
+    // Advance wall-clock to t0 + 23h 59m 59s.
+    vi.setSystemTime(new Date(t0 + (24 * 3600 - 1) * 1000));
+
+    (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+      makePowerReading('plug-1', 40, 100, Date.now())
+    );
+
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1')!;
+    expect(machine.state).toBe('charging');
+    expect(switchRelayOffMock).not.toHaveBeenCalled();
+  });
+
+  it('FPD-04 boundary — JUST over 24h (24h 0m 1s): fires forceTimeout → relay off + DB stop_reason=timeout + Pushover', () => {
+    seedFpd04Plug();
+    const match = makeWideBandMatch();
+    const t0 = Date.now();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+    setSessionStartedAt('plug-1', t0);
+
+    const fetchSpy = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    fakeState.lastUpdateSets = [];
+
+    // Advance to t0 + 24h 0m 1s = just past the cap.
+    vi.setSystemTime(new Date(t0 + (24 * 3600 + 1) * 1000));
+
+    (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+      makePowerReading('plug-1', 40, 100, Date.now())
+    );
+
+    // Relay-off fired exactly once.
+    expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
+
+    // DB write with stopReason='timeout'.
+    const timeoutWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'timeout'
+    );
+    expect(timeoutWrite).toBeDefined();
+    expect(timeoutWrite!.state).toBe('aborted');
+
+    // Pushover anomaly fired with title containing 'Session-Timeout', monospace=1, ASCII bar.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const callArgs = fetchSpy.mock.calls[0] as unknown as [string, { body: string }];
+    const params = new URLSearchParams(callArgs[1].body);
+    expect(params.get('monospace')).toBe('1');
+    expect(params.get('title') ?? '').toMatch(/Session-Timeout/);
+    const message = params.get('message') ?? '';
+    expect(message).toMatch(/maxSessionHours/);
+    expect(message).toMatch(/[#=.]/); // ASCII bar glyph
+
+    // 'aborted' charge event carries the abort transition; cleanupSession ran post-emit.
+    const abortEvent = captured.find((e) => e.state === 'aborted');
+    expect(abortEvent).toBeDefined();
+  });
+
+  it('FPD-04 — custom maxSessionHours=12 fires at the 12h boundary (cache invalidation respected)', () => {
+    seedFpd04Plug();
+    fakeState.configRows.push({ key: 'charging.maxSessionHours', value: '12' });
+    __resetMaxSessionHoursCacheForTests();
+
+    const match = makeWideBandMatch();
+    const t0 = Date.now();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+    setSessionStartedAt('plug-1', t0);
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+
+    // Advance to t0 + 12h 0m 1s.
+    vi.setSystemTime(new Date(t0 + (12 * 3600 + 1) * 1000));
+
+    (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+      makePowerReading('plug-1', 40, 100, Date.now())
+    );
+
+    expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
+    const timeoutWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'timeout'
+    );
+    expect(timeoutWrite).toBeDefined();
+  });
+
+  it('FPD-04 — inactive state (idle): does NOT fire even at 25h', () => {
+    seedFpd04Plug();
+    const match = makeWideBandMatch();
+    const t0 = Date.now();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    // Force machine into idle. checkSessionTimeout MUST gate on activeStates.
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1')!;
+    machine.state = 'idle';
+
+    setSessionStartedAt('plug-1', t0);
+
+    vi.setSystemTime(new Date(t0 + 25 * 3600 * 1000));
+
+    (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+      makePowerReading('plug-1', 40, 100, Date.now())
+    );
+
+    // Idle state does not arm FPD-04 — relay must stay alone.
+    expect(switchRelayOffMock).not.toHaveBeenCalled();
+    const timeoutWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'timeout'
+    );
+    expect(timeoutWrite).toBeUndefined();
+  });
+
+  it('FPD-04 reason-routing — stale_power abort path (12-01) still writes stop_reason=stale_power post-revision', () => {
+    // Verifies handleTransition('aborted') still routes 'stale_power' correctly
+    // after the case block grew a 'timeout' arm. No regression on FPD-01.
+    seedFpd04Plug();
+    const match = makeWideBandMatch();
+    const t0 = Date.now();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+    setSessionStartedAt('plug-1', t0);
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+
+    // Drive 60 zero-power readings within the 24h cap (so FPD-04 does NOT fire).
+    let t = t0;
+    for (let i = 0; i < 60; i++) {
+      t += 5000;
+      vi.setSystemTime(new Date(t));
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+
+    // 60 zeros at 1W threshold triggers FPD-01 stale_power.
+    expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
+    const stalePowerWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'stale_power'
+    );
+    expect(stalePowerWrite).toBeDefined();
+    // No timeout write happened on this run.
+    const timeoutWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'timeout'
+    );
+    expect(timeoutWrite).toBeUndefined();
+  });
+
+  it('FPD-04 — ChargeStateMachine.forceTimeout is exposed as a function', () => {
+    seedFpd04Plug();
+    const match = makeWideBandMatch();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging' });
+
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1')!;
+    expect(machine.forceTimeout).toBeTypeOf('function');
+    machine.forceTimeout!();
+    expect(machine.state).toBe('aborted');
+  });
+
+  it('FPD-04 — handleTransition default-arm logs warn for unknown reasons without DB write (H3 resolution)', () => {
+    // Synthesize an unknown reason via pendingTransitionData; handleTransition
+    // must log warn and NOT issue a DB write. The default arm is intentionally
+    // inert: abortSession writes user_abort DIRECTLY and bypasses
+    // handleTransition entirely, so a defensive write here would double-write.
+    seedFpd04Plug();
+    const match = makeWideBandMatch();
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging' });
+
+    const internals = monitor as unknown as MonitorInternals;
+    const machine = internals.machines.get('plug-1')!;
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Manually plant an unknown reason and dispatch handleTransition('aborted').
+    (internals as unknown as { pendingTransitionData: Map<string, unknown> })
+      .pendingTransitionData.set('plug-1', { reason: 'unknown_future_reason' });
+    machine.state = 'aborted';
+
+    fakeState.lastUpdateSets = [];
+
+    (monitor as unknown as {
+      handleTransition(p: string, from: string, to: string, r: PowerReading): void;
+    }).handleTransition(
+      'plug-1', 'charging', 'aborted', makePowerReading('plug-1', 0, 100, Date.now())
+    );
+
+    // Warn fired; no DB write happened.
+    expect(warnSpy).toHaveBeenCalled();
+    const anyWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'unknown_future_reason' || w.state === 'aborted'
+    );
+    expect(anyWrite).toBeUndefined();
+
+    warnSpy.mockRestore();
   });
 });
