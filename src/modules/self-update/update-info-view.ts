@@ -39,6 +39,7 @@ export function deriveUpdateInfoView(
     rollbackHappened: state.rollbackHappened,
     rollbackReason: state.rollbackReason,
     rollbackStage: state.rollbackStage ?? null,
+    lastQuarantine: state.lastQuarantine ?? null,
     ...(inProgressUpdate !== undefined ? { inProgressUpdate } : {}),
   };
 

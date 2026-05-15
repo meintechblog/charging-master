@@ -62,6 +62,22 @@ export type UpdateState = {
    * `stage2` = tarball-restore rollback.
    */
   rollbackStage?: 'stage1' | 'stage2' | null;
+  /**
+   * Phase 13 (PIPE-01) addition. Populated by the bash updater's
+   * state_set_quarantine helper after preflight_git moves untracked files
+   * out of the working tree into `.update-state/quarantine-<ts>/`. The UI
+   * reads this to show the yellow "preflight quarantined files" banner and
+   * to expose a DELETE button that clears the directory + the field.
+   *
+   * - `timestamp`: epoch milliseconds (matches lastCheckAt + updateStartedAt).
+   * - `fileCount`: number of files moved during the most recent quarantine event.
+   * - `path`: absolute filesystem path to the quarantine directory on the LXC.
+   *
+   * Optional + nullable for backwards compat with state.json files written
+   * before Phase 13 — JSON.parse yields `undefined`, the UI treats both
+   * `undefined` and `null` as "no quarantine event recorded".
+   */
+  lastQuarantine?: { timestamp: number; fileCount: number; path: string } | null;
 };
 
 export const DEFAULT_UPDATE_STATE: Omit<UpdateState, 'currentSha'> = {
@@ -75,6 +91,7 @@ export const DEFAULT_UPDATE_STATE: Omit<UpdateState, 'currentSha'> = {
   targetSha: null,
   updateStartedAt: null,
   rollbackStage: null,
+  lastQuarantine: null,
 };
 
 /**
@@ -152,4 +169,9 @@ export type UpdateInfoView = {
     targetShaShort: string;
     startedAt: number;
   };
+  /**
+   * Surfaced from UpdateState; populated only after a preflight quarantine
+   * event. Cleared by DELETE /api/admin/update-state/quarantine (Plan 13-03).
+   */
+  lastQuarantine?: { timestamp: number; fileCount: number; path: string } | null;
 };

@@ -33,6 +33,7 @@ readonly DB="${INSTALL_DIR}/data/charging-master.db"
 readonly SERVICE="charging-master"
 readonly APP_URL="http://127.0.0.1:80"  # Hard-coded per 09-CONTEXT.md §Security
 readonly SNAPSHOT_RETAIN=3
+readonly QUARANTINE_RETAIN=3
 readonly DB_BACKUP_RETAIN=3
 readonly DB_BACKUP_DIR="${INSTALL_DIR}/data"
 readonly DB_BACKUP_PREFIX="charging-master.db.pre-migrate-"
@@ -188,6 +189,56 @@ os.replace(tmp, state_file)
 PYEOF
 }
 
+# Phase 13 (PIPE-01): persist the lastQuarantine event to state.json so the UI
+# can render the yellow banner. Args: $1 = epoch ms, $2 = file count, $3 =
+# absolute quarantine dir path. Read → merge → atomic write; preserves every
+# other field including rollbackHappened / lastCheckResult / currentSha.
+state_set_quarantine() {
+    local timestamp="$1"
+    local file_count="$2"
+    local quarantine_path="$3"
+    python3 - "${STATE_FILE}" "${timestamp}" "${file_count}" "${quarantine_path}" <<'PYEOF'
+import json, os, sys
+state_file, ts, count, path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+with open(state_file) as f:
+    state = json.load(f)
+state["lastQuarantine"] = {
+    "timestamp": int(ts),
+    "fileCount": int(count),
+    "path": path,
+}
+tmp = state_file + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(state, f, indent=2)
+os.replace(tmp, state_file)
+PYEOF
+}
+
+# Phase 13 (PIPE-02): on_error trap calls this BEFORE any other state write so
+# the next /api/update/trigger never sees a stranded 'installing' status. Only
+# touches updateStatus / targetSha / updateStartedAt — preserves currentSha,
+# rollbackSha, lastCheckResult, lastCheckEtag, lastCheckAt, rollbackHappened,
+# rollbackReason, rollbackStage, lastQuarantine. If state_set_rolled_back fires
+# afterwards (pre-change case-arm), its 'rolled_back' status overrides this
+# helper's 'idle' write — that is intentional so the red banner still appears
+# when the rollback bookkeeping succeeds. If state_set_rolled_back silently
+# fails (the 2026-05-15 incident class), this helper's 'idle' write survives.
+state_set_idle_clearing_inprogress() {
+    python3 - "${STATE_FILE}" <<'PYEOF'
+import json, os, sys
+state_file = sys.argv[1]
+with open(state_file) as f:
+    state = json.load(f)
+state["updateStatus"] = "idle"
+state["targetSha"] = None
+state["updateStartedAt"] = None
+tmp = state_file + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(state, f, indent=2)
+os.replace(tmp, state_file)
+PYEOF
+}
+
 # -----------------------------------------------------------------------------
 # Pushover (P4/NOTF support — pitfall mitigation: never let a failed pushover
 # break the update, hence `|| true`)
@@ -267,14 +318,95 @@ preflight_pnpm() {
 }
 
 preflight_git() {
+    # Phase 13 (PIPE-01): instead of dying on ANY untracked/modified file
+    # (the 2026-05-15 incident: a single 0-byte stray .ts file from a prior
+    # botched update killed every subsequent preflight), partition the
+    # working tree into:
+    #   - untracked-only ('??') → MOVE to .update-state/quarantine-<ts>/
+    #     preserving directory structure, then continue.
+    #   - anything else (M/A/D/R/C/unmerged) → die fatally. We never silently
+    #     reset tracked-file edits — they are intentional and must be reviewed.
+    # The bash updater's own write paths (.update-state/*, .next/*) are
+    # excluded from the quarantine candidate set; they belong to the script.
     CURRENT_STAGE="preflight_git"
-    # Allow well-known untracked/modified paths; fail on any src/ or config drift.
-    local dirty
-    dirty=$(git status --porcelain | grep -vE '^\?\? \.update-state/|^\?\? \.next/|^ M tsconfig\.tsbuildinfo' || true)
-    if [ -n "${dirty}" ]; then
-        die "Working tree has unexpected changes: ${dirty}"
+
+    local untracked=()
+    local fatal=()
+    local entry code path
+
+    # `git status -z --porcelain`:
+    # - -z uses NUL terminators between entries (handles spaces, quotes, newlines safely)
+    # - in -z mode, NO C-string quoting — bytes between NULs are the raw filename
+    # - rename codes (R*/C*) emit TWO NUL tokens (new + old). We die fatally
+    #   on the first one, so we never consume the second.
+    while IFS= read -r -d '' entry; do
+        code="${entry:0:2}"
+        path="${entry:3}"
+        case "${code}" in
+            '??')
+                # Skip the updater's own write directories.
+                case "${path}" in
+                    .update-state/*|.next/*) continue ;;
+                esac
+                untracked+=("${path}")
+                ;;
+            *)
+                fatal+=("${code} ${path}")
+                ;;
+        esac
+    done < <(git status -z --porcelain)
+
+    if (( ${#fatal[@]} > 0 )); then
+        die "Working tree has unexpected changes: ${fatal[*]}"
     fi
-    log "git working tree clean"
+
+    if (( ${#untracked[@]} == 0 )); then
+        log "git working tree clean"
+        return 0
+    fi
+
+    # Build a unique quarantine dir, handling same-second re-trigger by
+    # appending -tryN (up to -try10) — see RESEARCH Pitfall 4.
+    local stamp
+    stamp=$(date +%Y%m%d-%H%M%S)
+    local qdir="${STATE_DIR}/quarantine-${stamp}"
+    if [ -e "${qdir}" ]; then
+        local n=1
+        while [ -e "${qdir}-try${n}" ] && (( n < 10 )); do
+            n=$((n + 1))
+        done
+        qdir="${qdir}-try${n}"
+    fi
+    mkdir -p "${qdir}"
+
+    local f dest
+    for f in "${untracked[@]}"; do
+        dest="${qdir}/${f}"
+        mkdir -p "$(dirname "${dest}")"
+        # `mv` is atomic within the same filesystem and relocates symlink
+        # nodes themselves (does NOT follow). die() flushes on_error → reset.
+        mv "${INSTALL_DIR}/${f}" "${dest}" || die "quarantine move failed for ${f}"
+    done
+
+    log "quarantined ${#untracked[@]} file(s) to ${qdir}"
+
+    # Retention prune AFTER quarantine creation (the new dir is already
+    # counted, so keep newest QUARANTINE_RETAIN total by skipping the first
+    # QUARANTINE_RETAIN entries from `ls -1td`).
+    local existing
+    existing=$(ls -1td "${STATE_DIR}"/quarantine-* 2>/dev/null | tail -n +$((QUARANTINE_RETAIN + 1)) || true)
+    if [ -n "${existing}" ]; then
+        log "pruning old quarantine dirs"
+        echo "${existing}" | xargs -r rm -rf
+    fi
+
+    # Persist the event to state.json so the UI can surface a yellow banner.
+    # `date +%s%3N` is GNU coreutils on Debian — millisecond precision.
+    local epoch_ms
+    epoch_ms=$(date +%s%3N)
+    state_set_quarantine "${epoch_ms}" "${#untracked[@]}" "${qdir}"
+
+    log "git working tree clean (after quarantine)"
 }
 
 # -----------------------------------------------------------------------------
@@ -299,6 +431,7 @@ do_snapshot() {
         --exclude='./node_modules' \
         --exclude='./.git' \
         --exclude='./.update-state/snapshots' \
+        --exclude='./.update-state/quarantine-*' \
         --exclude='./data/*.db-wal' \
         --exclude='./data/*.db-shm' \
         -C "${INSTALL_DIR}" \
@@ -564,6 +697,13 @@ do_rollback_stage2() {
 # Error trap (triggered by set -e on any non-zero exit)
 # -----------------------------------------------------------------------------
 on_error() {
+    # Phase 13 (PIPE-02): reset updateStatus to idle BEFORE any other state
+    # writes. If a subsequent state_set_rolled_back succeeds it will override
+    # updateStatus to 'rolled_back' (correct — surfaces the red banner). If
+    # state_set_rolled_back silently fails (the 2026-05-15 incident class
+    # where preflight_git died while state.json was 'installing'),
+    # updateStatus stays 'idle' so the next /api/update/trigger does NOT
+    # 409 'already in progress'.
     local exit_code="$1"
     local lineno="$2"
     local failed_stage="${CURRENT_STAGE}"
@@ -574,6 +714,11 @@ on_error() {
     # Disable the trap inside the trap so rollback failures don't recursively
     # fire it and loop forever.
     trap - ERR
+
+    # PIPE-02: unconditional idle reset before any case-arm bookkeeping. The
+    # `|| true` keeps a helper failure from itself crashing the trap (defense
+    # in depth — the trap is already disabled above).
+    state_set_idle_clearing_inprogress || true
 
     # Stages where no rollback is needed — the old code is still running.
     case "${failed_stage}" in
