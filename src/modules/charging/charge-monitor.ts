@@ -7,7 +7,7 @@
  * Lifecycle: Created in server.ts, exposed on globalThis.__chargeMonitor.
  */
 
-import { ChargeStateMachine, CHARGE_THRESHOLD } from './charge-state-machine';
+import { ChargeStateMachine, CHARGE_THRESHOLD, MIN_CHARGING_READINGS_FOR_STOP } from './charge-state-machine';
 import {
   readStalePowerWindowSec,
   readMatcherRefreshReadings,
@@ -416,6 +416,13 @@ export class ChargeMonitor {
       (prevState === 'charging' || prevState === 'countdown') &&
       machine.socBandConfidence < readLowConfidenceThreshold() &&
       machine.targetSoc > 0 &&
+      // Warm-up gate — mirror the state-machine's MIN_CHARGING_READINGS gate
+      // so the FPD-03 energy-fallback path can't fire before FPD-02 has had
+      // a chance to refresh the initial DTW match. Without this, a wrong
+      // initial profile match whose energy_fallback estimatedSoc already
+      // crosses target (Session 20: Winbot @ socBest=83 on real iPad) would
+      // bypass the warm-up via the FPD-03 short-circuit.
+      machine.chargingReadingCount >= MIN_CHARGING_READINGS_FOR_STOP &&
       shouldStopEnergyFallback({
         estimatedSoc: machine.estimatedSoc,
         targetSoc: machine.targetSoc,

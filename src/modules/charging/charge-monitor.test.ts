@@ -240,6 +240,7 @@ type MonitorInternals = {
     targetSoc: number;
     stopMode: 'aggressive' | 'conservative';
     stalePowerCount: number;
+    chargingReadingCount: number;
     forceStop?: (reason: string) => void;
     forceTimeout?: () => void;
   }>;
@@ -719,6 +720,11 @@ describe('ChargeMonitor — Plan 11-02 Task 3b: DB persistence + resume + overri
     machine.socBest = 80;
     machine.socBandConfidence = 0.96;
     machine.estimatedSoc = 80;
+    // Clear the SOCB warm-up gate so shouldStop fires on the next reading
+    // (v1.4.2). Production-wise the gate would clear naturally after
+    // MIN_CHARGING_READINGS_FOR_STOP charging readings — irrelevant to the
+    // <30s-after-collapse semantic this test asserts.
+    machine.chargingReadingCount = 999;
 
     // Drive readings — within 30 sec of simulated time the machine must
     // progress charging → countdown → stopping AND switchRelayOff must
@@ -1432,6 +1438,9 @@ describe('ChargeMonitor — Phase 12 FPD-03: energy-fallback dispatch + stopMode
     machine.targetSoc = 80;
     machine.socBandConfidence = 0.30;
     machine.state = 'charging';
+    // SOCB warm-up gate (v1.4.2) must be clear for the FPD-03 dispatch to
+    // fire — production semantics are unchanged once the gate is open.
+    machine.chargingReadingCount = 999;
 
     captured.length = 0;
 
@@ -1480,6 +1489,7 @@ describe('ChargeMonitor — Phase 12 FPD-03: energy-fallback dispatch + stopMode
     machine.estimatedSoc = 82;
     machine.targetSoc = 80;
     machine.socBandConfidence = 0.30;
+    machine.chargingReadingCount = 999; // SOCB warm-up cleared (v1.4.2)
 
     // Spy on feedReading. If the early-return works, the dispatch reading never
     // hits feedReading; the recycle gate at charge-state-machine.ts:76-85 would

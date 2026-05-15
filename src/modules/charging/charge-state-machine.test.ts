@@ -27,7 +27,20 @@ import {
   LEARN_HARD_STOP_MS,
   PLATEAU_WINDOW_MS,
   PLATEAU_MIN_PEAK_W,
+  MIN_CHARGING_READINGS_FOR_STOP,
 } from './charge-state-machine';
+
+/**
+ * Bypass the warm-up gate so a test that just transitioned into charging
+ * can drive a stop-predicate without first having to feed
+ * MIN_CHARGING_READINGS_FOR_STOP (60) sustained readings. Mirrors the
+ * production invariant that handleCharging consumes ≥60 readings before
+ * shouldStop is honoured — the band-mode and FPD-03 unit tests are
+ * deliberately exempt from that invariant.
+ */
+function skipWarmUp(machine: ChargeStateMachine): void {
+  machine.chargingReadingCount = MIN_CHARGING_READINGS_FOR_STOP;
+}
 import type { MatchResult } from './types';
 import { __resetStopModeCacheForTests } from './stop-mode';
 
@@ -122,6 +135,7 @@ describe('ChargeStateMachine', () => {
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     machine.setMatch(makeMatch({ estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+    skipWarmUp(machine);
 
     // Collapse the band (width <= 5) with socBest at target → aggressive stop.
     machine.targetSoc = 80;
@@ -137,6 +151,7 @@ describe('ChargeStateMachine', () => {
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     machine.setMatch(makeMatch({ estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+    skipWarmUp(machine);
 
     machine.targetSoc = 80;
     machine.socMin = 78;
@@ -313,6 +328,7 @@ describe('ChargeStateMachine', () => {
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+    skipWarmUp(machine);
 
     // Session 19 (2026-05-15) incident: wide band 20-80 with socBest landing
     // on target previously locked aggressive out. Behaviour is now flipped —
@@ -332,6 +348,7 @@ describe('ChargeStateMachine', () => {
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+    skipWarmUp(machine);
 
     machine.targetSoc = 80;
     machine.stopMode = 'aggressive';
@@ -351,6 +368,7 @@ describe('ChargeStateMachine', () => {
     feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
     machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
     machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+    skipWarmUp(machine);
 
     machine.targetSoc = 80;
     machine.stopMode = 'conservative';
@@ -364,6 +382,31 @@ describe('ChargeStateMachine', () => {
     // Propagate socMin to 80 (Wh accumulation in production) → conservative trips.
     machine.socMin = 80;
     machine.feedReading(CHARGE_THRESHOLD + 10, 30000);
+    expect(machine.state).toBe('countdown');
+  });
+
+  it('SOCB warm-up gate — shouldStop is suppressed for the first MIN_CHARGING_READINGS_FOR_STOP readings (v1.4.2)', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
+    machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+
+    // Stop-eligible state from t=0 (Session 20 pattern: wrong-profile match
+    // anchored socBest above target before any FPD-02 refresh).
+    machine.targetSoc = 80;
+    machine.stopMode = 'aggressive';
+    machine.socMin = 78;
+    machine.socMax = 82;
+    machine.socBest = 83;
+
+    // Feed exactly (MIN - 1) readings — still inside the warm-up window.
+    for (let i = 0; i < MIN_CHARGING_READINGS_FOR_STOP - 1; i++) {
+      machine.feedReading(CHARGE_THRESHOLD + 10, 20_000 + i * 5_000);
+    }
+    expect(machine.state).toBe('charging');
+
+    // One more reading clears the gate — shouldStop fires.
+    machine.feedReading(CHARGE_THRESHOLD + 10, 20_000 + MIN_CHARGING_READINGS_FOR_STOP * 5_000);
     expect(machine.state).toBe('countdown');
   });
 

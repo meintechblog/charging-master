@@ -31,6 +31,14 @@ export const SUSTAINED_READINGS = 6;       // 30s at 5s interval
 export const LEARN_IDLE_READINGS = 12;     // 60s at 5s interval
 const MATCHED_DISPLAY_MS = 5000;           // 5 seconds to show banner
 
+// SOCB-warm-up. Block shouldStop / FPD-03 energy-fallback dispatch for the
+// first ~5 min of charging so the initial DTW match (which may anchor on a
+// neighbouring profile's flat-power region — Session 20 hit Winbot W3 with
+// socBest=83 on a real iPad 2026-05-15) gets at least one FPD-02 adaptive
+// matcher refresh before any stop predicate can fire. 60 readings × 5s
+// polling interval = 300s exactly equals the FPD-02 cadence.
+export const MIN_CHARGING_READINGS_FOR_STOP = 60;
+
 // Learn-mode plateau detection — catches chargers with persistent standby
 // load (dock electronics, fan-cooled chargers, idle robot draw). Triggers
 // learn_complete when sliding window is flat AND power is small relative
@@ -78,6 +86,13 @@ export class ChargeStateMachine {
   stalePowerCount = 0;
   private stalePowerThresholdW = DEFAULT_STALE_POWER_THRESHOLD_W;
   private stalePowerWindowReadings = 60; // = 300s / 5s = default 60 readings
+
+  // Warm-up counter — number of readings consumed in handleCharging since the
+  // most recent transition into 'charging'. shouldStop is gated until this
+  // exceeds MIN_CHARGING_READINGS_FOR_STOP. PUBLIC READONLY: ChargeMonitor
+  // reads this for the matching FPD-03 dispatch gate (avoid duplicating the
+  // counter across two source-of-truth sites).
+  chargingReadingCount = 0;
 
   // Learn-mode plateau detection state
   private learnStartTimestamp: number | null = null;
@@ -258,7 +273,14 @@ export class ChargeStateMachine {
     // already fired this call, state is no longer 'charging' — bail out.
     if (this.checkStalePower(apower)) return this.state;
 
+    this.chargingReadingCount++;
+
     if (this.targetSoc <= 0) return this.state;
+    // Warm-up gate. The initial DTW match runs on a ~30s window of
+    // mostly-flat CC power, which is structurally ambiguous between many
+    // device profiles. Wait for at least one FPD-02 adaptive refresh before
+    // honouring any stop predicate.
+    if (this.chargingReadingCount < MIN_CHARGING_READINGS_FOR_STOP) return this.state;
     if (
       shouldStop({
         mode: this.stopMode,
@@ -375,6 +397,13 @@ export class ChargeStateMachine {
   private transition(to: ChargeState, data?: unknown): void {
     const from = this.state;
     this.state = to;
+    // Arm the warm-up counter only when we ENTER charging. Re-entry from
+    // countdown→charging (band momentarily fell back below target) keeps the
+    // gate closed once already cleared — that's the point of tying the reset
+    // to from!=='charging' rather than every charging transition.
+    if (to === 'charging' && from !== 'charging') {
+      this.chargingReadingCount = 0;
+    }
     this.onTransition?.(from, to, data);
   }
 
@@ -393,6 +422,7 @@ export class ChargeStateMachine {
     this.stalePowerCount = 0;
     this.stalePowerThresholdW = DEFAULT_STALE_POWER_THRESHOLD_W;
     this.stalePowerWindowReadings = 60;
+    this.chargingReadingCount = 0;
     this.learnStartTimestamp = null;
     this.learnSessionMaxPower = 0;
     this.learnReadings = [];
