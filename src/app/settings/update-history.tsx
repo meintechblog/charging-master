@@ -10,7 +10,7 @@ type UpdateRun = {
   fromShaShort: string;
   toSha: string | null;
   toShaShort: string | null;
-  status: 'running' | 'success' | 'failed' | 'rolled_back';
+  status: 'running' | 'success' | 'failed' | 'rolled_back' | 'recovery_reset';
   stage: string | null;
   errorMessage: string | null;
   rollbackStage: string | null;
@@ -45,6 +45,8 @@ function statusLabel(r: UpdateRun): { label: string; className: string } {
       return { label: 'Fehlgeschlagen', className: 'text-red-400' };
     case 'running':
       return { label: 'Läuft…', className: 'text-blue-400' };
+    case 'recovery_reset':
+      return { label: 'Manuelles Reset', className: 'text-neutral-400' };
     default:
       return { label: r.status, className: 'text-neutral-400' };
   }

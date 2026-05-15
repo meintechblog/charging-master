@@ -243,7 +243,7 @@ export const updateRuns = sqliteTable('update_runs', {
   fromSha: text('from_sha').notNull(),
   toSha: text('to_sha'),
   status: text('status', {
-    enum: ['running', 'success', 'failed', 'rolled_back'] as const,
+    enum: ['running', 'success', 'failed', 'rolled_back', 'recovery_reset'] as const,
   }).notNull(),
   stage: text('stage'),
   errorMessage: text('error_message'),
