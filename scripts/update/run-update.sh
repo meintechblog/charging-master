@@ -33,6 +33,7 @@ readonly DB="${INSTALL_DIR}/data/charging-master.db"
 readonly SERVICE="charging-master"
 readonly APP_URL="http://127.0.0.1:80"  # Hard-coded per 09-CONTEXT.md §Security
 readonly SNAPSHOT_RETAIN=3
+readonly QUARANTINE_RETAIN=3
 readonly DB_BACKUP_RETAIN=3
 readonly DB_BACKUP_DIR="${INSTALL_DIR}/data"
 readonly DB_BACKUP_PREFIX="charging-master.db.pre-migrate-"
@@ -181,6 +182,56 @@ with open(state_file) as f:
 state["updateStatus"] = "rolled_back"
 state["rollbackHappened"] = True
 state["rollbackReason"] = reason[:500]
+tmp = state_file + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(state, f, indent=2)
+os.replace(tmp, state_file)
+PYEOF
+}
+
+# Phase 13 (PIPE-01): persist the lastQuarantine event to state.json so the UI
+# can render the yellow banner. Args: $1 = epoch ms, $2 = file count, $3 =
+# absolute quarantine dir path. Read → merge → atomic write; preserves every
+# other field including rollbackHappened / lastCheckResult / currentSha.
+state_set_quarantine() {
+    local timestamp="$1"
+    local file_count="$2"
+    local quarantine_path="$3"
+    python3 - "${STATE_FILE}" "${timestamp}" "${file_count}" "${quarantine_path}" <<'PYEOF'
+import json, os, sys
+state_file, ts, count, path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+with open(state_file) as f:
+    state = json.load(f)
+state["lastQuarantine"] = {
+    "timestamp": int(ts),
+    "fileCount": int(count),
+    "path": path,
+}
+tmp = state_file + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(state, f, indent=2)
+os.replace(tmp, state_file)
+PYEOF
+}
+
+# Phase 13 (PIPE-02): on_error trap calls this BEFORE any other state write so
+# the next /api/update/trigger never sees a stranded 'installing' status. Only
+# touches updateStatus / targetSha / updateStartedAt — preserves currentSha,
+# rollbackSha, lastCheckResult, lastCheckEtag, lastCheckAt, rollbackHappened,
+# rollbackReason, rollbackStage, lastQuarantine. If state_set_rolled_back fires
+# afterwards (pre-change case-arm), its 'rolled_back' status overrides this
+# helper's 'idle' write — that is intentional so the red banner still appears
+# when the rollback bookkeeping succeeds. If state_set_rolled_back silently
+# fails (the 2026-05-15 incident class), this helper's 'idle' write survives.
+state_set_idle_clearing_inprogress() {
+    python3 - "${STATE_FILE}" <<'PYEOF'
+import json, os, sys
+state_file = sys.argv[1]
+with open(state_file) as f:
+    state = json.load(f)
+state["updateStatus"] = "idle"
+state["targetSha"] = None
+state["updateStartedAt"] = None
 tmp = state_file + ".tmp"
 with open(tmp, "w") as f:
     json.dump(state, f, indent=2)
