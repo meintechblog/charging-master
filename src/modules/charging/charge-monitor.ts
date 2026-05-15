@@ -8,8 +8,9 @@
  */
 
 import { ChargeStateMachine, CHARGE_THRESHOLD } from './charge-state-machine';
-import { readStalePowerWindowSec } from './stop-mode';
-import { findBestCandidate, type ProfileWithCurve } from './curve-matcher';
+import { readStalePowerWindowSec, readMatcherRefreshReadings } from './stop-mode';
+import * as curveMatcher from './curve-matcher';
+import { type ProfileWithCurve } from './curve-matcher';
 import {
   logSocCorrection,
   getStartSocBias,
@@ -112,6 +113,14 @@ export class ChargeMonitor {
   // abort path AND so captureEventContext can detect kind='fired'.
   // Persists until cleanupSession runs at end of the abort branch.
   private lastStopReason = new Map<string, string>();
+  // FPD-02 adaptive matcher refresh. chargingBuffers caches per-plug apower
+  // readings + the ProfileWithCurve picked up by tryMatch — refreshMatch
+  // re-runs findBestCandidate against this in-memory ring every
+  // matcherRefreshReadings readings WITHOUT a per-refresh DB round-trip.
+  // Cleared by cleanupSession. readingsSinceLastMatch is the counter.
+  // RESEARCH §FPD-02 Q3 + Pitfall 14: in-memory beats DB query (~138 KB / 24h).
+  private chargingBuffers = new Map<string, { apower: number[]; profile: ProfileWithCurve }>();
+  private readingsSinceLastMatch = new Map<string, number>();
   // Per-plug stash for the transition data parameter set by ChargeStateMachine.
   // Cleared by handleTransition once consumed.
   private pendingTransitionData = new Map<string, unknown>();
@@ -677,6 +686,22 @@ export class ChargeMonitor {
           db.update(chargeSessions).set({ state: 'charging' })
             .where(eq(chargeSessions.id, sessionId)).run();
         }
+        // FPD-02: initialize the adaptive-refresh buffer with the cached
+        // ProfileWithCurve so refreshMatch doesn't re-query the DB every 60
+        // readings. loadProfilesWithCurves() is the one place that joins
+        // device_profiles + reference_curves + reference_curve_points; we
+        // call it ONCE here and stash the matched profile on the buffer.
+        const storedMatch = this.matchData.get(plugId);
+        if (storedMatch) {
+          const profiles = this.loadProfilesWithCurves();
+          const matchedProfile = profiles.find((p) => p.id === storedMatch.profileId);
+          if (matchedProfile) {
+            this.chargingBuffers.set(plugId, { apower: [], profile: matchedProfile });
+            this.readingsSinceLastMatch.set(plugId, 0);
+          } else {
+            console.warn('[refreshMatch] missing profile for plugId', plugId);
+          }
+        }
         this.emitChargeEvent(plugId, 'charging');
         break;
       }
@@ -799,7 +824,7 @@ export class ChargeMonitor {
     const profiles = this.loadProfilesWithCurves();
     if (profiles.length === 0) return;
 
-    const candidate = findBestCandidate(buffer, profiles);
+    const candidate = curveMatcher.findBestCandidate(buffer, profiles);
     if (!candidate) return;
 
     // Always remember the best speculative candidate so the UI can render
@@ -1059,7 +1084,116 @@ export class ChargeMonitor {
       }).where(eq(chargeSessions.id, sessionId)).run();
     }
 
+    // FPD-02: adaptive matcher refresh. Append apower to the per-plug buffer
+    // and re-run findBestCandidate every matcherRefreshReadings readings
+    // (default 60 ≈ 5 min at 5s polling). Buffer init lives in
+    // handleTransition('charging'); buffer growth + DB-side cost is bounded
+    // (~138 KB / 24h). refreshMatch awaits nothing in the hot path — it's
+    // declared async only because it logs / writes DB on the accepted-narrow
+    // branch.
+    const buffer = this.chargingBuffers.get(plugId);
+    if (buffer) {
+      buffer.apower.push(reading.apower);
+      const counter = (this.readingsSinceLastMatch.get(plugId) ?? 0) + 1;
+      const refreshEvery = readMatcherRefreshReadings();
+      if (counter >= refreshEvery) {
+        this.readingsSinceLastMatch.set(plugId, 0);
+        // Fire-and-forget: refreshMatch is async only for the DB write +
+        // emitChargeEvent path, never blocks the polling tick. Errors are
+        // logged inside the method (matcher failures are non-fatal).
+        void this.refreshMatch(plugId, reading.timestamp);
+      } else {
+        this.readingsSinceLastMatch.set(plugId, counter);
+      }
+    }
+
     this.emitChargeEvent(plugId, machine.state);
+  }
+
+  /**
+   * FPD-02 adaptive matcher refresh. Re-runs findBestCandidate against the
+   * accumulated chargingBuffer with the cached ProfileWithCurve. The
+   * returned MatchResult is gated by INLINE monotonic narrowing (Math.max /
+   * Math.min) — DO NOT extract a helper; the existing tryMatch clamp at
+   * lines ~870-880 handles the prior-undefined fallback, and two-site
+   * duplication of 4 LOC is safer than a refactor that risks drift between
+   * the two phases (PLAN-CHECK H4).
+   *
+   * Two-argument call only — findBestCandidate has no third opts arg
+   * (signature at curve-matcher.ts:141-144). The band threshold is the
+   * compile-time DEFAULT_BAND_THRESHOLD_PCT baked into deriveBand
+   * (curve-matcher.ts:172) — the v1.3.1-tuned 0.20 value already used by
+   * initial-match; adaptive refresh respects the same threshold by design
+   * (PLAN-CHECK B1).
+   */
+  private async refreshMatch(plugId: string, _timestamp: number): Promise<void> {
+    const entry = this.chargingBuffers.get(plugId);
+    if (!entry || entry.apower.length === 0) return;
+
+    const candidate = curveMatcher.findBestCandidate(entry.apower, [entry.profile]);
+    if (!candidate) return;
+
+    const priorSocMin = this.sessionSocMin.get(plugId);
+    const priorSocMax = this.sessionSocMax.get(plugId);
+    // refreshMatch only runs after handleTransition('charging') which seeds
+    // the band Maps via the matched-transition path (or override). If the
+    // Maps are unexpectedly empty, bail — we have no prior to narrow against.
+    if (priorSocMin === undefined || priorSocMax === undefined) return;
+
+    // PLAN-CHECK H4 INLINE monotonic narrowing (NOT a helper). Math.max /
+    // Math.min independently clamp each edge — the band can ONLY narrow.
+    // This is the SAFETY property: a single widening edge in the candidate is
+    // silently held at the prior cached value; if both edges widen, both are
+    // held and the cached band is preserved. No explicit reject-and-bail is
+    // needed because the clamp IS the rejection. (Mirrors the existing
+    // tryMatch clamp at the matched-commit site lines ~869-880; two-site 4-LOC
+    // duplication is acceptable per PLAN-CHECK H4.)
+    const newSocMin = Math.max(priorSocMin, candidate.socMin);
+    const newSocMax = Math.min(priorSocMax, candidate.socMax);
+    if (candidate.socMin < priorSocMin || candidate.socMax > priorSocMax) {
+      console.debug('[refreshMatch] widening candidate clamped to prior band', {
+        plugId,
+        prior: { socMin: priorSocMin, socMax: priorSocMax },
+        candidate: { socMin: candidate.socMin, socMax: candidate.socMax },
+        clamped: { socMin: newSocMin, socMax: newSocMax },
+      });
+    }
+
+    this.sessionSocMin.set(plugId, newSocMin);
+    this.sessionSocMax.set(plugId, newSocMax);
+    this.sessionBandConfidence.set(plugId, candidate.bandConfidence);
+
+    const machine = this.machines.get(plugId);
+    if (machine) {
+      machine.socMin = newSocMin;
+      machine.socMax = newSocMax;
+      machine.socBest = candidate.socBest;
+      machine.socBandConfidence = candidate.bandConfidence;
+    }
+
+    // Sync the cached MatchResult so updateSocTracking's band propagation
+    // anchors on the narrowed values on the next tick.
+    const cachedMatch = this.matchData.get(plugId);
+    if (cachedMatch) {
+      cachedMatch.socMin = newSocMin;
+      cachedMatch.socMax = newSocMax;
+      cachedMatch.socBest = candidate.socBest;
+      cachedMatch.bandConfidence = candidate.bandConfidence;
+    }
+
+    // Persist refreshed band; mirrors the updateSocTracking DB write path.
+    const sessionId = this.sessionIds.get(plugId);
+    if (sessionId) {
+      db.update(chargeSessions).set({
+        socMin: newSocMin,
+        socMax: newSocMax,
+        bandConfidence: candidate.bandConfidence,
+      }).where(eq(chargeSessions.id, sessionId)).run();
+    }
+
+    // OQ-5 resolved: emit the same 'charging' event tag — SocBandIndicator's
+    // CSS transition animates the change without needing a new 'rematch' kind.
+    this.emitChargeEvent(plugId, 'charging');
   }
 
   private async handleStopping(plugId: string): Promise<void> {
@@ -1332,6 +1466,9 @@ export class ChargeMonitor {
     this.anomalyNotifiedAt.delete(plugId);
     this.lastStopReason.delete(plugId);
     this.pendingTransitionData.delete(plugId);
+    // FPD-02
+    this.chargingBuffers.delete(plugId);
+    this.readingsSinceLastMatch.delete(plugId);
   }
 
   /**
