@@ -195,6 +195,20 @@ export class ChargeStateMachine {
     }
   }
 
+  /**
+   * FPD-03 force-stop. Synchronous transition to 'stopping' with an
+   * onTransition data payload carrying the reason. Unlike abort(), this does
+   * NOT reset state — handleTransition('stopping') runs through the regular
+   * handleStopping path (relay-off + DB write + cleanupSession).
+   *
+   * Caller (ChargeMonitor.handlePowerReading) MUST early-return after invoking
+   * forceStop — the recycle gate (feedReading entry) would otherwise reset
+   * 'stopping' to 'idle' before the side-effects fire (PLAN-CHECK H1).
+   */
+  forceStop(reason: string): void {
+    this.transition('stopping', { reason });
+  }
+
   // --- State handlers ---
 
   private handleIdle(apower: number): ChargeState {

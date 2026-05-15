@@ -658,16 +658,25 @@ describe('ChargeMonitor — Plan 11-02 Task 3b: DB persistence + resume + overri
     // CONTEXT DoD bullet 3: the runtime stops within <30s once the band has
     // collapsed below the aggressive-mode width gate AND socBest >= target.
     // This test is the existence proof.
+    //
+    // Phase 12 FPD-03 update: estimatedSoc starts BELOW target (50, not 80) so
+    // the new low-confidence energy-fallback gate (bandConfidence < 0.5 AND
+    // estimatedSoc >= targetSoc) does NOT trip during the initial wide-band
+    // phase. This preserves the test's semantic intent (proves narrow-band
+    // aggressive stop fires <30s after collapse) while keeping the
+    // band-confidence and SOC dimensions decoupled. Pre-FPD-03 the test had
+    // estimatedSoc=80 + bandConfidence=0.4 + targetSoc=80 — exactly the case
+    // FPD-03 is designed to short-circuit via energy-fallback.
     seedProfile(1, 'iPad', 100, 8000);
-    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 80, energyWh: 0 });
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 50, energyWh: 0 });
     fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
 
     const internals = monitor as unknown as MonitorInternals;
 
-    // Start with a WIDE band — the iPad-Session-16 scenario. socBest happens
-    // to be 80 (matches target) but width=60 — aggressive must NOT trip yet.
+    // Start with a WIDE band — the iPad-Session-16 scenario. socBest is
+    // 50 (matches estimatedSoc, below target). Aggressive must NOT trip yet.
     const initialMatch = makeMatch({
-      socMin: 20, socMax: 80, socBest: 80, bandConfidence: 0.4, estimatedStartSoc: 80,
+      socMin: 20, socMax: 80, socBest: 50, bandConfidence: 0.4, estimatedStartSoc: 50,
     });
     injectActiveSession(monitor, 'plug-1', 1, initialMatch, { state: 'charging', targetSoc: 80 });
 
@@ -687,9 +696,11 @@ describe('ChargeMonitor — Plan 11-02 Task 3b: DB persistence + resume + overri
     expect(internals.machines.get('plug-1')!.state).toBe('charging');
 
     // Narrow the band — simulate a fresh tryMatch landing tight bounds
-    // (width=4, socBest=80). In production this happens when the matcher
-    // sees taper data; here we apply the narrowing manually because the
-    // test fixtures don't include taper-curve points.
+    // (width=4, socBest=80, bandConfidence=0.96). In production this happens
+    // when the matcher sees taper data; here we apply the narrowing manually
+    // because the test fixtures don't include taper-curve points. Promote
+    // estimatedSoc to 80 too — at band collapse the matcher's socBest moves
+    // there and updateSocTracking would normally have caught up.
     internals.sessionSocMin.set('plug-1', 78);
     internals.sessionSocMax.set('plug-1', 82);
     internals.sessionBandConfidence.set('plug-1', 0.96);
@@ -701,6 +712,7 @@ describe('ChargeMonitor — Plan 11-02 Task 3b: DB persistence + resume + overri
     machine.socMax = 82;
     machine.socBest = 80;
     machine.socBandConfidence = 0.96;
+    machine.estimatedSoc = 80;
 
     // Drive readings — within 30 sec of simulated time the machine must
     // progress charging → countdown → stopping AND switchRelayOff must
@@ -1395,7 +1407,7 @@ describe('ChargeMonitor — Phase 12 FPD-03: energy-fallback dispatch + stopMode
     expect(observedAtCallTime).toBe('aggressive');
   });
 
-  it('FPD-03 — low-confidence + on-target: energy_fallback fires and event carries stopMode="energy_fallback"', () => {
+  it('FPD-03 — low-confidence + on-target: energy_fallback fires and event carries stopMode="energy_fallback"', async () => {
     seedProfile(1, 'iPad', 100, 8000);
     seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 82, energyWh: 0 });
     fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
@@ -1425,12 +1437,21 @@ describe('ChargeMonitor — Phase 12 FPD-03: energy-fallback dispatch + stopMode
 
     // switchRelayOff was invoked once (via handleStopping inside handleTransition('stopping')).
     expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
-    // The complete event must carry stopMode='energy_fallback' (or stopping/complete
-    // depending on race; tolerate both — but at least one terminal carries the field).
-    const fallbackEvent = captured.find(
-      (e) => e.stopMode === 'energy_fallback'
+    // The synchronously-emitted 'stopping' event already carries stopMode.
+    const stoppingEvent = captured.find(
+      (e) => e.state === 'stopping' && e.stopMode === 'energy_fallback'
     );
-    expect(fallbackEvent).toBeDefined();
+    expect(stoppingEvent).toBeDefined();
+
+    // Flush the relay-off await so handleStopping's DB write + 'complete' emit run.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    // The complete event also carries stopMode='energy_fallback' via the snapshot.
+    const completeEvent = captured.find(
+      (e) => e.state === 'complete' && e.stopMode === 'energy_fallback'
+    );
+    expect(completeEvent).toBeDefined();
     // stop_reason in DB stays 'target_soc_reached' (OQ-3).
     const completeWrite = fakeState.lastUpdateSets.find(
       (w) => w.state === 'complete' && w.stopReason === 'target_soc_reached'

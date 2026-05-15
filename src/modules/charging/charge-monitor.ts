@@ -8,7 +8,12 @@
  */
 
 import { ChargeStateMachine, CHARGE_THRESHOLD } from './charge-state-machine';
-import { readStalePowerWindowSec, readMatcherRefreshReadings } from './stop-mode';
+import {
+  readStalePowerWindowSec,
+  readMatcherRefreshReadings,
+  readLowConfidenceThreshold,
+  shouldStopEnergyFallback,
+} from './stop-mode';
 import * as curveMatcher from './curve-matcher';
 import { type ProfileWithCurve } from './curve-matcher';
 import {
@@ -121,6 +126,12 @@ export class ChargeMonitor {
   // RESEARCH §FPD-02 Q3 + Pitfall 14: in-memory beats DB query (~138 KB / 24h).
   private chargingBuffers = new Map<string, { apower: number[]; profile: ProfileWithCurve }>();
   private readingsSinceLastMatch = new Map<string, number>();
+  // FPD-03 last-stop-mode surface. Written synchronously BEFORE the
+  // handleStopping invocation (so captureEventContext's snapshot reads the
+  // fresh value) — either in handleTransition('stopping') for normal band-mode
+  // stops, OR before machine.forceStop('energy_fallback') in handlePowerReading
+  // for the low-confidence dispatch. Cleared by cleanupSession.
+  private lastStopMode = new Map<string, 'aggressive' | 'conservative' | 'energy_fallback'>();
   // Per-plug stash for the transition data parameter set by ChargeStateMachine.
   // Cleared by handleTransition once consumed.
   private pendingTransitionData = new Map<string, unknown>();
@@ -375,6 +386,39 @@ export class ChargeMonitor {
 
     const machine = this.getOrCreateMachine(plugId);
     const prevState = machine.state;
+
+    // FPD-03 low-confidence energy-fallback gate. Runs BEFORE feedReading so
+    // the band-mode shouldStop never gets a chance to fire on an untrusted
+    // band. Ordering invariant (Pitfall 5): low-confidence gate runs FIRST.
+    //
+    // Note: machine.estimatedSoc is read one-reading-stale at this dispatch
+    // point because updateSocTracking runs AFTER feedReading. Acceptable per
+    // design — band-mode dispatch inside shouldStop has the same property.
+    if (
+      (prevState === 'charging' || prevState === 'countdown') &&
+      machine.socBandConfidence < readLowConfidenceThreshold() &&
+      machine.targetSoc > 0 &&
+      shouldStopEnergyFallback({
+        estimatedSoc: machine.estimatedSoc,
+        targetSoc: machine.targetSoc,
+      })
+    ) {
+      // PLAN-CHECK H6: write lastStopMode BEFORE forceStop, so the
+      // synchronous handleTransition('stopping') → handleStopping →
+      // captureEventContext snapshot reads the fresh 'energy_fallback' value.
+      this.lastStopMode.set(plugId, 'energy_fallback');
+      machine.forceStop('energy_fallback');
+      // PLAN-CHECK H1: handleTransition fires synchronously via onTransition
+      // inside forceStop (already wired through getOrCreateMachine's
+      // onTransition handler — see below). The state-comparison dispatch
+      // (prevState !== newState) at the end of this method would re-fire
+      // handleTransition; to avoid double-dispatching the 'stopping' case,
+      // run it directly here and EARLY RETURN. feedReading must NOT be called
+      // on this reading — the recycle gate at charge-state-machine.ts:76-85
+      // would otherwise reset 'stopping' → 'idle' before relay-off runs.
+      this.handleTransition(plugId, prevState, machine.state, reading);
+      return;
+    }
 
     machine.feedReading(apower, timestamp);
 
@@ -717,6 +761,24 @@ export class ChargeMonitor {
       }
 
       case 'stopping': {
+        // PLAN-CHECK H6: write lastStopMode BEFORE handleStopping runs. The
+        // synchronous captureEventContext snapshot inside handleStopping reads
+        // this Map; without the pre-write, complete events emit
+        // stopMode=undefined for the high-confidence aggressive/conservative
+        // path. The low-confidence energy_fallback path already wrote the Map
+        // before forceStop() — this branch handles the band-mode paths whose
+        // forcing is via machine.handleCharging → transition('stopping').
+        // Idempotent for the energy_fallback case: if the Map already holds
+        // 'energy_fallback', leave it alone (do NOT overwrite with
+        // machine.stopMode which is restricted to 'aggressive'|'conservative').
+        if (this.lastStopMode.get(plugId) !== 'energy_fallback') {
+          this.lastStopMode.set(plugId, machine.stopMode);
+        }
+        // Emit the 'stopping' transition synchronously so SSE clients
+        // (and tests) see the stopMode tag immediately — handleStopping's
+        // 'complete' emit is post-await and not visible until the relay-off
+        // promise resolves on the microtask queue.
+        this.emitChargeEvent(plugId, 'stopping');
         this.handleStopping(plugId);
         break;
       }
@@ -1297,6 +1359,11 @@ export class ChargeMonitor {
     watchdogKind: 'none' | 'warning' | 'fired' | undefined;
     stalePowerSeconds: number | undefined;
     stalePowerFiresAt: number | undefined;
+    // FPD-03 stop-mode surface — populated synchronously BEFORE any await so
+    // handleStopping's post-relay-off emitChargeEvent('complete') still carries
+    // the right mode. Set by handleTransition('stopping') for band-mode stops,
+    // OR by handlePowerReading's energy-fallback dispatch BEFORE forceStop.
+    stopMode: 'aggressive' | 'conservative' | 'energy_fallback' | undefined;
   } {
     const machine = this.machines.get(plugId);
     const socMin = this.sessionSocMin.get(plugId);
@@ -1359,6 +1426,7 @@ export class ChargeMonitor {
       watchdogKind,
       stalePowerSeconds,
       stalePowerFiresAt,
+      stopMode: this.lastStopMode.get(plugId),
     };
   }
 
@@ -1385,6 +1453,7 @@ export class ChargeMonitor {
       watchdogKind,
       stalePowerSeconds,
       stalePowerFiresAt,
+      stopMode,
     } = effective;
 
     // During detection the matchData entry is a speculative candidate, not
@@ -1422,6 +1491,7 @@ export class ChargeMonitor {
       watchdogKind,
       stalePowerSeconds,
       stalePowerFiresAt,
+      stopMode,
     };
 
     this.eventBus.emitChargeState(event);
@@ -1469,6 +1539,8 @@ export class ChargeMonitor {
     // FPD-02
     this.chargingBuffers.delete(plugId);
     this.readingsSinceLastMatch.delete(plugId);
+    // FPD-03
+    this.lastStopMode.delete(plugId);
   }
 
   /**
