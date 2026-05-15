@@ -217,10 +217,10 @@ All 34 requirements shipped. See traceability below.
 
 ### Pipeline Hardening (Phase 13)
 
-- [ ] **PIPE-01**: Updater-Preflight-Quarantine: Bei `stage=preflight_git` mit nur-untracked-files (keine modified-tracked), MOVE die untracked files nach `.update-state/quarantine-<YYYYMMDD-HHMMSS>/<orig-path>/` (Verzeichnisstruktur erhalten) und FORTFAHREN. Quarantine wird im journalctl-Log gemeldet und via `/api/update/status` als `lastQuarantine: { timestamp, fileCount, path }` exposed. Modified-tracked files bleiben FATAL (echte Datenintegritäts-Risiken).
-- [ ] **PIPE-02**: state.json on_error-Reset: Der `trap on_error ERR` in `scripts/update/run-update.sh` setzt IMMER `state.json:updateStatus="idle"` und clear `inProgressUpdate` bevor er `exit 1` macht — egal welche Stage failed. Atomic write via tmp + os.rename. Verifiziert via dry-run-helpers Test (`set -e; false` injected an Phase-Anfang).
-- [ ] **PIPE-03**: UpdateBanner-UI Quarantine-Surface: Neuer Info-State im UpdateBanner: "Letztes Preflight: N Datei(en) in Quarantäne — Details ansehen". Link öffnet `/settings/update-state` (neue minimale Admin-Page) mit Listing der quarantined files (read-only viewer + "Delete all"-Button). Acceptance: nach "Delete all" ist der Quarantine-Dir leer und der Banner-State verschwindet.
-- [ ] **PIPE-04**: Recovery-Endpoint `POST /api/internal/reset-update-state`: Localhost-only (Host-Header-Guard wie `/api/internal/prepare-for-shutdown`), erzwingt `state.json:updateStatus='idle'`, clear `inProgressUpdate`, schreibt `recovery_event` row in `update_runs`. Last-Resort-Rescue für stuck states wenn alle anderen Mechanismen versagen. NICHT in der UI exponiert — nur via SSH-from-LXC curl.
+- [x] **PIPE-01**: Updater-Preflight-Quarantine: Bei `stage=preflight_git` mit nur-untracked-files (keine modified-tracked), MOVE die untracked files nach `.update-state/quarantine-<YYYYMMDD-HHMMSS>/<orig-path>/` (Verzeichnisstruktur erhalten) und FORTFAHREN. Quarantine wird im journalctl-Log gemeldet und via `/api/update/status` als `lastQuarantine: { timestamp, fileCount, path }` exposed. Modified-tracked files bleiben FATAL (echte Datenintegritäts-Risiken).
+- [x] **PIPE-02**: state.json on_error-Reset: Der `trap on_error ERR` in `scripts/update/run-update.sh` setzt IMMER `state.json:updateStatus="idle"` und clear `inProgressUpdate` bevor er `exit 1` macht — egal welche Stage failed. Atomic write via tmp + os.rename. Verifiziert via dry-run-helpers Test (`set -e; false` injected an Phase-Anfang).
+- [x] **PIPE-03**: UpdateBanner-UI Quarantine-Surface: Neuer Info-State im UpdateBanner: "Letztes Preflight: N Datei(en) in Quarantäne — Details ansehen". Link öffnet `/settings/update-state` (neue minimale Admin-Page) mit Listing der quarantined files (read-only viewer + "Delete all"-Button). Acceptance: nach "Delete all" ist der Quarantine-Dir leer und der Banner-State verschwindet.
+- [x] **PIPE-04**: Recovery-Endpoint `POST /api/internal/reset-update-state`: Localhost-only (Host-Header-Guard wie `/api/internal/prepare-for-shutdown`), erzwingt `state.json:updateStatus='idle'`, clear `inProgressUpdate`, schreibt `recovery_event` row in `update_runs`. Last-Resort-Rescue für stuck states wenn alle anderen Mechanismen versagen. NICHT in der UI exponiert — nur via SSH-from-LXC curl.
 
 ## Traceability
 
@@ -280,7 +280,7 @@ All 34 requirements shipped. See traceability below.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | FPD-01..05 | Phase 12 | Complete (VERIFICATION.md cea1cf8 — PASS-WITH-DEFERRALS, 240/240 tests, hardware-gated visual checks deferred to post-deploy) |
-| PIPE-01..04 | Phase 13 | Planned (Pipeline Hardening) |
+| PIPE-01..04 | Phase 13 | Complete (VERIFICATION.md 8c160ea — PASS-WITH-DEFERRALS, 270/270 tests, dry-run-helpers Tests 5+6 PASS, post-deploy LXC smoke deferred) |
 
 **Coverage:**
 - v1.4 requirements: 9 total, 9 mapped (Phase 12: 5, Phase 13: 4)

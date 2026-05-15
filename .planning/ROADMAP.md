@@ -283,7 +283,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 11. SOC Confidence Band + ASCII Visualization | v1.3 | 4/4 | Complete   | 2026-05-14 |
 | 12. Flat-Power Defense | v1.4 | 4/4 | Complete | 2026-05-15 |
-| 13. Update Pipeline Hardening | v1.4 | 0/4 | Planned | - |
+| 13. Update Pipeline Hardening | v1.4 | 4/4 | Complete | 2026-05-15 |
 
 ## Backlog
 
