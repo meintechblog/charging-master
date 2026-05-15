@@ -43,6 +43,11 @@ export const DEFAULT_STALE_POWER_WINDOW_SEC = 300;
 // predicate fires instead).
 export const DEFAULT_MATCHER_REFRESH_READINGS = 60;
 export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.5;
+// Phase 12 FPD-04 max-session-duration watchdog. Wall-clock based (Date.now() -
+// session.startedAt), UNLIKE FPD-01 which is reading-based (RESEARCH Pitfall 10).
+// Rationale: 24h is the absolute last-line-of-defense; we want the cap to fire
+// even when readings have stopped arriving entirely.
+export const DEFAULT_MAX_SESSION_HOURS = 24;
 
 const CACHE_TTL_MS = 30_000;
 
@@ -63,6 +68,9 @@ let cachedMatcherRefreshReadingsAt = 0;
 
 let cachedLowConfidenceThreshold: number | null = null;
 let cachedLowConfidenceThresholdAt = 0;
+
+let cachedMaxSessionHours: number | null = null;
+let cachedMaxSessionHoursAt = 0;
 
 export function shouldStop(opts: {
   mode: StopMode;
@@ -257,6 +265,43 @@ export function readLowConfidenceThreshold(): number {
   return cachedLowConfidenceThreshold;
 }
 
+export function readMaxSessionHours(): number {
+  const now = Date.now();
+  if (
+    cachedMaxSessionHours !== null &&
+    now - cachedMaxSessionHoursAt < CACHE_TTL_MS
+  ) {
+    return cachedMaxSessionHours;
+  }
+  let value: string | undefined;
+  try {
+    const row = db
+      .select()
+      .from(config)
+      .where(eq(config.key, 'charging.maxSessionHours'))
+      .get() as { value?: string } | undefined;
+    value = row?.value;
+  } catch {
+    value = undefined;
+  }
+  let parsed = NaN;
+  if (typeof value === 'string' && value.trim() !== '') {
+    parsed = parseInt(value, 10);
+  }
+  // T-12-08 mitigation: 0/negative would abort every session at startup.
+  // Strict integer guard rejects float strings (e.g., '12.5') by re-parsing
+  // the original value as Number and verifying it is an integer.
+  const valueAsNumber = typeof value === 'string' ? Number(value) : NaN;
+  cachedMaxSessionHours =
+    Number.isFinite(parsed) &&
+    parsed > 0 &&
+    Number.isInteger(valueAsNumber)
+      ? parsed
+      : DEFAULT_MAX_SESSION_HOURS;
+  cachedMaxSessionHoursAt = now;
+  return cachedMaxSessionHours;
+}
+
 /**
  * FPD-03 energy-fallback predicate. Returns true when estimatedSoc >=
  * targetSoc — the algebraic inverse of the v1.2 energy-based formula
@@ -303,4 +348,9 @@ export function __resetMatcherRefreshReadingsCacheForTests(): void {
 export function __resetLowConfidenceThresholdCacheForTests(): void {
   cachedLowConfidenceThreshold = null;
   cachedLowConfidenceThresholdAt = 0;
+}
+
+export function __resetMaxSessionHoursCacheForTests(): void {
+  cachedMaxSessionHours = null;
+  cachedMaxSessionHoursAt = 0;
 }
