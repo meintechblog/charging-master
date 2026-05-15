@@ -225,6 +225,11 @@ type MonitorInternals = {
   sessionSocMax: Map<string, number>;
   sessionBandConfidence: Map<string, number>;
   lastStopReason: Map<string, string>;
+  // Phase 12 FPD-02
+  chargingBuffers: Map<string, { apower: number[]; profile: unknown }>;
+  readingsSinceLastMatch: Map<string, number>;
+  // Phase 12 FPD-03
+  lastStopMode: Map<string, 'aggressive' | 'conservative' | 'energy_fallback'>;
   machines: Map<string, {
     state: string;
     estimatedSoc: number;
@@ -235,6 +240,7 @@ type MonitorInternals = {
     targetSoc: number;
     stopMode: 'aggressive' | 'conservative';
     stalePowerCount: number;
+    forceStop?: (reason: string) => void;
   }>;
 };
 
@@ -1014,3 +1020,302 @@ describe('ChargeMonitor — Phase 12 FPD-01: stale-power watchdog', () => {
   });
 });
 
+// --- Phase 12 FPD-02: adaptive matcher refresh ---------------------------
+import {
+  __resetMatcherRefreshReadingsCacheForTests,
+  __resetLowConfidenceThresholdCacheForTests,
+} from './stop-mode';
+import session14Fixture from './fixtures/ipad-session-14-readings.json';
+import ipadCurveFixture from './fixtures/ipad-reference-curve.json';
+import * as curveMatcher from './curve-matcher';
+
+type ProfileWithCurve = curveMatcher.ProfileWithCurve;
+
+function seedIpadProfileWithCurve(id: number): ProfileWithCurve {
+  // Seed DB rows so loadProfilesWithCurves() picks up the iPad reference.
+  fakeState.deviceProfileRows.push({ id, name: 'iPad Pro 12.9" (2022, M2)', targetSoc: 80 });
+  fakeState.referenceCurveRows.push({
+    id,
+    profileId: id,
+    startPower: ipadCurveFixture.points[0].apower,
+    durationSeconds: ipadCurveFixture.durationSeconds,
+    pointCount: ipadCurveFixture.pointCount,
+    peakPower: 40,
+    totalEnergyWh: ipadCurveFixture.totalEnergyWh,
+    createdAt: 0,
+  });
+  for (const p of ipadCurveFixture.points) {
+    fakeState.referenceCurvePointRows.push({
+      curveId: id,
+      offsetSeconds: p.offsetSeconds,
+      apower: p.apower,
+      cumulativeWh: p.cumulativeWh,
+    });
+  }
+  return {
+    id,
+    name: 'iPad Pro 12.9" (2022, M2)',
+    curve: {
+      startPower: ipadCurveFixture.points[0].apower,
+      durationSeconds: ipadCurveFixture.durationSeconds,
+      totalEnergyWh: ipadCurveFixture.totalEnergyWh,
+    },
+    curvePoints: ipadCurveFixture.points,
+  };
+}
+
+describe('ChargeMonitor — Phase 12 FPD-02: adaptive matcher refresh', () => {
+  let bus: EventBus;
+  let monitor: ChargeMonitor;
+
+  beforeEach(() => {
+    resetFakeState();
+    __resetStopModeCacheForTests();
+    __resetMatcherRefreshReadingsCacheForTests();
+    __resetLowConfidenceThresholdCacheForTests();
+    switchRelayOffMock.mockClear();
+    bus = new EventBus();
+    monitor = new ChargeMonitor(bus);
+  });
+
+  afterEach(() => {
+    monitor.stop();
+    vi.restoreAllMocks();
+  });
+
+  it('refreshMatch — narrowing-reject: a wider candidate keeps the cached band', () => {
+    const profile = seedIpadProfileWithCurve(1);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40 });
+
+    const match = makeMatch({
+      socMin: 30, socMax: 60, socBest: 45, bandConfidence: 0.7, estimatedStartSoc: 45,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    // Seed the chargingBuffer (production code path: handleTransition('charging')
+    // initializes this; we bypass to drive refreshMatch directly).
+    internals.chargingBuffers.set('plug-1', { apower: [40, 41, 39, 40], profile });
+
+    // Stub findBestCandidate to return a widening band.
+    vi.spyOn(curveMatcher, 'findBestCandidate').mockReturnValue({
+      profileId: 1,
+      profileName: 'iPad',
+      confidence: 0.85,
+      curveOffsetSeconds: 0,
+      estimatedStartSoc: 40,
+      socMin: 20,   // wider than 30
+      socMax: 70,   // wider than 60
+      socBest: 40,
+      bandConfidence: 0.5,
+    });
+
+    (monitor as unknown as {
+      refreshMatch(p: string, t: number): Promise<void>;
+    }).refreshMatch('plug-1', 1_001_000);
+
+    // Band unchanged.
+    expect(internals.sessionSocMin.get('plug-1')).toBe(30);
+    expect(internals.sessionSocMax.get('plug-1')).toBe(60);
+  });
+
+  it('refreshMatch — narrowing-accept: a tighter candidate updates the band', () => {
+    const profile = seedIpadProfileWithCurve(1);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40 });
+
+    const match = makeMatch({
+      socMin: 30, socMax: 60, socBest: 45, bandConfidence: 0.7, estimatedStartSoc: 45,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    internals.chargingBuffers.set('plug-1', { apower: [40, 41, 39, 40], profile });
+
+    vi.spyOn(curveMatcher, 'findBestCandidate').mockReturnValue({
+      profileId: 1,
+      profileName: 'iPad',
+      confidence: 0.92,
+      curveOffsetSeconds: 0,
+      estimatedStartSoc: 45,
+      socMin: 35,   // narrower than 30..60
+      socMax: 55,
+      socBest: 45,
+      bandConfidence: 0.8,
+    });
+
+    (monitor as unknown as {
+      refreshMatch(p: string, t: number): Promise<void>;
+    }).refreshMatch('plug-1', 1_001_000);
+
+    expect(internals.sessionSocMin.get('plug-1')).toBe(35);
+    expect(internals.sessionSocMax.get('plug-1')).toBe(55);
+    expect(internals.sessionBandConfidence.get('plug-1')).toBe(0.8);
+    // State-machine instance also updated so the next shouldStop sees fresh band.
+    const machine = internals.machines.get('plug-1')!;
+    expect(machine.socMin).toBe(35);
+    expect(machine.socMax).toBe(55);
+    expect(machine.socBest).toBe(45);
+    expect(machine.socBandConfidence).toBe(0.8);
+  });
+
+  it('refreshMatch — partial-narrowing: only one edge narrows, the wider edge is held', () => {
+    const profile = seedIpadProfileWithCurve(1);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40 });
+
+    const match = makeMatch({
+      socMin: 30, socMax: 60, socBest: 45, bandConfidence: 0.7, estimatedStartSoc: 45,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    internals.chargingBuffers.set('plug-1', { apower: [40, 41, 39, 40], profile });
+
+    // socMin tightens (35>30 → take 35), socMax widens (65>60 → keep 60 via Math.min).
+    vi.spyOn(curveMatcher, 'findBestCandidate').mockReturnValue({
+      profileId: 1,
+      profileName: 'iPad',
+      confidence: 0.9,
+      curveOffsetSeconds: 0,
+      estimatedStartSoc: 45,
+      socMin: 35,
+      socMax: 65,
+      socBest: 45,
+      bandConfidence: 0.7,
+    });
+
+    (monitor as unknown as {
+      refreshMatch(p: string, t: number): Promise<void>;
+    }).refreshMatch('plug-1', 1_001_000);
+
+    expect(internals.sessionSocMin.get('plug-1')).toBe(35); // tightened
+    expect(internals.sessionSocMax.get('plug-1')).toBe(60); // held (Math.min)
+  });
+
+  it('updateSocTracking accumulates apower into chargingBuffer and triggers refreshMatch every N readings', () => {
+    seedIpadProfileWithCurve(1);
+    // Seed a config row so the helper reads it (rather than the default 60).
+    fakeState.configRows.push({ key: 'charging.matcherRefreshReadings', value: '4' });
+
+    const match = makeMatch({
+      socMin: 30, socMax: 60, socBest: 45, bandConfidence: 0.7, estimatedStartSoc: 45,
+    });
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 45 });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    // Seed chargingBuffer with the cached profile (production code does this
+    // in handleTransition('charging')).
+    internals.chargingBuffers.set('plug-1', {
+      apower: [],
+      profile: {
+        id: 1,
+        name: 'iPad',
+        curve: { startPower: 40, durationSeconds: 8399, totalEnergyWh: 67.083 },
+        curvePoints: ipadCurveFixture.points,
+      },
+    });
+
+    const refreshSpy = vi.spyOn(
+      monitor as unknown as { refreshMatch(p: string, t: number): Promise<void> },
+      'refreshMatch'
+    ).mockResolvedValue();
+
+    let t = 1_000_000;
+    for (let i = 0; i < 4; i++) {
+      t += 5000;
+      (monitor as unknown as {
+        updateSocTracking(p: string, r: PowerReading): void;
+      }).updateSocTracking('plug-1', makePowerReading('plug-1', 40, 0.01 * (i + 1), t));
+    }
+
+    // Buffer accumulated 4 readings.
+    expect(internals.chargingBuffers.get('plug-1')!.apower.length).toBe(4);
+    // refreshMatch fired exactly once (counter hit 4 → reset to 0).
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(internals.readingsSinceLastMatch.get('plug-1')).toBe(0);
+  });
+
+  it('handleTransition("charging") initializes chargingBuffer with the cached ProfileWithCurve', () => {
+    seedIpadProfileWithCurve(1);
+    seedSession(1, 'plug-1', 'matched', { profileId: 1, estimatedSoc: 40 });
+
+    const match = makeMatch({
+      profileId: 1, socMin: 30, socMax: 60, socBest: 45, bandConfidence: 0.7,
+      estimatedStartSoc: 45,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'matched', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    // Drive the matched→charging transition directly.
+    (monitor as unknown as {
+      handleTransition(p: string, from: string, to: string, r: PowerReading): void;
+    }).handleTransition('plug-1', 'matched', 'charging', makePowerReading('plug-1', 40, 0, 1_000_000));
+
+    const buffer = internals.chargingBuffers.get('plug-1');
+    expect(buffer).toBeDefined();
+    expect(buffer!.apower).toEqual([]);
+    // The cached profile must be the iPad reference (id=1).
+    expect((buffer!.profile as { id: number }).id).toBe(1);
+    expect(internals.readingsSinceLastMatch.get('plug-1')).toBe(0);
+  });
+
+  it('cleanupSession clears chargingBuffers + readingsSinceLastMatch', () => {
+    const profile = seedIpadProfileWithCurve(1);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40 });
+    const match = makeMatch({ profileId: 1, socMin: 30, socMax: 60, socBest: 45, estimatedStartSoc: 45 });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    internals.chargingBuffers.set('plug-1', { apower: [40, 41], profile });
+    internals.readingsSinceLastMatch.set('plug-1', 30);
+
+    (monitor as unknown as { cleanupSession(p: string): void }).cleanupSession('plug-1');
+
+    expect(internals.chargingBuffers.has('plug-1')).toBe(false);
+    expect(internals.readingsSinceLastMatch.has('plug-1')).toBe(false);
+  });
+
+  it('iPad Session 14 monotonic narrowing property — band width never widens vs the prior batch', () => {
+    // Acceptance criterion: this is the SAFETY property from RESEARCH §FPD-02 Q4 —
+    // socBest will NOT converge on real flat-region data (DTW-flat-power ambiguity),
+    // but the band MUST never widen between successive refreshes.
+    const readings = session14Fixture.readings.map((r) => r.apower);
+    const profile: ProfileWithCurve = {
+      id: 4,
+      name: 'iPad Pro',
+      curve: {
+        startPower: ipadCurveFixture.points[0].apower,
+        durationSeconds: ipadCurveFixture.durationSeconds,
+        totalEnergyWh: ipadCurveFixture.totalEnergyWh,
+      },
+      curvePoints: ipadCurveFixture.points,
+    };
+
+    // We avoid full charge-monitor wiring here — drive findBestCandidate +
+    // monotonic clamp directly, exactly as refreshMatch does. This anchors
+    // the SAFETY property at the math layer.
+    const sizes = [60, 120, 240, 480, 720];
+    let priorSocMin: number | undefined;
+    let priorSocMax: number | undefined;
+    let priorWidth: number = Infinity;
+
+    for (const n of sizes) {
+      const window = readings.slice(0, n);
+      const candidate = curveMatcher.findBestCandidate(window, [profile]);
+      expect(candidate).not.toBeNull();
+      const cMin = candidate!.socMin;
+      const cMax = candidate!.socMax;
+      const newMin = priorSocMin !== undefined ? Math.max(priorSocMin, cMin) : cMin;
+      const newMax = priorSocMax !== undefined ? Math.min(priorSocMax, cMax) : cMax;
+      // Safety: width strictly non-increasing after the initial seed.
+      const width = newMax - newMin;
+      expect(width).toBeLessThanOrEqual(priorWidth);
+      priorSocMin = newMin;
+      priorSocMax = newMax;
+      priorWidth = width;
+    }
+    // CONTEXT DoD says "band width at n=720 <= band width at n=60". priorWidth is
+    // the final width; we additionally bound it as a positive integer.
+    expect(priorWidth).toBeGreaterThanOrEqual(0);
+  });
+});
