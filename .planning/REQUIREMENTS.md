@@ -209,11 +209,11 @@ All 34 requirements shipped. See traceability below.
 
 ### Flat-Power Defense (Phase 12)
 
-- [ ] **FPD-01**: Stale-Power-Watchdog: Wenn `apower < 1.0 W` für ≥ 5 konsekutive Minuten während `state ∈ {charging, countdown}`, transitioniert die State-Machine zu `aborted` (`stop_reason='stale_power'`), das Relay wird via HTTP `Switch.Set off` geschaltet, und eine Pushover-Anomaly-Notification (mit aktueller Band-ASCII-Bar) wird gesendet. Konfigurierbar via `config.charging.stalePowerThresholdW` und `config.charging.stalePowerWindowSec` (defaults 1.0 / 300).
-- [ ] **FPD-02**: Adaptive Matcher Refresh im `state=charging`: Der Curve-Matcher läuft alle N Readings (default N=60, ≈ 5 min bei 5s-Sampling) erneut gegen das wachsende Query-Window. Jeder Re-Run aktualisiert `socMin/socMax/socBest/bandConfidence`; das Band darf nur *enger* werden (monotone Narrowing-Garantie). Wenn `socBest` durch ein Re-Run erstmals `>= targetSoc` UND Stop-Mode-Kriterien erfüllt, feuert der existierende Stop-Pfad. Schließt die v1.3-Design-Lücke (Matcher lief bisher nur einmal in `state=matching`).
-- [ ] **FPD-03**: Band-Confidence-Aware Fallback: Bei `bandConfidence < 0.5` (= Band-Breite > 50% SOC) verweigert die State-Machine BEIDE Band-Mode-Stops (aggressive UND conservative) und fällt zurück auf das Legacy-Energy-based Stop (`(targetSoc - estimatedStartSoc) × totalEnergyWh`) wie in v1.2. Der Fallback ist sichtbar in `ChargeStateEvent.stopMode='energy_fallback'` für UI/Pushover. Konfigurierbar via `config.charging.lowConfidenceThreshold` (default 0.5).
-- [ ] **FPD-04**: Session-Max-Duration-Watchdog: Eine Session, die länger als `config.charging.maxSessionHours` (default 24h) läuft, wird mit `stop_reason='timeout'` aborted + Pushover-Anomaly. Defense für Edge-Cases wo weder FPD-01 noch FPD-02 triggern (z.B. Plug-Disconnect + Reconnect ohne saubere Apower-Phase). Settings-UI exponiert den Wert.
-- [ ] **FPD-05**: UI Active-Watchdog-Indicator: Charge-Banner auf Dashboard zeigt yellow "Watchdog: 0 W seit Xs"-Indikator wenn `apower=0` für > 60s im `state=charging` (Vorwarnung vor FPD-01-Trigger). Wenn FPD-01 feuert, transitioniert das Banner zu red "Session abgebrochen — Battery full?" mit "Acknowledge"-Button (clears banner, kein DB-Effekt). RTL-Component-Tests decken beide Zustände + Acknowledge-Flow.
+- [x] **FPD-01**: Stale-Power-Watchdog: Wenn `apower < 1.0 W` für ≥ 5 konsekutive Minuten während `state ∈ {charging, countdown}`, transitioniert die State-Machine zu `aborted` (`stop_reason='stale_power'`), das Relay wird via HTTP `Switch.Set off` geschaltet, und eine Pushover-Anomaly-Notification (mit aktueller Band-ASCII-Bar) wird gesendet. Konfigurierbar via `config.charging.stalePowerThresholdW` und `config.charging.stalePowerWindowSec` (defaults 1.0 / 300).
+- [x] **FPD-02**: Adaptive Matcher Refresh im `state=charging`: Der Curve-Matcher läuft alle N Readings (default N=60, ≈ 5 min bei 5s-Sampling) erneut gegen das wachsende Query-Window. Jeder Re-Run aktualisiert `socMin/socMax/socBest/bandConfidence`; das Band darf nur *enger* werden (monotone Narrowing-Garantie). Wenn `socBest` durch ein Re-Run erstmals `>= targetSoc` UND Stop-Mode-Kriterien erfüllt, feuert der existierende Stop-Pfad. Schließt die v1.3-Design-Lücke (Matcher lief bisher nur einmal in `state=matching`).
+- [x] **FPD-03**: Band-Confidence-Aware Fallback: Bei `bandConfidence < 0.5` (= Band-Breite > 50% SOC) verweigert die State-Machine BEIDE Band-Mode-Stops (aggressive UND conservative) und fällt zurück auf das Legacy-Energy-based Stop (`(targetSoc - estimatedStartSoc) × totalEnergyWh`) wie in v1.2. Der Fallback ist sichtbar in `ChargeStateEvent.stopMode='energy_fallback'` für UI/Pushover. Konfigurierbar via `config.charging.lowConfidenceThreshold` (default 0.5).
+- [x] **FPD-04**: Session-Max-Duration-Watchdog: Eine Session, die länger als `config.charging.maxSessionHours` (default 24h) läuft, wird mit `stop_reason='timeout'` aborted + Pushover-Anomaly. Defense für Edge-Cases wo weder FPD-01 noch FPD-02 triggern (z.B. Plug-Disconnect + Reconnect ohne saubere Apower-Phase). Settings-UI exponiert den Wert.
+- [x] **FPD-05**: UI Active-Watchdog-Indicator: Charge-Banner auf Dashboard zeigt yellow "Watchdog: 0 W seit Xs"-Indikator wenn `apower=0` für > 60s im `state=charging` (Vorwarnung vor FPD-01-Trigger). Wenn FPD-01 feuert, transitioniert das Banner zu red "Session abgebrochen — Battery full?" mit "Acknowledge"-Button (clears banner, kein DB-Effekt). RTL-Component-Tests decken beide Zustände + Acknowledge-Flow.
 
 ### Pipeline Hardening (Phase 13)
 
@@ -279,7 +279,7 @@ All 34 requirements shipped. See traceability below.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FPD-01..05 | Phase 12 | Planned (Flat-Power Defense) |
+| FPD-01..05 | Phase 12 | Complete (VERIFICATION.md cea1cf8 — PASS-WITH-DEFERRALS, 240/240 tests, hardware-gated visual checks deferred to post-deploy) |
 | PIPE-01..04 | Phase 13 | Planned (Pipeline Hardening) |
 
 **Coverage:**

@@ -5,7 +5,7 @@ milestone_name: SOC Intelligence
 status: verifying
 stopped_at: Phase 11 SOC Confidence Band code-complete; milestone v1.3 ready for LXC deployment + on-device Pushover lock-screen verify.
 last_updated: "2026-05-15T00:09:47.887Z"
-last_activity: 2026-05-15 -- v1.4 Phase 12 planned: 4 plans across 3 waves seeded (FPD-01..05)
+last_activity: 2026-05-15 -- v1.4 Phase 12 COMPLETE: 4 plans / 3 waves shipped (FPD-01..05), 240/240 tests, VERIFICATION PASS-with-deferrals. Ready for deploy + Phase 13.
 progress:
   total_phases: 8
   completed_phases: 5
