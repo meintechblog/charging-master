@@ -37,11 +37,17 @@ vi.mock('drizzle-orm', () => ({
 import {
   DEFAULT_STOP_MODE,
   DEFAULT_BAND_WIDTH_LIMIT,
+  DEFAULT_STALE_POWER_THRESHOLD_W,
+  DEFAULT_STALE_POWER_WINDOW_SEC,
   shouldStop,
   readStopMode,
   readBandThreshold,
+  readStalePowerThresholdW,
+  readStalePowerWindowSec,
   __resetStopModeCacheForTests,
   __resetBandThresholdCacheForTests,
+  __resetStalePowerThresholdCacheForTests,
+  __resetStalePowerWindowCacheForTests,
 } from './stop-mode';
 import { DEFAULT_BAND_THRESHOLD_PCT } from './curve-matcher';
 
@@ -49,6 +55,8 @@ beforeEach(() => {
   resetCfg();
   __resetStopModeCacheForTests();
   __resetBandThresholdCacheForTests();
+  __resetStalePowerThresholdCacheForTests();
+  __resetStalePowerWindowCacheForTests();
 });
 
 describe('shouldStop — conservative mode', () => {
@@ -157,5 +165,91 @@ describe('readBandThreshold', () => {
     __resetBandThresholdCacheForTests();
     seedCfg('charging.bandThreshold', '1.5'); // not <1
     expect(readBandThreshold()).toBe(DEFAULT_BAND_THRESHOLD_PCT);
+  });
+});
+
+describe('readStalePowerThresholdW (FPD-01)', () => {
+  it('exposes a 1.0 W default', () => {
+    expect(DEFAULT_STALE_POWER_THRESHOLD_W).toBe(1.0);
+    expect(readStalePowerThresholdW()).toBe(1.0);
+  });
+
+  it('parses a valid numeric string from config', () => {
+    seedCfg('charging.stalePowerThresholdW', '0.5');
+    expect(readStalePowerThresholdW()).toBe(0.5);
+  });
+
+  it('falls back on empty / non-numeric / non-positive values', () => {
+    seedCfg('charging.stalePowerThresholdW', '');
+    expect(readStalePowerThresholdW()).toBe(DEFAULT_STALE_POWER_THRESHOLD_W);
+    __resetStalePowerThresholdCacheForTests();
+    seedCfg('charging.stalePowerThresholdW', 'garbage');
+    expect(readStalePowerThresholdW()).toBe(DEFAULT_STALE_POWER_THRESHOLD_W);
+    __resetStalePowerThresholdCacheForTests();
+    seedCfg('charging.stalePowerThresholdW', '0'); // not >0
+    expect(readStalePowerThresholdW()).toBe(DEFAULT_STALE_POWER_THRESHOLD_W);
+    __resetStalePowerThresholdCacheForTests();
+    seedCfg('charging.stalePowerThresholdW', '-2'); // negative
+    expect(readStalePowerThresholdW()).toBe(DEFAULT_STALE_POWER_THRESHOLD_W);
+  });
+
+  it('caches result within the 30s TTL window', () => {
+    const realNow = Date.now;
+    let now = 2_000_000;
+    Date.now = () => now;
+    try {
+      seedCfg('charging.stalePowerThresholdW', '2.5');
+      expect(readStalePowerThresholdW()).toBe(2.5);
+      seedCfg('charging.stalePowerThresholdW', '4.0');
+      now += 5_000;
+      expect(readStalePowerThresholdW()).toBe(2.5); // cached
+      now += 26_000; // total +31s — past TTL
+      expect(readStalePowerThresholdW()).toBe(4.0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe('readStalePowerWindowSec (FPD-01)', () => {
+  it('exposes a 300s default', () => {
+    expect(DEFAULT_STALE_POWER_WINDOW_SEC).toBe(300);
+    expect(readStalePowerWindowSec()).toBe(300);
+  });
+
+  it('parses a valid integer string from config', () => {
+    seedCfg('charging.stalePowerWindowSec', '120');
+    expect(readStalePowerWindowSec()).toBe(120);
+  });
+
+  it('falls back on empty / non-integer / non-positive values', () => {
+    seedCfg('charging.stalePowerWindowSec', '');
+    expect(readStalePowerWindowSec()).toBe(DEFAULT_STALE_POWER_WINDOW_SEC);
+    __resetStalePowerWindowCacheForTests();
+    seedCfg('charging.stalePowerWindowSec', 'abc');
+    expect(readStalePowerWindowSec()).toBe(DEFAULT_STALE_POWER_WINDOW_SEC);
+    __resetStalePowerWindowCacheForTests();
+    seedCfg('charging.stalePowerWindowSec', '0');
+    expect(readStalePowerWindowSec()).toBe(DEFAULT_STALE_POWER_WINDOW_SEC);
+    __resetStalePowerWindowCacheForTests();
+    seedCfg('charging.stalePowerWindowSec', '-50');
+    expect(readStalePowerWindowSec()).toBe(DEFAULT_STALE_POWER_WINDOW_SEC);
+  });
+
+  it('caches result within the 30s TTL window', () => {
+    const realNow = Date.now;
+    let now = 3_000_000;
+    Date.now = () => now;
+    try {
+      seedCfg('charging.stalePowerWindowSec', '60');
+      expect(readStalePowerWindowSec()).toBe(60);
+      seedCfg('charging.stalePowerWindowSec', '900');
+      now += 5_000;
+      expect(readStalePowerWindowSec()).toBe(60); // cached
+      now += 26_000;
+      expect(readStalePowerWindowSec()).toBe(900);
+    } finally {
+      Date.now = realNow;
+    }
   });
 });
