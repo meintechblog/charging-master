@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import type {
   UpdateInfoView,
   LastCheckResult,
@@ -239,7 +240,29 @@ export function UpdateBanner({ initialInfo }: Props) {
   // Render state selection
   // =======================
 
-  // ROLLBACK BANNER (highest priority — trumps everything else)
+  // Stacked PIPE-03 quarantine info banner — renders ABOVE the primary banner
+  // whenever state.json recorded a preflight quarantine event. Per RESEARCH
+  // Open Q2 lock the banner is a STACKED sibling, not a replacement; only the
+  // rollback red banner (priority 1) trumps it.
+  const quarantineBanner =
+    info.lastQuarantine !== null && info.lastQuarantine !== undefined ? (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-amber-200">
+            <span className="font-semibold">Letztes Preflight:</span>{' '}
+            {info.lastQuarantine.fileCount} Datei(en) in Quarantäne
+          </div>
+          <Link
+            href="/settings/update-state"
+            className="shrink-0 rounded border border-amber-500/40 bg-amber-900/20 px-2 py-1 text-amber-100 hover:bg-amber-900/40"
+          >
+            Details ansehen →
+          </Link>
+        </div>
+      </div>
+    ) : null;
+
+  // ROLLBACK BANNER (highest priority — trumps everything else, including the quarantine banner)
   if (info.rollbackHappened === true && !rollbackDismissed) {
     return (
       <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-5 space-y-3">
@@ -278,16 +301,19 @@ export function UpdateBanner({ initialInfo }: Props) {
   // STREAMING / TRIGGERED — live update in progress
   if (flow.kind === 'triggered' || flow.kind === 'streaming') {
     return (
-      <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5 space-y-4">
-        <div>
-          <div className="text-sm font-semibold text-blue-300">Update läuft…</div>
-          <div className="mt-1 text-xs text-neutral-400 font-mono">
-            {info.currentShaShort} → {flow.targetSha.slice(0, 7)}
+      <>
+        {quarantineBanner}
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5 space-y-4">
+          <div>
+            <div className="text-sm font-semibold text-blue-300">Update läuft…</div>
+            <div className="mt-1 text-xs text-neutral-400 font-mono">
+              {info.currentShaShort} → {flow.targetSha.slice(0, 7)}
+            </div>
           </div>
+          <UpdateStageStepper currentStage={currentStage} status="running" />
+          <UpdateLogPanel lines={logLines} />
         </div>
-        <UpdateStageStepper currentStage={currentStage} status="running" />
-        <UpdateLogPanel lines={logLines} />
-      </div>
+      </>
     );
   }
 
@@ -295,6 +321,7 @@ export function UpdateBanner({ initialInfo }: Props) {
   if (flow.kind === 'reconnecting') {
     return (
       <>
+        {quarantineBanner}
         <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5 space-y-4">
           <div className="text-sm font-semibold text-blue-300">Update läuft…</div>
           <UpdateStageStepper currentStage={currentStage} status="running" />
@@ -308,17 +335,20 @@ export function UpdateBanner({ initialInfo }: Props) {
   // ERROR — trigger POST failed (non-503), show inline error banner with back button
   if (flow.kind === 'error') {
     return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-5">
-        <div className="text-sm font-semibold text-red-300">Update konnte nicht gestartet werden</div>
-        <p className="mt-1 text-xs text-red-200/80 break-words">{flow.message}</p>
-        <button
-          type="button"
-          onClick={() => setFlow({ kind: 'idle' })}
-          className="mt-3 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800"
-        >
-          Zurück
-        </button>
-      </div>
+      <>
+        {quarantineBanner}
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-5">
+          <div className="text-sm font-semibold text-red-300">Update konnte nicht gestartet werden</div>
+          <p className="mt-1 text-xs text-red-200/80 break-words">{flow.message}</p>
+          <button
+            type="button"
+            onClick={() => setFlow({ kind: 'idle' })}
+            className="mt-3 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800"
+          >
+            Zurück
+          </button>
+        </div>
+      </>
     );
   }
 
@@ -326,6 +356,7 @@ export function UpdateBanner({ initialInfo }: Props) {
   if (info.updateAvailable && info.remote) {
     return (
       <>
+        {quarantineBanner}
         <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-5 space-y-3">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
@@ -393,30 +424,33 @@ export function UpdateBanner({ initialInfo }: Props) {
   // STATE 2: Error (from state.lastCheckStatus === 'error')
   if (info.lastCheckStatus === 'error') {
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-5 space-y-2">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-amber-300">Update-Check fehlgeschlagen</div>
-            <p className="mt-1 text-xs text-amber-200/80 break-words">
-              {info.error ?? 'Unbekannter Fehler'}
-            </p>
+      <>
+        {quarantineBanner}
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-5 space-y-2">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-amber-300">Update-Check fehlgeschlagen</div>
+              <p className="mt-1 text-xs text-amber-200/80 break-words">
+                {info.error ?? 'Unbekannter Fehler'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCheck}
+              disabled={isChecking}
+              className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:border-neutral-600 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isChecking ? 'Prüft...' : 'Erneut versuchen'}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleCheck}
-            disabled={isChecking}
-            className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:border-neutral-600 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isChecking ? 'Prüft...' : 'Erneut versuchen'}
-          </button>
+          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <span>{lastCheckLabel}</span>
+            {cooldownSeconds !== null && (
+              <span className="text-amber-300">Bitte {cooldownSeconds} Sekunden warten</span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center justify-between text-xs text-neutral-500">
-          <span>{lastCheckLabel}</span>
-          {cooldownSeconds !== null && (
-            <span className="text-amber-300">Bitte {cooldownSeconds} Sekunden warten</span>
-          )}
-        </div>
-      </div>
+      </>
     );
   }
 
@@ -426,14 +460,60 @@ export function UpdateBanner({ initialInfo }: Props) {
       ? ` — Reset ${formatCommitDate(new Date(info.rateLimitResetAt * 1000).toISOString())}`
       : '';
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-5 space-y-2">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-amber-300">GitHub Rate-Limit erreicht</div>
-            <p className="mt-1 text-xs text-amber-200/80">
-              {info.error ?? 'Rate-Limit aktiv'}
-              {resetLabel}
-            </p>
+      <>
+        {quarantineBanner}
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-5 space-y-2">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-amber-300">GitHub Rate-Limit erreicht</div>
+              <p className="mt-1 text-xs text-amber-200/80">
+                {info.error ?? 'Rate-Limit aktiv'}
+                {resetLabel}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCheck}
+              disabled={isChecking}
+              className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:border-neutral-600 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isChecking ? 'Prüft...' : 'Jetzt prüfen'}
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <span>{lastCheckLabel}</span>
+            {cooldownSeconds !== null && (
+              <span className="text-amber-300">Bitte {cooldownSeconds} Sekunden warten</span>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // STATE 4 & 5: Up-to-date (ok, updateAvailable=false) OR never checked
+  const isUpToDate = info.lastCheckStatus === 'ok';
+  return (
+    <>
+      {quarantineBanner}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0 text-sm text-neutral-400">
+            {isUpToDate ? (
+              <>
+                <span className="text-neutral-200">Du bist auf dem neuesten Stand</span>
+                <span className="mx-2 text-neutral-600">·</span>
+                <span className="text-neutral-500 text-xs">{lastCheckLabel}</span>
+              </>
+            ) : (
+              <>
+                <span className="text-neutral-200">Noch nicht geprüft</span>
+                <span className="mx-2 text-neutral-600">·</span>
+                <span className="text-neutral-500 text-xs">
+                  Klicke auf &quot;Jetzt prüfen&quot;, um nach Updates zu suchen
+                </span>
+              </>
+            )}
           </div>
           <button
             type="button"
@@ -444,53 +524,13 @@ export function UpdateBanner({ initialInfo }: Props) {
             {isChecking ? 'Prüft...' : 'Jetzt prüfen'}
           </button>
         </div>
-        <div className="flex items-center justify-between text-xs text-neutral-500">
-          <span>{lastCheckLabel}</span>
-          {cooldownSeconds !== null && (
-            <span className="text-amber-300">Bitte {cooldownSeconds} Sekunden warten</span>
-          )}
-        </div>
+        {(cooldownSeconds !== null || localError !== null) && (
+          <div className="mt-2 text-xs text-amber-300">
+            {cooldownSeconds !== null && <span>Bitte {cooldownSeconds} Sekunden warten</span>}
+            {localError !== null && <span>{localError}</span>}
+          </div>
+        )}
       </div>
-    );
-  }
-
-  // STATE 4 & 5: Up-to-date (ok, updateAvailable=false) OR never checked
-  const isUpToDate = info.lastCheckStatus === 'ok';
-  return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-4">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex-1 min-w-0 text-sm text-neutral-400">
-          {isUpToDate ? (
-            <>
-              <span className="text-neutral-200">Du bist auf dem neuesten Stand</span>
-              <span className="mx-2 text-neutral-600">·</span>
-              <span className="text-neutral-500 text-xs">{lastCheckLabel}</span>
-            </>
-          ) : (
-            <>
-              <span className="text-neutral-200">Noch nicht geprüft</span>
-              <span className="mx-2 text-neutral-600">·</span>
-              <span className="text-neutral-500 text-xs">
-                Klicke auf &quot;Jetzt prüfen&quot;, um nach Updates zu suchen
-              </span>
-            </>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={handleCheck}
-          disabled={isChecking}
-          className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:border-neutral-600 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isChecking ? 'Prüft...' : 'Jetzt prüfen'}
-        </button>
-      </div>
-      {(cooldownSeconds !== null || localError !== null) && (
-        <div className="mt-2 text-xs text-amber-300">
-          {cooldownSeconds !== null && <span>Bitte {cooldownSeconds} Sekunden warten</span>}
-          {localError !== null && <span>{localError}</span>}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
