@@ -2,13 +2,17 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { DEFAULT_BAND_THRESHOLD_PCT } from '@/modules/charging/curve-matcher';
-import {
-  DEFAULT_STALE_POWER_THRESHOLD_W,
-  DEFAULT_STALE_POWER_WINDOW_SEC,
-  DEFAULT_MATCHER_REFRESH_READINGS,
-  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
-  DEFAULT_MAX_SESSION_HOURS,
-} from '@/modules/charging/stop-mode';
+
+// Defaults inlined here instead of imported from '@/modules/charging/stop-mode'
+// to avoid pulling the server-only `db/client` (better-sqlite3, native
+// bindings → 'fs') into the client bundle. The canonical source of truth is
+// stop-mode.ts; the constant-parity test (charging-settings.test.ts) imports
+// both and asserts equality so drift fails CI.
+const DEFAULT_STALE_POWER_THRESHOLD_W = 1.0;
+const DEFAULT_STALE_POWER_WINDOW_SEC = 300;
+const DEFAULT_MATCHER_REFRESH_READINGS = 60;
+const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.5;
+const DEFAULT_MAX_SESSION_HOURS = 24;
 
 type Props = {
   initialSettings: Record<string, string>;
