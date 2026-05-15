@@ -224,6 +224,7 @@ type MonitorInternals = {
   sessionSocMin: Map<string, number>;
   sessionSocMax: Map<string, number>;
   sessionBandConfidence: Map<string, number>;
+  lastStopReason: Map<string, string>;
   machines: Map<string, {
     state: string;
     estimatedSoc: number;
@@ -233,6 +234,7 @@ type MonitorInternals = {
     socBandConfidence: number;
     targetSoc: number;
     stopMode: 'aggressive' | 'conservative';
+    stalePowerCount: number;
   }>;
 };
 
@@ -723,6 +725,284 @@ describe('ChargeMonitor — Plan 11-02 Task 3b: DB persistence + resume + overri
     expect(stopped).toBe(true);
     expect(t - collapseTime).toBeLessThanOrEqual(budgetMs);
     expect(switchRelayOffMock).toHaveBeenCalled();
+  });
+});
+
+describe('ChargeMonitor — Phase 12 FPD-01: stale-power watchdog', () => {
+  let bus: EventBus;
+  let monitor: ChargeMonitor;
+  let captured: ChargeStateEvent[];
+
+  beforeEach(() => {
+    resetFakeState();
+    __resetStopModeCacheForTests();
+    switchRelayOffMock.mockClear();
+    bus = new EventBus();
+    captured = [];
+    bus.on('charge:*', (e) => captured.push(e as ChargeStateEvent));
+    monitor = new ChargeMonitor(bus);
+  });
+
+  afterEach(() => {
+    monitor.stop();
+    vi.unstubAllGlobals();
+  });
+
+  it('FPD-01 INTEGRATION: 60 zero-power readings → relay off + DB stop_reason=stale_power + Pushover anomaly', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+
+    // Band stays wide so shouldStop never trips — the watchdog is the only
+    // exit path here.
+    const match = makeMatch({
+      socMin: 20, socMax: 80, socBest: 40, bandConfidence: 0.4, estimatedStartSoc: 40,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    const fetchSpy = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    fakeState.lastUpdateSets = [];
+
+    // Drive 60 readings at apower=0 — real timestamps in a loop, no fake timers
+    // (matches B2 pattern in lines 649-727).
+    let t = 1_000_000;
+    for (let i = 0; i < 60; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+
+    const internals = monitor as unknown as MonitorInternals;
+    // Machine should have transitioned to 'aborted' on the 60th zero reading;
+    // a subsequent reading (none here) would recycle it via the gate, but we
+    // care that the abort fired and the side effects happened.
+    expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
+
+    // DB write should include stopReason='stale_power'.
+    const stalePowerWrite = fakeState.lastUpdateSets.find(
+      (w) => w.stopReason === 'stale_power'
+    );
+    expect(stalePowerWrite).toBeDefined();
+    expect(stalePowerWrite!.state).toBe('aborted');
+
+    // Pushover anomaly fired once with monospace=1 and the bar attached.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, { body: string; method: string; headers: Record<string, string> }];
+    expect(url).toBe('https://api.pushover.net/1/messages.json');
+    const params = new URLSearchParams(init.body);
+    expect(params.get('monospace')).toBe('1');
+    const title = params.get('title') ?? '';
+    expect(title).toMatch(/Watchdog/);
+    const message = params.get('message') ?? '';
+    expect(message).toMatch(/[#=.]/); // ASCII bar glyph
+    expect(message.toLowerCase()).toContain('1 w'); // body mentions the < 1 W stale threshold
+    expect(message).toMatch(/stop_reason=stale_power/);
+
+    // lastStopReason map persisted post-fire so captureEventContext detects 'fired'.
+    expect(internals.lastStopReason.get('plug-1')).toBe('stale_power');
+  });
+
+  it('FPD-01: counter resets on a single >= threshold reading mid-window', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+
+    const match = makeMatch({
+      socMin: 20, socMax: 80, socBest: 40, bandConfidence: 0.4, estimatedStartSoc: 40,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    let t = 1_000_000;
+    // 30 zero readings.
+    for (let i = 0; i < 30; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+    expect(switchRelayOffMock).not.toHaveBeenCalled();
+
+    // One reading >= threshold resets the counter.
+    t += 5000;
+    (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+      makePowerReading('plug-1', 5, 100, t)
+    );
+
+    // 59 more zeros — still no fire (would need 60).
+    for (let i = 0; i < 59; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+    expect(switchRelayOffMock).not.toHaveBeenCalled();
+  });
+
+  it('FPD-01: polling gap pauses the counter (no false-fire across the gap)', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+
+    const match = makeMatch({
+      socMin: 20, socMax: 80, socBest: 40, bandConfidence: 0.4, estimatedStartSoc: 40,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+
+    // 50 zeros — no fire yet (counter=50).
+    let t = 1_000_000;
+    for (let i = 0; i < 50; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+    expect(switchRelayOffMock).not.toHaveBeenCalled();
+
+    // Simulate a 5-tick polling gap — we just skip 25s of timestamps without
+    // feeding readings. Counter does NOT increment during the gap (no reading
+    // event arrives), but it also does NOT reset.
+    t += 25_000;
+
+    // 10 more zeros — should fire on the 10th (counter crosses 60).
+    for (let i = 0; i < 10; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+    expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('FPD-01: captureEventContext emits watchdogKind=warning at >=20% of window, fires after abort', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+
+    const match = makeMatch({
+      socMin: 20, socMax: 80, socBest: 40, bandConfidence: 0.4, estimatedStartSoc: 40,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+
+    // captureEventContext probes synchronously, so we drive readings then snapshot.
+    type CaptureCtx = {
+      watchdogKind?: 'none' | 'warning' | 'fired';
+      stalePowerSeconds?: number;
+      stalePowerFiresAt?: number;
+    };
+    const cap = (): CaptureCtx => (monitor as unknown as {
+      captureEventContext(p: string): CaptureCtx;
+    }).captureEventContext('plug-1');
+
+    // 11 zero readings = 55s = below 20% threshold (60s of 300s).
+    let t = 1_000_000;
+    for (let i = 0; i < 11; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+    let ctx = cap();
+    expect(ctx.watchdogKind).toBe('none');
+    expect(ctx.stalePowerSeconds).toBe(55);
+
+    // 12th zero = 60s = at the 20% threshold → warning.
+    t += 5000;
+    (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+      makePowerReading('plug-1', 0, 100, t)
+    );
+    ctx = cap();
+    expect(ctx.watchdogKind).toBe('warning');
+    expect(ctx.stalePowerSeconds).toBe(60);
+    expect(typeof ctx.stalePowerFiresAt).toBe('number');
+
+    // Drive to the fire boundary.
+    for (let i = 0; i < 48; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+    // After fire the counter resets to 0 inside checkStalePower, but
+    // lastStopReason persists until cleanupSession runs (post-emit).
+    // cleanupSession DOES run inside the 'aborted' branch — so by the time
+    // captureEventContext is called the maps are cleared. We assert the
+    // emitted event flow instead: find the emitted 'aborted' event in
+    // `captured` carries watchdogKind='fired'.
+    expect(switchRelayOffMock).toHaveBeenCalledTimes(1);
+    const abortedEvent = captured.find((e) => e.state === 'aborted');
+    expect(abortedEvent).toBeDefined();
+    expect(abortedEvent!.watchdogKind).toBe('fired');
+  });
+
+  it('FPD-01: emitChargeEvent propagates watchdog fields onto live charge events', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+
+    const match = makeMatch({
+      socMin: 20, socMax: 80, socBest: 40, bandConfidence: 0.4, estimatedStartSoc: 40,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    captured.length = 0;
+
+    // Drive to the warning region (12 zeros = 60s).
+    let t = 1_000_000;
+    for (let i = 0; i < 12; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+
+    // Emit a fresh event and confirm watchdog fields flow through.
+    (monitor as unknown as { emitChargeEvent(p: string, s: string): void }).emitChargeEvent('plug-1', 'charging');
+    const last = captured[captured.length - 1];
+    expect(last.state).toBe('charging');
+    expect(last.watchdogKind).toBe('warning');
+    expect(last.stalePowerSeconds).toBe(60);
+    expect(typeof last.stalePowerFiresAt).toBe('number');
+  });
+
+  it('FPD-01: cleanupSession clears lastStopReason map', () => {
+    seedProfile(1, 'iPad', 100, 8000);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40, energyWh: 0 });
+    fakeState.plugRows.push({ id: 'plug-1', ipAddress: '192.168.1.10', channel: 0, name: 'iPad-Plug' });
+    fakeState.configRows.push({ key: 'pushover.userKey', value: 'u' });
+    fakeState.configRows.push({ key: 'pushover.apiToken', value: 't' });
+
+    const match = makeMatch({
+      socMin: 20, socMax: 80, socBest: 40, bandConfidence: 0.4, estimatedStartSoc: 40,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, match, { state: 'charging', targetSoc: 80, startTotalEnergy: 100 });
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+
+    let t = 1_000_000;
+    for (let i = 0; i < 60; i++) {
+      t += 5000;
+      (monitor as unknown as { handlePowerReading(r: PowerReading): void }).handlePowerReading(
+        makePowerReading('plug-1', 0, 100, t)
+      );
+    }
+
+    const internals = monitor as unknown as MonitorInternals;
+    // cleanupSession runs inside the abort branch, so the map is already cleared.
+    expect(internals.lastStopReason.has('plug-1')).toBe(false);
+    expect(internals.sessionIds.has('plug-1')).toBe(false);
   });
 });
 
