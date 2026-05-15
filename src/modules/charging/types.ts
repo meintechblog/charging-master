@@ -105,4 +105,12 @@ export interface ChargeStateEvent {
   watchdogKind?: 'none' | 'warning' | 'fired';
   stalePowerSeconds?: number;
   stalePowerFiresAt?: number;
+  // Phase 12 FPD-03 stop-mode surface. Populated on terminal events
+  // (state='complete'|'aborted'). 'aggressive'|'conservative' surface the band-
+  // mode policy that fired the stop; 'energy_fallback' indicates the band was
+  // too wide (bandConfidence < lowConfidenceThreshold) and the legacy
+  // estimatedSoc >= targetSoc predicate fired the stop instead. Distinct from
+  // the StopMode type in stop-mode.ts (the user-toggle config) — the user
+  // does NOT pick energy_fallback; the system selects it under low confidence.
+  stopMode?: 'aggressive' | 'conservative' | 'energy_fallback';
 }

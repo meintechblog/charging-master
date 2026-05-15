@@ -35,6 +35,14 @@ export const DEFAULT_BAND_WIDTH_LIMIT = 5;
 // pause it naturally.
 export const DEFAULT_STALE_POWER_THRESHOLD_W = 1.0;
 export const DEFAULT_STALE_POWER_WINDOW_SEC = 300;
+// Phase 12 FPD-02 + FPD-03 defaults. matcherRefreshReadings gates how
+// frequently refreshMatch re-runs findBestCandidate during state==='charging'
+// (60 readings ≈ 5 min at 5s polling); lowConfidenceThreshold gates the
+// energy-fallback dispatch in ChargeMonitor (below 0.5, band width > 50 SOC
+// pp — band-mode stops cannot be trusted; legacy estimatedSoc >= targetSoc
+// predicate fires instead).
+export const DEFAULT_MATCHER_REFRESH_READINGS = 60;
+export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.5;
 
 const CACHE_TTL_MS = 30_000;
 
@@ -49,6 +57,12 @@ let cachedStalePowerThresholdAt = 0;
 
 let cachedStalePowerWindowSec: number | null = null;
 let cachedStalePowerWindowAt = 0;
+
+let cachedMatcherRefreshReadings: number | null = null;
+let cachedMatcherRefreshReadingsAt = 0;
+
+let cachedLowConfidenceThreshold: number | null = null;
+let cachedLowConfidenceThresholdAt = 0;
 
 export function shouldStop(opts: {
   mode: StopMode;
@@ -172,6 +186,95 @@ export function readStalePowerWindowSec(): number {
   return cachedStalePowerWindowSec;
 }
 
+export function readMatcherRefreshReadings(): number {
+  const now = Date.now();
+  if (
+    cachedMatcherRefreshReadings !== null &&
+    now - cachedMatcherRefreshReadingsAt < CACHE_TTL_MS
+  ) {
+    return cachedMatcherRefreshReadings;
+  }
+  let value: string | undefined;
+  try {
+    const row = db
+      .select()
+      .from(config)
+      .where(eq(config.key, 'charging.matcherRefreshReadings'))
+      .get() as { value?: string } | undefined;
+    value = row?.value;
+  } catch {
+    value = undefined;
+  }
+  let parsed = NaN;
+  if (typeof value === 'string' && value.trim() !== '') {
+    parsed = parseInt(value, 10);
+  }
+  // T-12-07 mitigation: 0/negative would trigger a tight-loop matcher run on
+  // every reading. Require positive integer; strict integer guard rejects
+  // floats too (parseInt('12.5')=12 would otherwise leak through, so we also
+  // verify the original string is digit-only via Number.isInteger on the
+  // parsed-as-Number form to catch '12.5').
+  const valueAsNumber = typeof value === 'string' ? Number(value) : NaN;
+  cachedMatcherRefreshReadings =
+    Number.isFinite(parsed) &&
+    parsed > 0 &&
+    Number.isInteger(valueAsNumber)
+      ? parsed
+      : DEFAULT_MATCHER_REFRESH_READINGS;
+  cachedMatcherRefreshReadingsAt = now;
+  return cachedMatcherRefreshReadings;
+}
+
+export function readLowConfidenceThreshold(): number {
+  const now = Date.now();
+  if (
+    cachedLowConfidenceThreshold !== null &&
+    now - cachedLowConfidenceThresholdAt < CACHE_TTL_MS
+  ) {
+    return cachedLowConfidenceThreshold;
+  }
+  let value: string | undefined;
+  try {
+    const row = db
+      .select()
+      .from(config)
+      .where(eq(config.key, 'charging.lowConfidenceThreshold'))
+      .get() as { value?: string } | undefined;
+    value = row?.value;
+  } catch {
+    value = undefined;
+  }
+  let parsed = NaN;
+  if (typeof value === 'string' && value.trim() !== '') {
+    parsed = parseFloat(value);
+  }
+  // T-12-05 mitigation: clamp to (0, 1]. Out-of-range falls back to default.
+  cachedLowConfidenceThreshold =
+    Number.isFinite(parsed) && parsed > 0 && parsed <= 1
+      ? parsed
+      : DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  cachedLowConfidenceThresholdAt = now;
+  return cachedLowConfidenceThreshold;
+}
+
+/**
+ * FPD-03 energy-fallback predicate. Returns true when estimatedSoc >=
+ * targetSoc — the algebraic inverse of the v1.2 energy-based formula
+ * `cumulativeEnergyWh >= (targetSoc - startSoc)/100 * totalEnergyWh`
+ * (proved by solving the estimateSoc partial-charge formula for currentWh —
+ * see RESEARCH §FPD-03 Q1).
+ *
+ * Pure function. Does NOT read bandConfidence — the caller (ChargeMonitor)
+ * gates on bandConfidence < lowConfidenceThreshold BEFORE invoking this, so
+ * the predicate stays decoupled from the matcher.
+ */
+export function shouldStopEnergyFallback(opts: {
+  estimatedSoc: number;
+  targetSoc: number;
+}): boolean {
+  return opts.estimatedSoc >= opts.targetSoc;
+}
+
 export function __resetStopModeCacheForTests(): void {
   cachedMode = null;
   cachedModeAt = 0;
@@ -190,4 +293,14 @@ export function __resetStalePowerThresholdCacheForTests(): void {
 export function __resetStalePowerWindowCacheForTests(): void {
   cachedStalePowerWindowSec = null;
   cachedStalePowerWindowAt = 0;
+}
+
+export function __resetMatcherRefreshReadingsCacheForTests(): void {
+  cachedMatcherRefreshReadings = null;
+  cachedMatcherRefreshReadingsAt = 0;
+}
+
+export function __resetLowConfidenceThresholdCacheForTests(): void {
+  cachedLowConfidenceThreshold = null;
+  cachedLowConfidenceThresholdAt = 0;
 }
