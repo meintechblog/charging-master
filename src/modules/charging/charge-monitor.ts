@@ -12,6 +12,7 @@ import {
   readStalePowerWindowSec,
   readMatcherRefreshReadings,
   readLowConfidenceThreshold,
+  readMaxSessionHours,
   shouldStopEnergyFallback,
 } from './stop-mode';
 import * as curveMatcher from './curve-matcher';
@@ -422,6 +423,17 @@ export class ChargeMonitor {
 
     machine.feedReading(apower, timestamp);
 
+    // FPD-04 max-session-duration watchdog. Wall-clock based (Date.now() vs
+    // sessionStartedAt) — UNLIKE FPD-01 which is reading-based. RESEARCH
+    // Pitfall 10: this is the absolute last-line-of-defense; a session that
+    // survived 24h is by definition pathological. If the watchdog just fired,
+    // bail out early so the natural prevState!==newState dispatch routes the
+    // 'aborted' transition through handleTransition (reason='timeout').
+    if (this.checkSessionTimeout(plugId)) {
+      this.handleTransition(plugId, prevState, machine.state, reading);
+      return;
+    }
+
     const newState = machine.state;
 
     // Track learning readings
@@ -669,6 +681,83 @@ export class ChargeMonitor {
     }).catch(() => { /* non-fatal */ });
   }
 
+  /**
+   * FPD-04 max-session-duration watchdog. Wall-clock based (Date.now() -
+   * sessionStartedAt) per RESEARCH Pitfall 10 — UNLIKE FPD-01's reading-based
+   * counter. Rationale: this is the absolute last-line-of-defense; the cap
+   * must fire even when polling has stopped entirely. Returns true if the
+   * watchdog fired this call (caller MUST early-return so handleTransition
+   * dispatches the 'aborted' transition before any post-feedReading
+   * bookkeeping runs).
+   *
+   * Only arms in active states (detecting/matched/charging/countdown). Idle /
+   * stopping / aborted / etc. are out of scope — those sessions are already
+   * in some terminal/transient state and would either self-recycle or have
+   * been cleared by cleanupSession.
+   */
+  private checkSessionTimeout(plugId: string): boolean {
+    const startedAt = this.sessionStartedAt.get(plugId);
+    if (startedAt === undefined) return false;
+    const machine = this.machines.get(plugId);
+    if (!machine) return false;
+    const activeStates: ChargeState[] = ['detecting', 'matched', 'charging', 'countdown'];
+    if (!activeStates.includes(machine.state)) return false;
+    const maxMs = readMaxSessionHours() * 3_600_000;
+    if (Date.now() - startedAt < maxMs) return false;
+    machine.forceTimeout();
+    return true;
+  }
+
+  /**
+   * FPD-04 max-session-duration Pushover anomaly. Mirrors
+   * fireStalePowerNotification verbatim (same fetch / URLSearchParams /
+   * monospace=1 ASCII bar) and only swaps the title + body text.
+   */
+  private fireTimeoutNotification(plugId: string, profileName: string, hoursActive: number): void {
+    const userKeyRow = db.select().from(config).where(eq(config.key, 'pushover.userKey')).get();
+    const tokenRow = db.select().from(config).where(eq(config.key, 'pushover.apiToken')).get();
+    if (!userKeyRow?.value || !tokenRow?.value) return;
+
+    const title = 'Watchdog: Session-Timeout';
+    const baseMessage =
+      `${profileName} läuft seit ${hoursActive} h. Max-Session-Dauer überschritten (config.charging.maxSessionHours).\n` +
+      `\n` +
+      `Plug abgeschaltet (stop_reason=timeout). Falls absichtlich: maxSessionHours in /settings erhöhen.`;
+
+    const socMin = this.sessionSocMin.get(plugId);
+    const socMax = this.sessionSocMax.get(plugId);
+    const machine = this.machines.get(plugId);
+    const hasBand = socMin !== undefined && socMax !== undefined && machine !== undefined;
+    let message = baseMessage;
+    let monospace: '1' | undefined;
+    if (hasBand) {
+      const bar = renderSocBandAscii({
+        socMin: socMin!,
+        socMax: socMax!,
+        socBest: machine!.socBest,
+        targetSoc: machine!.targetSoc,
+        mode: 'pushover',
+      });
+      message = `${baseMessage}\n\n${bar}`;
+      monospace = '1';
+    }
+
+    const body: Record<string, string> = {
+      token: tokenRow.value,
+      user: userKeyRow.value,
+      title,
+      message,
+      priority: '1',
+    };
+    if (monospace) body.monospace = monospace;
+
+    fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(body).toString(),
+    }).catch(() => { /* non-fatal */ });
+  }
+
   private handleTransition(
     plugId: string,
     from: ChargeState,
@@ -810,50 +899,67 @@ export class ChargeMonitor {
       }
 
       case 'aborted': {
-        // FPD-01: stale-power watchdog abort. State machine fired
-        // transition('aborted', { reason: 'stale_power' }); the data
-        // parameter was stashed in pendingTransitionData. Type-narrow it —
-        // tampering protection per threat T-12-01 in PLAN.
+        // Watchdog abort dispatch. State machine fired transition('aborted',
+        // { reason }) and the data parameter was stashed in
+        // pendingTransitionData. Type-narrow it — tampering protection per
+        // threat T-12-01 (12-01) + T-12-08 (12-03). Currently produced
+        // reasons: 'stale_power' (FPD-01), 'timeout' (FPD-04). The default
+        // arm is intentionally INERT — abortSession (user_abort) writes the
+        // DB directly and bypasses handleTransition entirely; a defensive
+        // write here would double-write or overwrite the user_abort row
+        // (PLAN-CHECK H3 resolution).
         const raw = this.pendingTransitionData.get(plugId);
         this.pendingTransitionData.delete(plugId);
         const reason =
           raw && typeof raw === 'object' && 'reason' in raw
             ? String((raw as { reason: unknown }).reason)
             : null;
-        if (reason !== 'stale_power') {
-          // Not a watchdog abort — fall through. abortSession (user-driven
-          // abort) writes its own DB row directly and emits there; we leave
-          // it alone.
+        if (reason !== 'stale_power' && reason !== 'timeout') {
+          // Unknown reason — log and bail. abortSession (user-driven) writes
+          // its own DB row directly with stopReason='user_abort' and never
+          // routes through handleTransition.
+          console.warn('[handleTransition] unexpected aborted reason', {
+            plugId,
+            reason,
+          });
           break;
         }
-
-        this.lastStopReason.set(plugId, 'stale_power');
-
-        // Compute seconds the plug has been at < threshold for the
-        // notification body. checkStalePower resets the counter to 0 after
-        // firing, but we can derive seconds from the configured window — at
-        // the fire boundary, count == windowReadings.
-        const secondsAtZero = readStalePowerWindowSec();
 
         // Snapshot context BEFORE any await — same discipline as
         // handleStopping (2640873 bug class). cleanupSession() runs at the
         // end of this branch and will clear the per-plug Maps; the snapshot
         // preserves the band fields + watchdog 'fired' kind for the emit.
+        // lastStopReason is set BEFORE captureEventContext so the snapshot
+        // reads the fresh value (only matters for the 'stale_power' path
+        // which populates watchdogKind='fired').
+        this.lastStopReason.set(plugId, reason);
         const abortCtx = this.captureEventContext(plugId);
         const sessionId = abortCtx.sessionId;
         const profileName = abortCtx.match?.profileName ?? 'Unbekanntes Profil';
 
         // Pushover anomaly fires FIRST so the user is notified even if the
-        // DB / relay step has a race. fireAnomalyNotification's body shape
-        // is the template; we just swap title + body text.
-        this.fireStalePowerNotification(plugId, profileName, secondsAtZero);
+        // DB / relay step has a race. Body shape mirrors fireAnomalyNotification;
+        // only the title + body template differs per reason.
+        if (reason === 'stale_power') {
+          const secondsAtZero = readStalePowerWindowSec();
+          this.fireStalePowerNotification(plugId, profileName, secondsAtZero);
+        } else {
+          // 'timeout' — derive hours-active from sessionStartedAt for the
+          // notification body. captureEventContext snapshot preserves
+          // startedAt past the cleanupSession that follows the emit.
+          const startedAt = abortCtx.startedAt;
+          const hoursActive = startedAt !== undefined
+            ? Math.max(1, Math.round((Date.now() - startedAt) / 3_600_000))
+            : readMaxSessionHours();
+          this.fireTimeoutNotification(plugId, profileName, hoursActive);
+        }
 
-        // DB write: state='aborted', stopReason='stale_power'.
+        // DB write: state='aborted', stopReason=reason.
         if (sessionId) {
           db.update(chargeSessions).set({
             state: 'aborted',
             stoppedAt: Date.now(),
-            stopReason: 'stale_power',
+            stopReason: reason,
           }).where(eq(chargeSessions.id, sessionId)).run();
         }
 

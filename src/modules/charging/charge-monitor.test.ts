@@ -274,7 +274,12 @@ function injectActiveSession(monitor: ChargeMonitor, plugId: string, sessionId: 
   internals.sessionIds.set(plugId, sessionId);
   internals.sessionStartEnergy.set(plugId, opts.startTotalEnergy ?? 0);
   internals.socBaselineEnergy.set(plugId, opts.startTotalEnergy ?? 0);
-  internals.sessionStartedAt.set(plugId, 1_000_000);
+  // Anchor sessionStartedAt to Date.now() so FPD-04's wall-clock check
+  // (Date.now() - startedAt) does not false-fire in tests that don't
+  // explicitly manage session age. Tests that DO care about
+  // sessionStartedAt (FPD-04 boundary tests) overwrite this immediately
+  // via internals.sessionStartedAt.set(plugId, t0).
+  internals.sessionStartedAt.set(plugId, Date.now());
   internals.sessionWh.set(plugId, 0);
   internals.sessionSocMin.set(plugId, match.socMin);
   internals.sessionSocMax.set(plugId, match.socMax);
