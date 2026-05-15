@@ -39,15 +39,22 @@ import {
   DEFAULT_BAND_WIDTH_LIMIT,
   DEFAULT_STALE_POWER_THRESHOLD_W,
   DEFAULT_STALE_POWER_WINDOW_SEC,
+  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  DEFAULT_MATCHER_REFRESH_READINGS,
   shouldStop,
+  shouldStopEnergyFallback,
   readStopMode,
   readBandThreshold,
   readStalePowerThresholdW,
   readStalePowerWindowSec,
+  readLowConfidenceThreshold,
+  readMatcherRefreshReadings,
   __resetStopModeCacheForTests,
   __resetBandThresholdCacheForTests,
   __resetStalePowerThresholdCacheForTests,
   __resetStalePowerWindowCacheForTests,
+  __resetLowConfidenceThresholdCacheForTests,
+  __resetMatcherRefreshReadingsCacheForTests,
 } from './stop-mode';
 import { DEFAULT_BAND_THRESHOLD_PCT } from './curve-matcher';
 
@@ -57,6 +64,8 @@ beforeEach(() => {
   __resetBandThresholdCacheForTests();
   __resetStalePowerThresholdCacheForTests();
   __resetStalePowerWindowCacheForTests();
+  __resetLowConfidenceThresholdCacheForTests();
+  __resetMatcherRefreshReadingsCacheForTests();
 });
 
 describe('shouldStop — conservative mode', () => {
@@ -251,5 +260,127 @@ describe('readStalePowerWindowSec (FPD-01)', () => {
     } finally {
       Date.now = realNow;
     }
+  });
+});
+
+describe('readLowConfidenceThreshold (FPD-03)', () => {
+  it('exposes a 0.5 default', () => {
+    expect(DEFAULT_LOW_CONFIDENCE_THRESHOLD).toBe(0.5);
+    expect(readLowConfidenceThreshold()).toBe(0.5);
+  });
+
+  it('parses a valid numeric string from config', () => {
+    seedCfg('charging.lowConfidenceThreshold', '0.3');
+    expect(readLowConfidenceThreshold()).toBe(0.3);
+  });
+
+  it('accepts the upper inclusive bound of 1', () => {
+    seedCfg('charging.lowConfidenceThreshold', '1');
+    expect(readLowConfidenceThreshold()).toBe(1);
+  });
+
+  it('falls back on empty / non-numeric / out-of-range values', () => {
+    seedCfg('charging.lowConfidenceThreshold', '');
+    expect(readLowConfidenceThreshold()).toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+    __resetLowConfidenceThresholdCacheForTests();
+    seedCfg('charging.lowConfidenceThreshold', 'garbage');
+    expect(readLowConfidenceThreshold()).toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+    __resetLowConfidenceThresholdCacheForTests();
+    seedCfg('charging.lowConfidenceThreshold', '0'); // not >0
+    expect(readLowConfidenceThreshold()).toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+    __resetLowConfidenceThresholdCacheForTests();
+    seedCfg('charging.lowConfidenceThreshold', '1.01'); // >1
+    expect(readLowConfidenceThreshold()).toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+    __resetLowConfidenceThresholdCacheForTests();
+    seedCfg('charging.lowConfidenceThreshold', '-0.2'); // negative
+    expect(readLowConfidenceThreshold()).toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+  });
+
+  it('caches result within the 30s TTL window', () => {
+    const realNow = Date.now;
+    let now = 4_000_000;
+    Date.now = () => now;
+    try {
+      seedCfg('charging.lowConfidenceThreshold', '0.4');
+      expect(readLowConfidenceThreshold()).toBe(0.4);
+      seedCfg('charging.lowConfidenceThreshold', '0.7');
+      now += 5_000;
+      expect(readLowConfidenceThreshold()).toBe(0.4); // cached
+      now += 26_000;
+      expect(readLowConfidenceThreshold()).toBe(0.7);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe('readMatcherRefreshReadings (FPD-02)', () => {
+  it('exposes a 60 default', () => {
+    expect(DEFAULT_MATCHER_REFRESH_READINGS).toBe(60);
+    expect(readMatcherRefreshReadings()).toBe(60);
+  });
+
+  it('parses a valid integer from config', () => {
+    seedCfg('charging.matcherRefreshReadings', '120');
+    expect(readMatcherRefreshReadings()).toBe(120);
+  });
+
+  it('falls back on empty / non-integer / non-positive values', () => {
+    seedCfg('charging.matcherRefreshReadings', '');
+    expect(readMatcherRefreshReadings()).toBe(DEFAULT_MATCHER_REFRESH_READINGS);
+    __resetMatcherRefreshReadingsCacheForTests();
+    seedCfg('charging.matcherRefreshReadings', 'abc');
+    expect(readMatcherRefreshReadings()).toBe(DEFAULT_MATCHER_REFRESH_READINGS);
+    __resetMatcherRefreshReadingsCacheForTests();
+    seedCfg('charging.matcherRefreshReadings', '0'); // T-12-07: prevent tight-loop
+    expect(readMatcherRefreshReadings()).toBe(DEFAULT_MATCHER_REFRESH_READINGS);
+    __resetMatcherRefreshReadingsCacheForTests();
+    seedCfg('charging.matcherRefreshReadings', '-30');
+    expect(readMatcherRefreshReadings()).toBe(DEFAULT_MATCHER_REFRESH_READINGS);
+    __resetMatcherRefreshReadingsCacheForTests();
+    seedCfg('charging.matcherRefreshReadings', '12.5'); // non-integer
+    expect(readMatcherRefreshReadings()).toBe(DEFAULT_MATCHER_REFRESH_READINGS);
+  });
+
+  it('caches result within the 30s TTL window', () => {
+    const realNow = Date.now;
+    let now = 5_000_000;
+    Date.now = () => now;
+    try {
+      seedCfg('charging.matcherRefreshReadings', '30');
+      expect(readMatcherRefreshReadings()).toBe(30);
+      seedCfg('charging.matcherRefreshReadings', '90');
+      now += 5_000;
+      expect(readMatcherRefreshReadings()).toBe(30); // cached
+      now += 26_000;
+      expect(readMatcherRefreshReadings()).toBe(90);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe('shouldStopEnergyFallback (FPD-03)', () => {
+  // Mathematically identical to estimatedSoc >= targetSoc (the v1.2 energy
+  // formula inverted — see RESEARCH §FPD-03 Q1). Pure function; the caller
+  // gates on bandConfidence < lowConfidenceThreshold before invoking this.
+  it('returns true when estimatedSoc exactly equals targetSoc (inclusive)', () => {
+    expect(shouldStopEnergyFallback({ estimatedSoc: 80, targetSoc: 80 })).toBe(true);
+  });
+
+  it('returns false when estimatedSoc is one below target', () => {
+    expect(shouldStopEnergyFallback({ estimatedSoc: 79, targetSoc: 80 })).toBe(false);
+  });
+
+  it('returns true when estimatedSoc is well above target', () => {
+    expect(shouldStopEnergyFallback({ estimatedSoc: 95, targetSoc: 80 })).toBe(true);
+  });
+
+  it('returns true on the zero/zero edge (inclusive comparison: 0 >= 0)', () => {
+    // Documented explicitly: degenerate case at session boundary. shouldStop
+    // is only invoked from updateSocTracking during charging — by that point
+    // targetSoc is always > 0 in production. The 0/0 case is a unit-test
+    // contract assertion of inclusive comparison semantics.
+    expect(shouldStopEnergyFallback({ estimatedSoc: 0, targetSoc: 0 })).toBe(true);
   });
 });
