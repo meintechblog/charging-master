@@ -7,7 +7,19 @@
  */
 
 import type { ChargeState, MatchResult } from './types';
-import { DEFAULT_STOP_MODE, readStopMode, shouldStop, type StopMode } from './stop-mode';
+import {
+  DEFAULT_STOP_MODE,
+  DEFAULT_STALE_POWER_THRESHOLD_W,
+  readStopMode,
+  readStalePowerThresholdW,
+  readStalePowerWindowSec,
+  shouldStop,
+  type StopMode,
+} from './stop-mode';
+
+// Polling interval is fixed at 5 s codebase-wide (HttpPollingService default).
+// Window-readings = windowSec / POLL_INTERVAL_SEC. Default 300 / 5 = 60.
+const POLL_INTERVAL_SEC = 5;
 
 // Thresholds (in Watts)
 export const CHARGE_THRESHOLD = 5;
@@ -54,6 +66,18 @@ export class ChargeStateMachine {
   private idleCount = 0;
   private matchedAt: number | null = null;
   private matchResult: MatchResult | null = null;
+
+  // FPD-01 stale-power watchdog. Counter is reading-based (NOT wall-clock) —
+  // increments on `apower < stalePowerThresholdW` readings during
+  // charging+countdown, resets to 0 on the first >= threshold reading. When
+  // the count crosses stalePowerWindowReadings, fires transition('aborted',
+  // { reason: 'stale_power' }). PUBLIC READONLY: ChargeMonitor.captureEventContext
+  // reads this directly to derive `watchdogKind` / `stalePowerSeconds` for SSE.
+  // Do NOT mutate from outside — single source of truth lives here.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stalePowerCount = 0;
+  private stalePowerThresholdW = DEFAULT_STALE_POWER_THRESHOLD_W;
+  private stalePowerWindowReadings = 60; // = 300s / 5s = default 60 readings
 
   // Learn-mode plateau detection state
   private learnStartTimestamp: number | null = null;
@@ -146,6 +170,15 @@ export class ChargeStateMachine {
     // scope with a 30s TTL — changes from /settings take effect on the next
     // detecting→matched transition (acceptable for a single-user app).
     this.stopMode = readStopMode();
+    // FPD-01: snapshot the stale-power watchdog config at session start.
+    // Both helpers are 30s-cached at module scope; changes from /settings
+    // take effect on the next session (same lock-in policy as stopMode).
+    this.stalePowerThresholdW = readStalePowerThresholdW();
+    this.stalePowerWindowReadings = Math.max(
+      1,
+      Math.round(readStalePowerWindowSec() / POLL_INTERVAL_SEC),
+    );
+    this.stalePowerCount = 0;
     this.state = 'matched';
     this.onTransition?.(from, 'matched', match);
   }
@@ -191,7 +224,12 @@ export class ChargeStateMachine {
     return this.state;
   }
 
-  private handleCharging(_apower: number, _timestamp: number): ChargeState {
+  private handleCharging(apower: number, _timestamp: number): ChargeState {
+    // FPD-01 watchdog runs BEFORE shouldStop so a stale plug aborts even
+    // when the band is wide and shouldStop would never trip. If the watchdog
+    // already fired this call, state is no longer 'charging' — bail out.
+    if (this.checkStalePower(apower)) return this.state;
+
     if (this.targetSoc <= 0) return this.state;
     if (
       shouldStop({
@@ -207,7 +245,9 @@ export class ChargeStateMachine {
     return this.state;
   }
 
-  private handleCountdown(_apower: number, _timestamp: number): ChargeState {
+  private handleCountdown(apower: number, _timestamp: number): ChargeState {
+    if (this.checkStalePower(apower)) return this.state;
+
     if (
       shouldStop({
         mode: this.stopMode,
@@ -220,6 +260,29 @@ export class ChargeStateMachine {
       this.transition('stopping');
     }
     return this.state;
+  }
+
+  /**
+   * FPD-01 stale-power watchdog. Increments stalePowerCount on every reading
+   * below stalePowerThresholdW (reading-based, NOT wall-clock — polling gaps
+   * naturally pause the counter). Resets to 0 on the first reading >=
+   * threshold. When count crosses stalePowerWindowReadings, fires
+   * transition('aborted', { reason: 'stale_power' }) and zeroes the counter.
+   *
+   * Returns true if the watchdog just fired (caller short-circuits shouldStop).
+   */
+  private checkStalePower(apower: number): boolean {
+    if (apower < this.stalePowerThresholdW) {
+      this.stalePowerCount++;
+      if (this.stalePowerCount >= this.stalePowerWindowReadings) {
+        this.transition('aborted', { reason: 'stale_power' });
+        this.stalePowerCount = 0;
+        return true;
+      }
+    } else {
+      this.stalePowerCount = 0;
+    }
+    return false;
   }
 
   private handleLearning(apower: number, timestamp: number): ChargeState {
@@ -281,10 +344,10 @@ export class ChargeStateMachine {
     return this.state;
   }
 
-  private transition(to: ChargeState): void {
+  private transition(to: ChargeState, data?: unknown): void {
     const from = this.state;
     this.state = to;
-    this.onTransition?.(from, to, undefined);
+    this.onTransition?.(from, to, data);
   }
 
   private reset(): void {
@@ -299,6 +362,9 @@ export class ChargeStateMachine {
     this.socBest = 0;
     this.socBandConfidence = 0;
     this.stopMode = DEFAULT_STOP_MODE;
+    this.stalePowerCount = 0;
+    this.stalePowerThresholdW = DEFAULT_STALE_POWER_THRESHOLD_W;
+    this.stalePowerWindowReadings = 60;
     this.learnStartTimestamp = null;
     this.learnSessionMaxPower = 0;
     this.learnReadings = [];

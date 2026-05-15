@@ -93,4 +93,16 @@ export interface ChargeStateEvent {
   socMax?: number;
   socBandConfidence?: number;
   socAsciiBar?: string;
+  // Phase 12 FPD-01 stale-power watchdog. All optional and ephemeral —
+  // the SSE on-connect replay path does NOT need to populate them (the next
+  // live event from ChargeMonitor will refresh them on the wire; see
+  // RESEARCH Pitfall 7 — accept the post-restart 5-min re-arm).
+  // - watchdogKind: 'none' (default) | 'warning' (≥20% of window elapsed) |
+  //   'fired' (abort transition with stop_reason='stale_power').
+  // - stalePowerSeconds: current counter * pollIntervalSec (5).
+  // - stalePowerFiresAt: epoch-ms ETA for fire when kind='warning';
+  //   undefined otherwise.
+  watchdogKind?: 'none' | 'warning' | 'fired';
+  stalePowerSeconds?: number;
+  stalePowerFiresAt?: number;
 }

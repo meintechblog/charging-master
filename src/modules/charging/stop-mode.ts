@@ -29,6 +29,12 @@ import { DEFAULT_BAND_THRESHOLD_PCT } from './curve-matcher';
 export type StopMode = 'aggressive' | 'conservative';
 export const DEFAULT_STOP_MODE: StopMode = 'aggressive';
 export const DEFAULT_BAND_WIDTH_LIMIT = 5;
+// Phase 12 FPD-01 stale-power watchdog defaults. Both are config-tunable via
+// charging.stalePowerThresholdW / charging.stalePowerWindowSec; counter is
+// reading-based (NOT wall-clock — see RESEARCH Pitfall 1) so polling gaps
+// pause it naturally.
+export const DEFAULT_STALE_POWER_THRESHOLD_W = 1.0;
+export const DEFAULT_STALE_POWER_WINDOW_SEC = 300;
 
 const CACHE_TTL_MS = 30_000;
 
@@ -37,6 +43,12 @@ let cachedModeAt = 0;
 
 let cachedThreshold: number | null = null;
 let cachedThresholdAt = 0;
+
+let cachedStalePowerThresholdW: number | null = null;
+let cachedStalePowerThresholdAt = 0;
+
+let cachedStalePowerWindowSec: number | null = null;
+let cachedStalePowerWindowAt = 0;
 
 export function shouldStop(opts: {
   mode: StopMode;
@@ -104,6 +116,62 @@ export function readBandThreshold(): number {
   return cachedThreshold;
 }
 
+export function readStalePowerThresholdW(): number {
+  const now = Date.now();
+  if (cachedStalePowerThresholdW !== null && now - cachedStalePowerThresholdAt < CACHE_TTL_MS) {
+    return cachedStalePowerThresholdW;
+  }
+  let value: string | undefined;
+  try {
+    const row = db
+      .select()
+      .from(config)
+      .where(eq(config.key, 'charging.stalePowerThresholdW'))
+      .get() as { value?: string } | undefined;
+    value = row?.value;
+  } catch {
+    value = undefined;
+  }
+  let parsed = NaN;
+  if (typeof value === 'string' && value.trim() !== '') {
+    parsed = parseFloat(value);
+  }
+  cachedStalePowerThresholdW =
+    Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : DEFAULT_STALE_POWER_THRESHOLD_W;
+  cachedStalePowerThresholdAt = now;
+  return cachedStalePowerThresholdW;
+}
+
+export function readStalePowerWindowSec(): number {
+  const now = Date.now();
+  if (cachedStalePowerWindowSec !== null && now - cachedStalePowerWindowAt < CACHE_TTL_MS) {
+    return cachedStalePowerWindowSec;
+  }
+  let value: string | undefined;
+  try {
+    const row = db
+      .select()
+      .from(config)
+      .where(eq(config.key, 'charging.stalePowerWindowSec'))
+      .get() as { value?: string } | undefined;
+    value = row?.value;
+  } catch {
+    value = undefined;
+  }
+  let parsed = NaN;
+  if (typeof value === 'string' && value.trim() !== '') {
+    parsed = parseInt(value, 10);
+  }
+  cachedStalePowerWindowSec =
+    Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : DEFAULT_STALE_POWER_WINDOW_SEC;
+  cachedStalePowerWindowAt = now;
+  return cachedStalePowerWindowSec;
+}
+
 export function __resetStopModeCacheForTests(): void {
   cachedMode = null;
   cachedModeAt = 0;
@@ -112,4 +180,14 @@ export function __resetStopModeCacheForTests(): void {
 export function __resetBandThresholdCacheForTests(): void {
   cachedThreshold = null;
   cachedThresholdAt = 0;
+}
+
+export function __resetStalePowerThresholdCacheForTests(): void {
+  cachedStalePowerThresholdW = null;
+  cachedStalePowerThresholdAt = 0;
+}
+
+export function __resetStalePowerWindowCacheForTests(): void {
+  cachedStalePowerWindowSec = null;
+  cachedStalePowerWindowAt = 0;
 }
