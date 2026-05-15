@@ -8,6 +8,7 @@
  */
 
 import { ChargeStateMachine, CHARGE_THRESHOLD } from './charge-state-machine';
+import { readStalePowerWindowSec } from './stop-mode';
 import { findBestCandidate, type ProfileWithCurve } from './curve-matcher';
 import {
   logSocCorrection,
@@ -102,6 +103,18 @@ export class ChargeMonitor {
   private anomalyDeviationCount = new Map<string, number>();
   // Last anomaly notification per plug; we cool down for ANOMALY_COOLDOWN_MS.
   private anomalyNotifiedAt = new Map<string, number>();
+
+  // FPD-01 stale-power watchdog. The state machine fires
+  // transition('aborted', { reason: 'stale_power' }) and onTransition runs
+  // synchronously inside feedReading; we stash the reason here so the
+  // subsequent handleTransition('aborted') (which runs right after
+  // feedReading returns in handlePowerReading) can route to the watchdog
+  // abort path AND so captureEventContext can detect kind='fired'.
+  // Persists until cleanupSession runs at end of the abort branch.
+  private lastStopReason = new Map<string, string>();
+  // Per-plug stash for the transition data parameter set by ChargeStateMachine.
+  // Cleared by handleTransition once consumed.
+  private pendingTransitionData = new Map<string, unknown>();
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
 
@@ -550,6 +563,59 @@ export class ChargeMonitor {
     }).catch(() => { /* non-fatal */ });
   }
 
+  /**
+   * FPD-01 stale-power Pushover anomaly. Mirrors fireAnomalyNotification
+   * body shape (same fetch / URLSearchParams / monospace=1 ASCII bar) and
+   * only swaps the title + body text. Lock-screen-safe ASCII glyphs via
+   * renderSocBandAscii({mode:'pushover'}) — Unicode mangles on some
+   * Android lock screens (Phase 11 Pitfall 3).
+   */
+  private fireStalePowerNotification(plugId: string, profileName: string, secondsAtZero: number): void {
+    const userKeyRow = db.select().from(config).where(eq(config.key, 'pushover.userKey')).get();
+    const tokenRow = db.select().from(config).where(eq(config.key, 'pushover.apiToken')).get();
+    if (!userKeyRow?.value || !tokenRow?.value) return;
+
+    const minutes = Math.max(1, Math.round(secondsAtZero / 60));
+    const title = 'Watchdog: Akku voll?';
+    const baseMessage =
+      `${profileName} zieht seit ${minutes} Min < 1 W. Wahrscheinlich Akku voll oder Charger fertig.\n` +
+      `\n` +
+      `Plug abgeschaltet (stop_reason=stale_power).`;
+
+    const socMin = this.sessionSocMin.get(plugId);
+    const socMax = this.sessionSocMax.get(plugId);
+    const machine = this.machines.get(plugId);
+    const hasBand = socMin !== undefined && socMax !== undefined && machine !== undefined;
+    let message = baseMessage;
+    let monospace: '1' | undefined;
+    if (hasBand) {
+      const bar = renderSocBandAscii({
+        socMin: socMin!,
+        socMax: socMax!,
+        socBest: machine!.socBest,
+        targetSoc: machine!.targetSoc,
+        mode: 'pushover',
+      });
+      message = `${baseMessage}\n\n${bar}`;
+      monospace = '1';
+    }
+
+    const body: Record<string, string> = {
+      token: tokenRow.value,
+      user: userKeyRow.value,
+      title,
+      message,
+      priority: '1',
+    };
+    if (monospace) body.monospace = monospace;
+
+    fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(body).toString(),
+    }).catch(() => { /* non-fatal */ });
+  }
+
   private handleTransition(
     plugId: string,
     from: ChargeState,
@@ -653,6 +719,70 @@ export class ChargeMonitor {
         }
 
         this.emitChargeEvent(plugId, 'learn_complete');
+        break;
+      }
+
+      case 'aborted': {
+        // FPD-01: stale-power watchdog abort. State machine fired
+        // transition('aborted', { reason: 'stale_power' }); the data
+        // parameter was stashed in pendingTransitionData. Type-narrow it —
+        // tampering protection per threat T-12-01 in PLAN.
+        const raw = this.pendingTransitionData.get(plugId);
+        this.pendingTransitionData.delete(plugId);
+        const reason =
+          raw && typeof raw === 'object' && 'reason' in raw
+            ? String((raw as { reason: unknown }).reason)
+            : null;
+        if (reason !== 'stale_power') {
+          // Not a watchdog abort — fall through. abortSession (user-driven
+          // abort) writes its own DB row directly and emits there; we leave
+          // it alone.
+          break;
+        }
+
+        this.lastStopReason.set(plugId, 'stale_power');
+
+        // Compute seconds the plug has been at < threshold for the
+        // notification body. checkStalePower resets the counter to 0 after
+        // firing, but we can derive seconds from the configured window — at
+        // the fire boundary, count == windowReadings.
+        const secondsAtZero = readStalePowerWindowSec();
+
+        // Snapshot context BEFORE any await — same discipline as
+        // handleStopping (2640873 bug class). cleanupSession() runs at the
+        // end of this branch and will clear the per-plug Maps; the snapshot
+        // preserves the band fields + watchdog 'fired' kind for the emit.
+        const abortCtx = this.captureEventContext(plugId);
+        const sessionId = abortCtx.sessionId;
+        const profileName = abortCtx.match?.profileName ?? 'Unbekanntes Profil';
+
+        // Pushover anomaly fires FIRST so the user is notified even if the
+        // DB / relay step has a race. fireAnomalyNotification's body shape
+        // is the template; we just swap title + body text.
+        this.fireStalePowerNotification(plugId, profileName, secondsAtZero);
+
+        // DB write: state='aborted', stopReason='stale_power'.
+        if (sessionId) {
+          db.update(chargeSessions).set({
+            state: 'aborted',
+            stoppedAt: Date.now(),
+            stopReason: 'stale_power',
+          }).where(eq(chargeSessions.id, sessionId)).run();
+        }
+
+        // Relay off — mirrors the learn_complete fire-and-forget pattern.
+        const plug = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+        if (plug && plug.ipAddress && canSwitchRelay(this.lastRelayOff.get(plugId) ?? 0)) {
+          switchRelayOff(
+            { id: plug.id, ipAddress: plug.ipAddress, channel: plug.channel ?? 0 },
+            this.eventBus
+          ).then((ok) => {
+            if (ok) this.lastRelayOff.set(plugId, Date.now());
+          }).catch(() => { /* non-fatal */ });
+        }
+
+        this.emitChargeEvent(plugId, 'aborted', false, abortCtx);
+        this.cleanupSession(plugId);
         break;
       }
 
@@ -1026,6 +1156,13 @@ export class ChargeMonitor {
     socMax: number | undefined;
     socBandConfidence: number | undefined;
     socAsciiBar: string | undefined;
+    // Phase 12 FPD-01 stale-power watchdog. Read synchronously from
+    // machine.stalePowerCount (single source of truth) and lastStopReason
+    // Map (cleared at cleanupSession). 'fired' wins over 'warning' so
+    // post-abort events carry the correct kind.
+    watchdogKind: 'none' | 'warning' | 'fired' | undefined;
+    stalePowerSeconds: number | undefined;
+    stalePowerFiresAt: number | undefined;
   } {
     const machine = this.machines.get(plugId);
     const socMin = this.sessionSocMin.get(plugId);
@@ -1049,6 +1186,29 @@ export class ChargeMonitor {
           mode: 'unicode',
         })
       : undefined;
+
+    // FPD-01 watchdog snapshot. Read machine.stalePowerCount directly (single
+    // source of truth). 'fired' takes precedence — it persists post-abort
+    // via lastStopReason until cleanupSession runs. 20% of window — see
+    // CONTEXT design-decision (relative warning so a 120s custom window
+    // gets a 24s warning, not the hardcoded 60s).
+    const stalePowerCount = machine?.stalePowerCount ?? 0;
+    const stalePowerSeconds = stalePowerCount * 5;
+    const windowSec = readStalePowerWindowSec();
+    const firedNow = this.lastStopReason.get(plugId) === 'stale_power';
+    let watchdogKind: 'none' | 'warning' | 'fired';
+    let stalePowerFiresAt: number | undefined;
+    if (firedNow) {
+      watchdogKind = 'fired';
+    } else if (stalePowerSeconds === 0) {
+      watchdogKind = 'none';
+    } else if (stalePowerSeconds >= 0.20 * windowSec) {
+      watchdogKind = 'warning';
+      stalePowerFiresAt = Date.now() + (windowSec - stalePowerSeconds) * 1000;
+    } else {
+      watchdogKind = 'none';
+    }
+
     return {
       match: this.matchData.get(plugId),
       estimatedSoc: machine?.estimatedSoc,
@@ -1062,6 +1222,9 @@ export class ChargeMonitor {
       socMax,
       socBandConfidence: this.sessionBandConfidence.get(plugId),
       socAsciiBar,
+      watchdogKind,
+      stalePowerSeconds,
+      stalePowerFiresAt,
     };
   }
 
@@ -1085,6 +1248,9 @@ export class ChargeMonitor {
       socMax,
       socBandConfidence,
       socAsciiBar,
+      watchdogKind,
+      stalePowerSeconds,
+      stalePowerFiresAt,
     } = effective;
 
     // During detection the matchData entry is a speculative candidate, not
@@ -1119,6 +1285,9 @@ export class ChargeMonitor {
       socMax,
       socBandConfidence,
       socAsciiBar,
+      watchdogKind,
+      stalePowerSeconds,
+      stalePowerFiresAt,
     };
 
     this.eventBus.emitChargeState(event);
@@ -1128,8 +1297,16 @@ export class ChargeMonitor {
     let machine = this.machines.get(plugId);
     if (!machine) {
       machine = new ChargeStateMachine();
-      machine.onTransition = (from, to) => {
-        // Transitions handled in handlePowerReading via state comparison
+      // Transitions are dispatched in handlePowerReading via state comparison
+      // (prevState vs newState). The data parameter — set by the state
+      // machine on transition('aborted', { reason: 'stale_power' }) — is
+      // stashed in pendingTransitionData so handleTransition can read it.
+      // Synchronous: onTransition fires inside feedReading, handleTransition
+      // runs right after feedReading returns in the same tick.
+      machine.onTransition = (_from, _to, data) => {
+        if (data !== undefined) {
+          this.pendingTransitionData.set(plugId, data);
+        }
       };
       this.machines.set(plugId, machine);
     }
@@ -1153,6 +1330,8 @@ export class ChargeMonitor {
     this.anomalyCurve.delete(plugId);
     this.anomalyDeviationCount.delete(plugId);
     this.anomalyNotifiedAt.delete(plugId);
+    this.lastStopReason.delete(plugId);
+    this.pendingTransitionData.delete(plugId);
   }
 
   /**

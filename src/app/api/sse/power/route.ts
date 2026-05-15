@@ -70,6 +70,14 @@ export async function GET(request: Request) {
             // from ChargeMonitor's captureEventContext will populate it. The
             // dashboard's SocBandIndicator renders the CSS band from min/max/best
             // without needing the ASCII string.
+            //
+            // Phase 12 FPD-01 watchdog fields (watchdogKind, stalePowerSeconds,
+            // stalePowerFiresAt) are intentionally omitted from this snapshot:
+            // the counter is ephemeral (reading-based, NOT persisted to DB) and
+            // the post-restart 5-min re-arm is accepted per RESEARCH Pitfall 7.
+            // Live events emitted by ChargeMonitor.emitChargeEvent JSON-stringify
+            // the full ChargeStateEvent — the three watchdog fields flow through
+            // the live chargeHandler path below without any explicit copy.
           };
           controller.enqueue(
             encoder.encode(`event: charge\ndata: ${JSON.stringify(snapshot)}\n\n`)

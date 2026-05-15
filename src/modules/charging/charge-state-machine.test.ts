@@ -365,4 +365,113 @@ describe('ChargeStateMachine', () => {
     machine.feedReading(CHARGE_THRESHOLD + 10, 30000);
     expect(machine.state).toBe('countdown');
   });
+
+  // --- Phase 12 FPD-01 stale-power watchdog ---
+
+  function driveToCharging(machine: ChargeStateMachine): number {
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    machine.setMatch(makeMatch({ profileName: 'iPad', estimatedStartSoc: 0 }), 42);
+    // Keep socMin below target so shouldStop stays false during the test —
+    // we want the stale-power gate to be the only path to abort.
+    machine.targetSoc = 80;
+    machine.stopMode = 'aggressive';
+    machine.socMin = 10;
+    machine.socMax = 30;
+    machine.socBest = 20;
+    machine.feedReading(CHARGE_THRESHOLD + 10, 10000); // -> charging
+    return 15000; // next timestamp
+  }
+
+  it('FPD-01: 60 consecutive readings at apower=0 transitions to aborted with stale_power reason', () => {
+    const machine = createMachine();
+    let t = driveToCharging(machine);
+    expect(machine.state).toBe('charging');
+
+    const transitionSpy = vi.fn();
+    machine.onTransition = transitionSpy;
+
+    // Feed 59 zero-power readings — should remain in 'charging'.
+    for (let i = 0; i < 59; i++) {
+      machine.feedReading(0, t);
+      t += 5000;
+    }
+    expect(machine.state).toBe('charging');
+    expect(machine.stalePowerCount).toBe(59);
+
+    // The 60th zero-power reading crosses the window → abort.
+    machine.feedReading(0, t);
+    expect(machine.state).toBe('aborted');
+    expect(transitionSpy).toHaveBeenCalledWith('charging', 'aborted', { reason: 'stale_power' });
+    // Counter resets to 0 after firing.
+    expect(machine.stalePowerCount).toBe(0);
+  });
+
+  it('FPD-01: a single reading >= threshold mid-window resets the counter', () => {
+    const machine = createMachine();
+    let t = driveToCharging(machine);
+
+    // Feed 30 zero-power readings.
+    for (let i = 0; i < 30; i++) {
+      machine.feedReading(0, t);
+      t += 5000;
+    }
+    expect(machine.state).toBe('charging');
+    expect(machine.stalePowerCount).toBe(30);
+
+    // One reading above threshold resets the counter.
+    machine.feedReading(5, t);
+    t += 5000;
+    expect(machine.stalePowerCount).toBe(0);
+
+    // 59 more zero-power readings — still 'charging' (we are at 59, not 60).
+    for (let i = 0; i < 59; i++) {
+      machine.feedReading(0, t);
+      t += 5000;
+    }
+    expect(machine.state).toBe('charging');
+    expect(machine.stalePowerCount).toBe(59);
+  });
+
+  it('FPD-01: stale-power watchdog also fires from countdown state', () => {
+    const machine = createMachine();
+    let t = driveToCharging(machine);
+
+    // Force state to countdown directly (mirrors what shouldStop would do).
+    machine.state = 'countdown';
+
+    const transitionSpy = vi.fn();
+    machine.onTransition = transitionSpy;
+
+    for (let i = 0; i < 60; i++) {
+      machine.feedReading(0, t);
+      t += 5000;
+    }
+    expect(machine.state).toBe('aborted');
+    expect(transitionSpy).toHaveBeenCalledWith('countdown', 'aborted', { reason: 'stale_power' });
+  });
+
+  it('FPD-01: stalePowerCount remains 0 in idle/detecting/matched (only counts in charging+countdown)', () => {
+    const machine = createMachine();
+    // Idle: feed zeros — should not increment.
+    for (let i = 0; i < 10; i++) {
+      machine.feedReading(0, i * 5000);
+    }
+    expect(machine.stalePowerCount).toBe(0);
+
+    // Drive to charging and confirm the counter starts working.
+    let t = driveToCharging(machine);
+    machine.feedReading(0, t);
+    expect(machine.stalePowerCount).toBe(1);
+  });
+
+  it('FPD-01: reset() zeroes stalePowerCount', () => {
+    const machine = createMachine();
+    let t = driveToCharging(machine);
+    machine.feedReading(0, t); t += 5000;
+    machine.feedReading(0, t);
+    expect(machine.stalePowerCount).toBe(2);
+
+    machine.abort();
+    expect(machine.stalePowerCount).toBe(0);
+  });
 });
