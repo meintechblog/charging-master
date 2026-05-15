@@ -792,7 +792,8 @@ describe('ChargeMonitor — Phase 12 FPD-01: stale-power watchdog', () => {
 
     // Pushover anomaly fired once with monospace=1 and the bar attached.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0] as [string, { body: string; method: string; headers: Record<string, string> }];
+    const callArgs = fetchSpy.mock.calls[0] as unknown as [string, { body: string; method: string; headers: Record<string, string> }];
+    const [url, init] = callArgs;
     expect(url).toBe('https://api.pushover.net/1/messages.json');
     const params = new URLSearchParams(init.body);
     expect(params.get('monospace')).toBe('1');
@@ -803,8 +804,15 @@ describe('ChargeMonitor — Phase 12 FPD-01: stale-power watchdog', () => {
     expect(message.toLowerCase()).toContain('1 w'); // body mentions the < 1 W stale threshold
     expect(message).toMatch(/stop_reason=stale_power/);
 
-    // lastStopReason map persisted post-fire so captureEventContext detects 'fired'.
-    expect(internals.lastStopReason.get('plug-1')).toBe('stale_power');
+    // The 'aborted' charge event emitted on the abort transition carries
+    // watchdogKind='fired' — proves captureEventContext saw lastStopReason
+    // BEFORE cleanupSession cleared it. (Post-cleanup the map is empty;
+    // the dedicated cleanupSession-clears test below pins that.)
+    const abortEvent = captured.find((e) => e.state === 'aborted');
+    expect(abortEvent).toBeDefined();
+    expect(abortEvent!.watchdogKind).toBe('fired');
+    // sessionIds is cleared by cleanupSession (post-emit).
+    expect(internals.sessionIds.has('plug-1')).toBe(false);
   });
 
   it('FPD-01: counter resets on a single >= threshold reading mid-window', () => {
