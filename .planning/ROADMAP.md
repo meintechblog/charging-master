@@ -256,7 +256,13 @@ Plans:
   2. The updater's `trap on_error ERR` ALWAYS resets `state.json:updateStatus` from `installing` → `idle` before exiting non-zero, regardless of which stage failed. The reset is verified atomically (tmp + rename). A failed preflight no longer leaves the pipeline stuck on 409 "already in progress". Verified by a unit test on the bash script (using `set -e; false` injected into preflight stage).
   3. The UpdateBanner UI surfaces a new "preflight quarantined N file(s)" info state with a "Show details" link to `/settings/update-state` (new minimal admin page) listing quarantined files. Files can be inspected (read-only) or deleted from the UI. Acceptance: clicking "delete all" empties the quarantine dir.
   4. A localhost-guarded recovery endpoint `POST /api/internal/reset-update-state` exists for emergencies: forces `state.json:updateStatus='idle'`, clears `inProgressUpdate`, and writes a `recovery_event` row to `update_runs`. Host-guarded same as `/api/internal/prepare-for-shutdown` (per src/lib/host-guard.ts). Not exposed in UI — last-resort SSH-from-LXC fix.
-**Plans:** TBD plans (to be created via /gsd:plan-phase 13)
+**Plans:** 4 plans
+
+Plans:
+- [ ] 13-01-PLAN.md — preflight_git quarantine + on_error idle reset + state.json lastQuarantine field + dry-run tests (PIPE-01 + PIPE-02, wave 1)
+- [ ] 13-02-PLAN.md — POST /api/internal/reset-update-state recovery endpoint + updateRuns enum widening + UpdateHistory union update (PIPE-04, wave 2)
+- [ ] 13-03-PLAN.md — DELETE /api/admin/update-state/quarantine backend endpoint with path-safety guard (PIPE-03 backend, wave 2)
+- [ ] 13-04-PLAN.md — UpdateBanner stacked quarantine info + /settings/update-state admin page + QuarantineList client component (PIPE-03 UI, wave 3)
 
 ## Progress
 
@@ -277,7 +283,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 11. SOC Confidence Band + ASCII Visualization | v1.3 | 4/4 | Complete   | 2026-05-14 |
 | 12. Flat-Power Defense | v1.4 | 4/4 | Complete | 2026-05-15 |
-| 13. Update Pipeline Hardening | v1.4 | 0/? | Planned | - |
+| 13. Update Pipeline Hardening | v1.4 | 0/4 | Planned | - |
 
 ## Backlog
 
