@@ -38,7 +38,45 @@ type SessionState = {
   socMax?: number;
   socBandConfidence?: number;
   socAsciiBar?: string;
+  // Phase 12 FPD-05 watchdog fields.
+  watchdogKind?: ChargeStateEvent['watchdogKind'];
+  stalePowerSeconds?: number;
+  stalePowerFiresAt?: number;
 };
+
+// Local state snapshot for the red 'fired' banner. We retain the last fired
+// event in component state so the banner persists after the SSE stream
+// inevitably emits subsequent 'none'-kind events post-abort (e.g. when the
+// next session begins or polling resumes). Keyed by sessionId so a new
+// session naturally re-arms the banner.
+type FiredSnapshot = { sessionId: number; profileName?: string };
+
+/**
+ * Derive the warning-bar fraction. Returns 0 for any non-warning kind so the
+ * caller can hide the bar unconditionally; for warning kind the value is
+ * clamped to [0,1] and guarded against NaN/Infinity at all edges
+ * (firesAt < now → 1, both 0 → 0, firesAt undefined → 0).
+ */
+export function deriveWatchdogFraction(
+  kind: ChargeStateEvent['watchdogKind'] | undefined,
+  secondsAtZero: number | undefined,
+  firesAtMs: number | undefined,
+  now: number,
+): number {
+  if (kind !== 'warning') return 0;
+  const at = secondsAtZero ?? 0;
+  if (firesAtMs == null) {
+    // Defensive: warning kind without a firesAt timestamp is a contract bug
+    // on the server side, but we still need a finite, in-range value.
+    return at > 0 ? 1 : 0;
+  }
+  const firesIn = Math.max(0, (firesAtMs - now) / 1000);
+  if (firesIn === 0) return 1;
+  const denom = firesIn + at;
+  if (denom === 0) return 0;
+  const raw = at / denom;
+  return Math.max(0, Math.min(1, raw));
+}
 
 function formatWh(wh: number | undefined): string {
   if (wh == null || !Number.isFinite(wh)) return '--';
@@ -92,6 +130,10 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   const [editingSoc, setEditingSoc] = useState(false);
   const [socInput, setSocInput] = useState<string>('');
   const [socError, setSocError] = useState<string | null>(null);
+  // Phase 12 FPD-05 — fired-banner local state (persists past the post-abort
+  // 'none' event flicker) + ack flag keyed on sessionId.
+  const [firedSnapshot, setFiredSnapshot] = useState<FiredSnapshot | null>(null);
+  const [ackedSessionId, setAckedSessionId] = useState<number | null>(null);
   const dismissedUnknownRef = useRef(false);
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -129,7 +171,16 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
       socMax: event.socMax,
       socBandConfidence: event.socBandConfidence,
       socAsciiBar: event.socAsciiBar,
+      watchdogKind: event.watchdogKind,
+      stalePowerSeconds: event.stalePowerSeconds,
+      stalePowerFiresAt: event.stalePowerFiresAt,
     });
+
+    // FPD-05: capture the 'fired' event into firedSnapshot so the red banner
+    // survives subsequent 'none'-kind events on the same SSE stream.
+    if (event.watchdogKind === 'fired' && event.sessionId !== undefined) {
+      setFiredSnapshot({ sessionId: event.sessionId, profileName: event.profileName });
+    }
 
     // Reset dismissed flag when transitioning from idle to a new detection
     if (event.state === 'idle') {
@@ -147,6 +198,35 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   }, []);
 
   useChargeStream(plugId, onChargeEvent);
+
+  // FPD-05 M3 — when the fired sessionId changes (new abort on a new
+  // session, or first 'fired' event after page reload during an aborted
+  // session), re-read the localStorage ack key. Without this, a reload
+  // during an active fired-and-acked session would never re-arm the banner
+  // for the NEXT session (the useState initializer only runs once).
+  const firedSessionId = firedSnapshot?.sessionId;
+  useEffect(() => {
+    if (firedSessionId === undefined) {
+      setAckedSessionId(null);
+      return;
+    }
+    if (typeof window === 'undefined') {
+      setAckedSessionId(null);
+      return;
+    }
+    const acked = localStorage.getItem(`charging-watchdog-ack-${firedSessionId}`) === '1';
+    setAckedSessionId(acked ? firedSessionId : null);
+  }, [firedSessionId]);
+
+  const handleAckWatchdog = useCallback(() => {
+    if (firedSessionId === undefined) return;
+    try {
+      localStorage.setItem(`charging-watchdog-ack-${firedSessionId}`, '1');
+    } catch {
+      // localStorage unavailable (private mode etc.) — ack is still ephemeral.
+    }
+    setAckedSessionId(firedSessionId);
+  }, [firedSessionId]);
 
   // Auto-dismiss complete banner after 10 seconds
   useEffect(() => {
@@ -237,15 +317,56 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
     setConfirmAbort(false);
   }, [session?.sessionId, confirmAbort]);
 
-  // Don't render when idle or no session
+  // Phase 12 FPD-05 — red "Session abgebrochen" banner, rendered as a top-level
+  // overlay so it survives the parent branch returns below (idle/aborted/etc).
+  // Only visible while firedSnapshot has a sessionId AND the user hasn't acked
+  // that specific sessionId (re-checked via useEffect on firedSessionId change).
+  const showFiredBanner =
+    firedSnapshot !== null && ackedSessionId !== firedSnapshot.sessionId;
+  const firedOverlay = showFiredBanner ? (
+    <div
+      data-testid="watchdog-fired"
+      className="bg-red-900/40 border-l-4 border-red-700 rounded-lg p-4 mb-2"
+    >
+      <PlugIdentity plugName={plugName} plugIp={plugIp} />
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-red-200">
+          Session abgebrochen — Battery full?
+          {firedSnapshot?.profileName && (
+            <span className="text-red-300 ml-1">({firedSnapshot.profileName})</span>
+          )}
+        </p>
+        <button
+          data-testid="watchdog-ack"
+          onClick={handleAckWatchdog}
+          className="px-3 py-1 rounded bg-red-700/40 hover:bg-red-700/60 text-red-100 text-xs whitespace-nowrap"
+        >
+          Verstanden
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  // Don't render when idle or no session — but DO render the fired overlay
+  // if it's active (the abort transition itself routes through the
+  // session.state === 'aborted' branch which would otherwise hide everything).
   if (!session || session.state === 'idle' || session.state === 'aborted') {
-    return showUnknown && session?.sessionId ? (
+    const unknown = showUnknown && session?.sessionId ? (
       <UnknownDeviceDialog
         plugId={plugId}
         sessionId={session.sessionId}
         onClose={() => { dismissedUnknownRef.current = true; setShowUnknown(false); }}
       />
     ) : null;
+    if (firedOverlay || unknown) {
+      return (
+        <>
+          {firedOverlay}
+          {unknown}
+        </>
+      );
+    }
+    return null;
   }
 
   // Detecting state - subtle banner with live progress
@@ -268,6 +389,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
 
     return (
       <>
+        {firedOverlay}
         <div className="bg-neutral-800 border-l-4 border-neutral-500 rounded-lg p-4">
           <PlugIdentity plugName={plugName} plugIp={plugIp} />
           <div className="flex items-center gap-2">
@@ -349,12 +471,15 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   // Complete / stopping state - success banner
   if (COMPLETE_STATES.has(session.state)) {
     return (
-      <div className="bg-neutral-800 border-l-4 border-green-500 rounded-lg p-4">
-        <PlugIdentity plugName={plugName} plugIp={plugIp} />
-        <p className="text-sm text-green-400">
-          Ladevorgang abgeschlossen bei {session.estimatedSoc ?? '--'}%
-        </p>
-      </div>
+      <>
+        {firedOverlay}
+        <div className="bg-neutral-800 border-l-4 border-green-500 rounded-lg p-4">
+          <PlugIdentity plugName={plugName} plugIp={plugIp} />
+          <p className="text-sm text-green-400">
+            Ladevorgang abgeschlossen bei {session.estimatedSoc ?? '--'}%
+          </p>
+        </div>
+      </>
     );
   }
 
@@ -367,7 +492,9 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
     : 0;
 
   return (
-    <div className={`bg-neutral-900/80 border ${accent.replace('border-', 'border-')} border-t-0 rounded-b-lg px-5 py-4 -mt-px`}>
+    <>
+      {firedOverlay}
+      <div className={`bg-neutral-900/80 border ${accent.replace('border-', 'border-')} border-t-0 rounded-b-lg px-5 py-4 -mt-px`}>
       {/* Row 1: plug identity (compact) + abort */}
       <div className="flex items-center justify-between">
         <PlugIdentity plugName={plugName} plugIp={plugIp} />
@@ -452,6 +579,37 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
           </span>
         )}
       </div>
+
+      {/* Phase 12 FPD-05 — yellow watchdog warning bar. Gated on
+          watchdogKind === 'warning' AND state ∈ {charging, countdown}: when
+          kind is 'none' the bar is hidden, when 'fired' the top-level
+          firedOverlay above handles it. Bar fraction derived via
+          deriveWatchdogFraction (NaN-guarded). */}
+      {session.watchdogKind === 'warning' &&
+        (session.state === 'charging' || session.state === 'countdown') && (
+          <div data-testid="watchdog-warning" className="mt-3">
+            <div className="flex items-center justify-between text-[11px] text-amber-300 mb-1">
+              <span>Watchdog: 0 W seit {Math.round(session.stalePowerSeconds ?? 0)}s</span>
+              <span className="text-amber-500/70">
+                Akku evtl. voll — bricht automatisch ab
+              </span>
+            </div>
+            <div className="relative h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+              <div
+                data-testid="watchdog-warning-fill"
+                className="h-full bg-amber-400 transition-[width] duration-500"
+                style={{
+                  width: `${deriveWatchdogFraction(
+                    session.watchdogKind,
+                    session.stalePowerSeconds,
+                    session.stalePowerFiresAt,
+                    Date.now(),
+                  ) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
       {/* Row 5: inline controls — lazy-expand per group */}
       <div className="mt-3 pt-3 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-500">
@@ -548,6 +706,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
           />
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
