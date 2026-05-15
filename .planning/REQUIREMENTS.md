@@ -199,6 +199,29 @@ All 34 requirements shipped. See traceability below.
 - [ ] **SOCB-05**: NotificationService haengt ASCII-Bar an Pushover-Messages an (`matched`, `complete`, `anomalie` States), sendet mit `monospace=1` Flag. Frequenz minimal: nicht bei jeder Charging-Wh-Aenderung, sondern nur bei State-Transitions + initial-matched.
 - [ ] **SOCB-06**: Dashboard UI zeigt das SOC-Band live mit CSS-Animation, die das Zusammenziehen visualisiert. Fallback (no-JS) rendert die ASCII-Bar inline. ChargeStateEvent traegt `socMin`, `socMax`, `socBandConfidence`, `socAsciiBar` als neue Felder.
 
+## v1.4 Requirements (Flat-Power Defense + Pipeline Hardening)
+
+**Context (2026-05-15, post v1.3.1):** Real-iPad-data calibration sweep (Sessions 14, 16, 17 against profile_id=4 reference curve) zeigte zwei Klassen von Defekten, die v1.3 alleine nicht löst:
+
+1. **Session 4 (Charging-Master-01, 117) blieb 16h auf 0W mit Relay ON** — Sanorum-Charger war physisch fertig, aber die State-Machine hat keinen Power-Flow-Watchdog: socBest=24 < target=80 → aggressive blockt, socMin=24 < 80 → conservative blockt, weil kein State-Übergang auf "0W seit X min → fertig" existiert. v1.3 hat das nicht spec'd.
+2. **socBest ankert in der Flat-Region** auf einem falschen Curve-Offset (z.B. ~31% auf Session 14, die real von 0% auf 65% ging), und das Band kollabiert um diesen falschen Mittelwert. v1.3.1 Threshold-Tuning (0.05→0.20) hat die Band-Breite korrigiert, aber socBest bleibt falsch. Defense braucht entweder periodisches Matcher-Refresh (damit Taper-Daten den richtigen Offset finden) oder einen Fallback auf das alte energiebasierte Stop.
+3. **Self-Update Preflight ist brittle** — am 2026-05-15 hat mein eigener Diagnose-Script (untracked file in /opt/charging-master/scripts/) das Preflight-Stage `git working tree clean` zum FATAL kippen lassen. Der `on_error`-Trap des Updaters hat `state.json:updateStatus="installing"` NICHT auf `idle` zurückgesetzt → alle Folgetrigger waren 409 "in progress". Recovery erforderte SSH + state.json patch.
+
+### Flat-Power Defense (Phase 12)
+
+- [ ] **FPD-01**: Stale-Power-Watchdog: Wenn `apower < 1.0 W` für ≥ 5 konsekutive Minuten während `state ∈ {charging, countdown}`, transitioniert die State-Machine zu `aborted` (`stop_reason='stale_power'`), das Relay wird via HTTP `Switch.Set off` geschaltet, und eine Pushover-Anomaly-Notification (mit aktueller Band-ASCII-Bar) wird gesendet. Konfigurierbar via `config.charging.stalePowerThresholdW` und `config.charging.stalePowerWindowSec` (defaults 1.0 / 300).
+- [ ] **FPD-02**: Adaptive Matcher Refresh im `state=charging`: Der Curve-Matcher läuft alle N Readings (default N=60, ≈ 5 min bei 5s-Sampling) erneut gegen das wachsende Query-Window. Jeder Re-Run aktualisiert `socMin/socMax/socBest/bandConfidence`; das Band darf nur *enger* werden (monotone Narrowing-Garantie). Wenn `socBest` durch ein Re-Run erstmals `>= targetSoc` UND Stop-Mode-Kriterien erfüllt, feuert der existierende Stop-Pfad. Schließt die v1.3-Design-Lücke (Matcher lief bisher nur einmal in `state=matching`).
+- [ ] **FPD-03**: Band-Confidence-Aware Fallback: Bei `bandConfidence < 0.5` (= Band-Breite > 50% SOC) verweigert die State-Machine BEIDE Band-Mode-Stops (aggressive UND conservative) und fällt zurück auf das Legacy-Energy-based Stop (`(targetSoc - estimatedStartSoc) × totalEnergyWh`) wie in v1.2. Der Fallback ist sichtbar in `ChargeStateEvent.stopMode='energy_fallback'` für UI/Pushover. Konfigurierbar via `config.charging.lowConfidenceThreshold` (default 0.5).
+- [ ] **FPD-04**: Session-Max-Duration-Watchdog: Eine Session, die länger als `config.charging.maxSessionHours` (default 24h) läuft, wird mit `stop_reason='timeout'` aborted + Pushover-Anomaly. Defense für Edge-Cases wo weder FPD-01 noch FPD-02 triggern (z.B. Plug-Disconnect + Reconnect ohne saubere Apower-Phase). Settings-UI exponiert den Wert.
+- [ ] **FPD-05**: UI Active-Watchdog-Indicator: Charge-Banner auf Dashboard zeigt yellow "Watchdog: 0 W seit Xs"-Indikator wenn `apower=0` für > 60s im `state=charging` (Vorwarnung vor FPD-01-Trigger). Wenn FPD-01 feuert, transitioniert das Banner zu red "Session abgebrochen — Battery full?" mit "Acknowledge"-Button (clears banner, kein DB-Effekt). RTL-Component-Tests decken beide Zustände + Acknowledge-Flow.
+
+### Pipeline Hardening (Phase 13)
+
+- [ ] **PIPE-01**: Updater-Preflight-Quarantine: Bei `stage=preflight_git` mit nur-untracked-files (keine modified-tracked), MOVE die untracked files nach `.update-state/quarantine-<YYYYMMDD-HHMMSS>/<orig-path>/` (Verzeichnisstruktur erhalten) und FORTFAHREN. Quarantine wird im journalctl-Log gemeldet und via `/api/update/status` als `lastQuarantine: { timestamp, fileCount, path }` exposed. Modified-tracked files bleiben FATAL (echte Datenintegritäts-Risiken).
+- [ ] **PIPE-02**: state.json on_error-Reset: Der `trap on_error ERR` in `scripts/update/run-update.sh` setzt IMMER `state.json:updateStatus="idle"` und clear `inProgressUpdate` bevor er `exit 1` macht — egal welche Stage failed. Atomic write via tmp + os.rename. Verifiziert via dry-run-helpers Test (`set -e; false` injected an Phase-Anfang).
+- [ ] **PIPE-03**: UpdateBanner-UI Quarantine-Surface: Neuer Info-State im UpdateBanner: "Letztes Preflight: N Datei(en) in Quarantäne — Details ansehen". Link öffnet `/settings/update-state` (neue minimale Admin-Page) mit Listing der quarantined files (read-only viewer + "Delete all"-Button). Acceptance: nach "Delete all" ist der Quarantine-Dir leer und der Banner-State verschwindet.
+- [ ] **PIPE-04**: Recovery-Endpoint `POST /api/internal/reset-update-state`: Localhost-only (Host-Header-Guard wie `/api/internal/prepare-for-shutdown`), erzwingt `state.json:updateStatus='idle'`, clear `inProgressUpdate`, schreibt `recovery_event` row in `update_runs`. Last-Resort-Rescue für stuck states wenn alle anderen Mechanismen versagen. NICHT in der UI exponiert — nur via SSH-from-LXC curl.
+
 ## Traceability
 
 ### v1.0 (Complete)
@@ -243,14 +266,24 @@ All 34 requirements shipped. See traceability below.
 - v1.1 requirements: 14 total, 14 complete
 - v1.2 requirements: 35 total, 35 mapped (Phase 7: 6, Phase 8: 6, Phase 9: 15, Phase 10: 8)
 
-### v1.3 (Active)
+### v1.3 (Code-complete)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SOCB-01..06 | Phase 11 | Planned |
+| SOCB-01..06 | Phase 11 | Complete (deployed 2026-05-15 — d4242b3) |
 
 **Coverage:**
-- v1.3 requirements: 6 total, 6 mapped to Phase 11
+- v1.3 requirements: 6 total, 6 complete
+
+### v1.4 (Active)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| FPD-01..05 | Phase 12 | Planned (Flat-Power Defense) |
+| PIPE-01..04 | Phase 13 | Planned (Pipeline Hardening) |
+
+**Coverage:**
+- v1.4 requirements: 9 total, 9 mapped (Phase 12: 5, Phase 13: 4)
 
 ---
 *Requirements defined: 2026-03-25*

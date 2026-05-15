@@ -5,7 +5,8 @@
 - v1.0 MVP - Phases 1-4 (shipped 2026-04-09)
 - v1.1 MQTT raus, HTTP rein - Phases 5-6 (complete)
 - v1.2 Self-Update - Phases 7-10 (complete)
-- v1.3 SOC Intelligence - Phase 11 (code-complete 2026-05-15; LXC deploy + on-device Pushover render pending)
+- v1.3 SOC Intelligence - Phase 11 (deployed 2026-05-15; on-device Pushover render verify pending) + v1.3.1 patch (real-iPad threshold calibration, 0.05→0.20)
+- v1.4 Flat-Power Defense + Pipeline Hardening - Phases 12-13 (active 2026-05-15)
 
 ## Phases
 
@@ -228,10 +229,33 @@ Plans:
 - [x] 11-03-PLAN.md — Pure renderSocBandAscii + Pushover monospace flag + NotificationService matched/complete bar + anomaly bar (wave 2)
 - [x] 11-04-PLAN.md — SocBandIndicator component (CSS-animated, ASCII fallback) + ChargingSettings stop-mode + bandThreshold + SSE active-replay band hydration (wave 3)
 
+### Phase 12: Flat-Power Defense
+**Goal**: The state machine cannot hang on a finished charge: power-flow watchdog catches 0W stalls, the matcher refreshes during `state=charging` to escape false flat-region anchoring, and the stop logic falls back to band-confidence-aware safe behavior. Eliminates the "16h plug-on at 0W" class observed on 2026-05-14 (117 Session 4) AND closes the v1.3 deferral that `socBest` can stick to a wrong offset in the flat region (real iPad data exposes this regardless of band threshold).
+**Depends on**: Phase 11 (SOC Confidence Band — band fields + stop-mode infrastructure), Phase 4 (Notifications — Pushover anomaly path)
+**Requirements**: FPD-01, FPD-02, FPD-03, FPD-04, FPD-05
+**Success Criteria** (what must be TRUE):
+  1. A new stale-power watchdog fires when `apower < 1.0 W` for ≥ 5 consecutive minutes during `state ∈ {charging, countdown}` — the state machine transitions to `aborted` with `stop_reason='stale_power'`, the relay is switched off, and a Pushover anomaly notification (with the current band's ASCII bar) is sent. Verified by an integration test that drives the monitor end-to-end with fake timers.
+  2. In `state=charging`, the matcher re-runs every N readings (default N=60 ≈ 5 min at 5s sampling) against the growing query window. Each re-run updates the band fields; the band is allowed to *narrow* monotonically (never widen) so user-visible band confidence only ever improves. When `socBest` crosses `targetSoc` AND `width ≤ 5` (aggressive) OR `socMin ≥ targetSoc` (conservative), the existing stop-mode logic fires — closing the original v1.3 design gap (matcher previously ran only once at `state=matching` and never re-evaluated). Verified by a property test on the iPad Session-14 fixture that proves the band sharpens AFTER 40+ min of readings as taper data arrives.
+  3. A band-confidence-aware fallback prevents premature aggressive stops on low-confidence bands: if `socBandConfidence < 0.5` (= band width > 50% SOC), the state machine refuses BOTH aggressive and conservative band-mode stops and falls back to the legacy energy-based stop (`(target - estimatedStartSoc) × totalEnergyWh`). The fallback is observable in `ChargeStateEvent.stopMode='energy_fallback'` for the UI/Pushover. Unit-tested for ordering and threshold edges.
+  4. A session-max-duration watchdog aborts any session that runs longer than `config.charging.maxSessionHours` (default 24h) with `stop_reason='timeout'`. Configurable via Settings page. Prevents runaway sessions when no other defense fires (e.g., matcher never re-detects taper because the device disconnects and reconnects partial). Unit-tested for boundary.
+  5. The dashboard charge banner surfaces watchdog state: when `apower=0 W` for > 60s during `state=charging`, the banner shows a yellow "Watchdog: 0W seit Xs" indicator (CSS-animated). When the watchdog actually fires at 5min, the banner transitions to red "Session abgebrochen — Battery full?" with a manual "Acknowledge"-button that clears it. RTL tests cover both warning and fired states.
+**Plans:** TBD plans (to be created via /gsd:plan-phase 12)
+
+### Phase 13: Update Pipeline Hardening
+**Goal**: The self-updater survives operational mess on production LXCs (untracked diagnostics, partial commits, stale state.json after early failure). No more "one wrong scp + the whole pipeline is bricked until manual SSH recovery" like 2026-05-15.
+**Depends on**: Phase 9 (Updater Pipeline + systemd unit), Phase 10 (UI integration + ack-rollback)
+**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04
+**Success Criteria** (what must be TRUE):
+  1. `scripts/update/run-update.sh` `stage=preflight_git`: when the working tree contains untracked files (no modified-tracked files), the preflight moves them to `.update-state/quarantine-<timestamp>/<orig-path>/` (preserving directory structure) and continues. The quarantine is reported in the journal and surfaced via `/api/update/status` as `lastQuarantine`. Modified-tracked files still fatal-fail (those carry real risk). Verified by a dry-run-helpers test.
+  2. The updater's `trap on_error ERR` ALWAYS resets `state.json:updateStatus` from `installing` → `idle` before exiting non-zero, regardless of which stage failed. The reset is verified atomically (tmp + rename). A failed preflight no longer leaves the pipeline stuck on 409 "already in progress". Verified by a unit test on the bash script (using `set -e; false` injected into preflight stage).
+  3. The UpdateBanner UI surfaces a new "preflight quarantined N file(s)" info state with a "Show details" link to `/settings/update-state` (new minimal admin page) listing quarantined files. Files can be inspected (read-only) or deleted from the UI. Acceptance: clicking "delete all" empties the quarantine dir.
+  4. A localhost-guarded recovery endpoint `POST /api/internal/reset-update-state` exists for emergencies: forces `state.json:updateStatus='idle'`, clears `inProgressUpdate`, and writes a `recovery_event` row to `update_runs`. Host-guarded same as `/api/internal/prepare-for-shutdown` (per src/lib/host-guard.ts). Not exposed in UI — last-resort SSH-from-LXC fix.
+**Plans:** TBD plans (to be created via /gsd:plan-phase 13)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -246,6 +270,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Updater Pipeline & systemd Unit | v1.2 | 3/3 | Complete | 2026-04-10 |
 | 10. UI Integration & Restart Handoff | v1.2 | 2/2 | Complete | 2026-04-10 |
 | 11. SOC Confidence Band + ASCII Visualization | v1.3 | 4/4 | Complete   | 2026-05-14 |
+| 12. Flat-Power Defense | v1.4 | 0/? | Planning | - |
+| 13. Update Pipeline Hardening | v1.4 | 0/? | Planned | - |
 
 ## Backlog
 
