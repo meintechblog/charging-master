@@ -615,6 +615,13 @@ do_rollback_stage2() {
 # Error trap (triggered by set -e on any non-zero exit)
 # -----------------------------------------------------------------------------
 on_error() {
+    # Phase 13 (PIPE-02): reset updateStatus to idle BEFORE any other state
+    # writes. If a subsequent state_set_rolled_back succeeds it will override
+    # updateStatus to 'rolled_back' (correct — surfaces the red banner). If
+    # state_set_rolled_back silently fails (the 2026-05-15 incident class
+    # where preflight_git died while state.json was 'installing'),
+    # updateStatus stays 'idle' so the next /api/update/trigger does NOT
+    # 409 'already in progress'.
     local exit_code="$1"
     local lineno="$2"
     local failed_stage="${CURRENT_STAGE}"
@@ -625,6 +632,11 @@ on_error() {
     # Disable the trap inside the trap so rollback failures don't recursively
     # fire it and loop forever.
     trap - ERR
+
+    # PIPE-02: unconditional idle reset before any case-arm bookkeeping. The
+    # `|| true` keeps a helper failure from itself crashing the trap (defense
+    # in depth — the trap is already disabled above).
+    state_set_idle_clearing_inprogress || true
 
     # Stages where no rollback is needed — the old code is still running.
     case "${failed_stage}" in
