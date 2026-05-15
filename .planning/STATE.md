@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: SOC Intelligence
-status: completed
-stopped_at: Phase 11 SOC Confidence Band code-complete; 171/171 tests green, tsc clean, VERIFICATION.md PASS-with-deferrals (manual Pushover render = post-deploy)
-last_updated: "2026-05-15T00:09:00.000Z"
-last_activity: 2026-05-15 -- Phase 11 complete; milestone v1.3 code-complete; ready for LXC deployment + Pushover lock-screen check
+status: verifying
+stopped_at: Phase 11 SOC Confidence Band code-complete; milestone v1.3 ready for LXC deployment + on-device Pushover lock-screen verify.
+last_updated: "2026-05-15T00:09:47.887Z"
+last_activity: 2026-05-15 -- v1.3.1 quick-260515-2e4: BAND_THRESHOLD 0.05→0.20 (real iPad Session 14 calibration) + dual-criterion test + sweep-real diagnostic, deployed both LXCs (d4242b3)
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 22
-  completed_plans: 22
+  total_phases: 8
+  completed_phases: 5
+  total_plans: 13
+  completed_plans: 13
   percent: 100
 ---
 
@@ -134,6 +134,7 @@ None.
 | 260421-423 | Streaming device scan via SSE with live progress bar — rows appear per-hit instead of all at once — plus Shelly-defined Switch.GetConfig.name is surfaced as the primary label and used as the default plug name on Hinzufügen. | 2026-04-21 | 448e219 | [260421-423](./quick/260421-423-streaming-device-scan/) |
 | 260421-669 | Multi-channel Shelly support (planned as 999.1 backlog, pulled into this session). Discovery enumerates every switch:N; schema `plugs.channel` added (ALTER TABLE on live DB); composite id `${deviceId}:${channel}` for channel > 0; all `?id=0` hardcoding removed from polling + relay + learn paths. | 2026-04-21 | ec20a40, 3bc75c9 | [260421-669](./quick/260421-669-multi-switch-discovery/) |
 | 260421-6f6 | Replace ASCII `ue / ae / oe` digraphs with proper umlauts in 9 user-facing strings across 5 files. No behavior change. | 2026-04-21 | f72ef68 | [260421-6f6](./quick/260421-6f6-umlaut-fixes/) |
+| 260515-2e4 | **v1.3.1** — `DEFAULT_BAND_THRESHOLD_PCT` 0.05 → 0.20 after real-iPad-Session-14 calibration sweep revealed 0.05 collapses band to Δ=0 in flat region after 10 min (false confidence). New real fixture `ipad-session-14-readings.json` (830 readings). Calibration test rewritten to dual-criterion (taper Δ≤5 AND flat Δ≥10). New diagnostic CLI `scripts/calibration/sweep-real.ts`. v1.4 deferral noted: `socBest` still anchors to ~31% in flat region regardless of threshold — needs stale-power-watchdog. Deployed both LXCs after one preflight-clean retry (185 stuck on `installing` state due to untracked diagnostic file from earlier exploration). | 2026-05-15 | d4242b3 | [260515-2e4](./quick/260515-2e4-band-threshold-20-real-calib/) |
 
 ## Session Continuity
 
