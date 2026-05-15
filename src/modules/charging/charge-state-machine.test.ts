@@ -474,4 +474,21 @@ describe('ChargeStateMachine', () => {
     machine.abort();
     expect(machine.stalePowerCount).toBe(0);
   });
+
+  // --- Phase 12 FPD-04 max-session-duration watchdog ---
+
+  it('FPD-04: forceTimeout transitions to "aborted" with reason="timeout" synchronously', () => {
+    const machine = createMachine();
+    driveToCharging(machine);
+    expect(machine.state).toBe('charging');
+
+    const transitionSpy = vi.fn();
+    machine.onTransition = transitionSpy;
+
+    expect(machine.forceTimeout).toBeTypeOf('function');
+    machine.forceTimeout();
+
+    expect(machine.state).toBe('aborted');
+    expect(transitionSpy).toHaveBeenCalledWith('charging', 'aborted', { reason: 'timeout' });
+  });
 });
