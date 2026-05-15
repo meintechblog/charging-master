@@ -318,14 +318,95 @@ preflight_pnpm() {
 }
 
 preflight_git() {
+    # Phase 13 (PIPE-01): instead of dying on ANY untracked/modified file
+    # (the 2026-05-15 incident: a single 0-byte stray .ts file from a prior
+    # botched update killed every subsequent preflight), partition the
+    # working tree into:
+    #   - untracked-only ('??') → MOVE to .update-state/quarantine-<ts>/
+    #     preserving directory structure, then continue.
+    #   - anything else (M/A/D/R/C/unmerged) → die fatally. We never silently
+    #     reset tracked-file edits — they are intentional and must be reviewed.
+    # The bash updater's own write paths (.update-state/*, .next/*) are
+    # excluded from the quarantine candidate set; they belong to the script.
     CURRENT_STAGE="preflight_git"
-    # Allow well-known untracked/modified paths; fail on any src/ or config drift.
-    local dirty
-    dirty=$(git status --porcelain | grep -vE '^\?\? \.update-state/|^\?\? \.next/|^ M tsconfig\.tsbuildinfo' || true)
-    if [ -n "${dirty}" ]; then
-        die "Working tree has unexpected changes: ${dirty}"
+
+    local untracked=()
+    local fatal=()
+    local entry code path
+
+    # `git status -z --porcelain`:
+    # - -z uses NUL terminators between entries (handles spaces, quotes, newlines safely)
+    # - in -z mode, NO C-string quoting — bytes between NULs are the raw filename
+    # - rename codes (R*/C*) emit TWO NUL tokens (new + old). We die fatally
+    #   on the first one, so we never consume the second.
+    while IFS= read -r -d '' entry; do
+        code="${entry:0:2}"
+        path="${entry:3}"
+        case "${code}" in
+            '??')
+                # Skip the updater's own write directories.
+                case "${path}" in
+                    .update-state/*|.next/*) continue ;;
+                esac
+                untracked+=("${path}")
+                ;;
+            *)
+                fatal+=("${code} ${path}")
+                ;;
+        esac
+    done < <(git status -z --porcelain)
+
+    if (( ${#fatal[@]} > 0 )); then
+        die "Working tree has unexpected changes: ${fatal[*]}"
     fi
-    log "git working tree clean"
+
+    if (( ${#untracked[@]} == 0 )); then
+        log "git working tree clean"
+        return 0
+    fi
+
+    # Build a unique quarantine dir, handling same-second re-trigger by
+    # appending -tryN (up to -try10) — see RESEARCH Pitfall 4.
+    local stamp
+    stamp=$(date +%Y%m%d-%H%M%S)
+    local qdir="${STATE_DIR}/quarantine-${stamp}"
+    if [ -e "${qdir}" ]; then
+        local n=1
+        while [ -e "${qdir}-try${n}" ] && (( n < 10 )); do
+            n=$((n + 1))
+        done
+        qdir="${qdir}-try${n}"
+    fi
+    mkdir -p "${qdir}"
+
+    local f dest
+    for f in "${untracked[@]}"; do
+        dest="${qdir}/${f}"
+        mkdir -p "$(dirname "${dest}")"
+        # `mv` is atomic within the same filesystem and relocates symlink
+        # nodes themselves (does NOT follow). die() flushes on_error → reset.
+        mv "${INSTALL_DIR}/${f}" "${dest}" || die "quarantine move failed for ${f}"
+    done
+
+    log "quarantined ${#untracked[@]} file(s) to ${qdir}"
+
+    # Retention prune AFTER quarantine creation (the new dir is already
+    # counted, so keep newest QUARANTINE_RETAIN total by skipping the first
+    # QUARANTINE_RETAIN entries from `ls -1td`).
+    local existing
+    existing=$(ls -1td "${STATE_DIR}"/quarantine-* 2>/dev/null | tail -n +$((QUARANTINE_RETAIN + 1)) || true)
+    if [ -n "${existing}" ]; then
+        log "pruning old quarantine dirs"
+        echo "${existing}" | xargs -r rm -rf
+    fi
+
+    # Persist the event to state.json so the UI can surface a yellow banner.
+    # `date +%s%3N` is GNU coreutils on Debian — millisecond precision.
+    local epoch_ms
+    epoch_ms=$(date +%s%3N)
+    state_set_quarantine "${epoch_ms}" "${#untracked[@]}" "${qdir}"
+
+    log "git working tree clean (after quarantine)"
 }
 
 # -----------------------------------------------------------------------------
@@ -350,6 +431,7 @@ do_snapshot() {
         --exclude='./node_modules' \
         --exclude='./.git' \
         --exclude='./.update-state/snapshots' \
+        --exclude='./.update-state/quarantine-*' \
         --exclude='./data/*.db-wal' \
         --exclude='./data/*.db-shm' \
         -C "${INSTALL_DIR}" \
