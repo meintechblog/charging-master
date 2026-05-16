@@ -78,6 +78,13 @@
       "when": 1778889148954,
       "tag": "0010_shiny_rhino",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1778892000000,
+      "tag": "0011_replace_pinned_with_whitelist",
+      "breakpoints": true
     }
   ]
 }

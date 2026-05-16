@@ -6,6 +6,7 @@ import {
   deriveBand,
   findBestCandidate,
   findMatchWithMargin,
+  findMatchWithMarginAndPrior,
   type ProfileWithCurve,
 } from './curve-matcher';
 import { subsequenceDtw } from './dtw';
@@ -327,5 +328,87 @@ describe('findMatchWithMargin — v1.5 flat-power-ambiguity gate', () => {
     // 1.05 was chosen via scripts/diagnose/replay-session.ts against four
     // real-iPad sessions; changing it requires re-running the replay.
     expect(DEFAULT_CONFIDENCE_MARGIN_RATIO).toBe(1.05);
+  });
+});
+
+describe('findMatchWithMarginAndPrior — v1.6 stacked gates', () => {
+  function makeFlatProfile(id: number, name: string, totalEnergyWh: number, peakW = 40): ProfileWithCurve {
+    const points: CurvePoint[] = [];
+    let cumulativeWh = 0;
+    const flatLen = 600;
+    for (let t = 0; t < flatLen; t++) {
+      cumulativeWh += peakW / 3600;
+      points.push({ offsetSeconds: t, apower: peakW, cumulativeWh });
+    }
+    return {
+      id,
+      name,
+      curve: { startPower: peakW, durationSeconds: flatLen, totalEnergyWh },
+      curvePoints: points,
+    };
+  }
+
+  it('whitelist filters profile set BEFORE DTW runs', () => {
+    const iPad = makeFlatProfile(4, 'iPad', 60);
+    const macBook = makeFlatProfile(6, 'MacBook', 100);
+    const winbot = makeFlatProfile(5, 'Winbot', 250);
+    const query = new Array(30).fill(40);
+    // Margin gate would reject identical-shape ties; pass marginRatio=0 so
+    // the whitelist-only behaviour is unambiguous in this test.
+    const result = findMatchWithMarginAndPrior(query, [iPad, macBook, winbot], {
+      whitelistIds: [4, 6],
+      marginRatio: 0,
+    });
+    expect(result.match).not.toBeNull();
+    expect([4, 6]).toContain(result.match!.profileId);
+    // Winbot must have been filtered out before DTW.
+    expect(result.match!.profileId).not.toBe(5);
+  });
+
+  it('empty candidate set (whitelist excludes everything) returns no_candidates', () => {
+    const iPad = makeFlatProfile(4, 'iPad', 60);
+    const query = new Array(30).fill(40);
+    const result = findMatchWithMarginAndPrior(query, [iPad], { whitelistIds: [999] });
+    expect(result.match).toBeNull();
+    expect(result.rejectionReason).toBe('no_candidates');
+  });
+
+  it('energy-bound eliminates candidates whose ref total is too small', () => {
+    // Bosch GBA-style profile: tiny 20 Wh total. We've already delivered 40 Wh.
+    // Bosch is mathematically dead — only iPad (60 Wh) survives.
+    const bosch = makeFlatProfile(2, 'Bosch', 20);
+    const iPad = makeFlatProfile(4, 'iPad', 60);
+    const query = new Array(30).fill(40);
+    const profileMaxEnergyWh = new Map<number, number>([[2, 20], [4, 60]]);
+    const result = findMatchWithMarginAndPrior(query, [bosch, iPad], {
+      profileMaxEnergyWh,
+      currentSessionWh: 40,
+    });
+    expect(result.match).not.toBeNull();
+    expect(result.match!.profileId).toBe(4); // iPad wins by elimination
+  });
+
+  it('Bayesian prior breaks ties between DTW-equivalent candidates', () => {
+    // Two identical-shape profiles → DTW gives equal confidence. Without
+    // prior, undefined which wins. With prior favouring profile 4, posterior
+    // collapses to 4.
+    const profileA = makeFlatProfile(4, 'iPad', 60);
+    const profileB = makeFlatProfile(6, 'MacBook', 60);
+    const query = new Array(30).fill(40);
+    const prior = new Map<number, number>([[4, 0.95], [6, 0.05]]);
+    const result = findMatchWithMarginAndPrior(query, [profileA, profileB], { prior });
+    expect(result.match).not.toBeNull();
+    expect(result.match!.profileId).toBe(4);
+  });
+
+  it('prior cannot rescue a candidate with zero DTW confidence', () => {
+    // Even with a heavy prior, 0 × 1 = 0 — the candidate fails the
+    // confidence floor and the matcher reports low_confidence.
+    const flat = makeFlatProfile(4, 'iPad', 60);
+    const query = new Array(30).fill(200); // wildly wrong power level
+    const prior = new Map<number, number>([[4, 1.0]]);
+    const result = findMatchWithMarginAndPrior(query, [flat], { prior });
+    expect(result.match).toBeNull();
+    expect(result.rejectionReason).toBe('low_confidence');
   });
 });

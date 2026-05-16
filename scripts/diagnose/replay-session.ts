@@ -232,6 +232,49 @@ function verifySession(sessionId: number, readings: number[], profiles: ProfileW
     break;
   }
 
+  // --- Scenario 1b: WHITELIST = {iPad, BoschGBA} simulating "Büro plug only
+  // ever charges iPad or Bosch power-tools" — replays with energy-bound
+  // elimination + Bayesian prior (uniform → equal weight). Shows whether
+  // pinning the candidate set + energy elim resolves earlier.
+  let whitelistCommitReading = -1;
+  let whitelistCommitProfile: { id: number; name: string } | null = null;
+  const whitelistIds = new Set([4, 2]);
+  const profileMaxWh = new Map<number, number>(profiles.map((p) => [p.id, p.curve.totalEnergyWh]));
+  for (let n = MIN_MATCH_READINGS; n <= readings.length; n += 6) {
+    const window = readings.slice(0, n);
+    const accumulatedWh = readings.slice(0, n).reduce((acc, p) => acc + p * 5 / 3600, 0);
+    const aliveIds = [...whitelistIds].filter((id) => {
+      const max = profileMaxWh.get(id);
+      return max === undefined || accumulatedWh <= max * 1.1;
+    });
+    if (aliveIds.length === 0) break; // contradicts whitelist; user must intervene
+    if (aliveIds.length === 1) {
+      whitelistCommitReading = n;
+      const p = profiles.find((p) => p.id === aliveIds[0])!;
+      whitelistCommitProfile = { id: p.id, name: p.name };
+      break;
+    }
+    const avgQuery = window.reduce((a, b) => a + b, 0) / window.length;
+    const ranked: Array<{ id: number; name: string; confidence: number }> = [];
+    for (const profile of profiles) {
+      if (!aliveIds.includes(profile.id)) continue;
+      const refPowers = profile.curvePoints.map((p) => p.apower);
+      if (refPowers.length < window.length) continue;
+      const { distance } = subsequenceDtw(window, refPowers);
+      const confidence = Math.max(0, 1 - distance / (avgQuery || 1));
+      ranked.push({ id: profile.id, name: profile.name, confidence });
+    }
+    ranked.sort((a, b) => b.confidence - a.confidence);
+    if (ranked.length === 0) continue;
+    const best = ranked[0];
+    if (best.confidence < DEFAULT_CONFIDENCE_THRESHOLD) continue;
+    const runnerUp = ranked[1];
+    if (runnerUp && runnerUp.confidence > 0 && best.confidence < runnerUp.confidence * DEFAULT_CONFIDENCE_MARGIN_RATIO) continue;
+    whitelistCommitReading = n;
+    whitelistCommitProfile = { id: best.id, name: best.name };
+    break;
+  }
+
   // --- Scenario 2: PINNED to iPad (the correct profile for all 4 sessions) ---
   // No DTW. Synthetic match with startSoc=0, wide band. Energy_fallback
   // tracks estSoc via estimateSocTaperAware against iPad curve.
@@ -263,12 +306,19 @@ function verifySession(sessionId: number, readings: number[], profiles: ProfileW
   }
 
   console.log(`\n=== Session ${sessionId} verification ===`);
-  console.log(`  Unpinned (DTW + ×1.05 margin gate):`);
+  console.log(`  v1.5 unpinned (DTW + ×1.05 margin gate, ALL 4 profiles):`);
   if (firstCommitReading < 0) {
     console.log(`    NEVER COMMITS — stays in 'detecting', no auto-stop. Margin never clean enough.`);
   } else {
     const min = (firstCommitReading * 5 / 60).toFixed(1);
     console.log(`    Commits at reading #${firstCommitReading} (${min} min) → ${firstCommitProfile!.name}`);
+  }
+  console.log(`  v1.6 whitelist={iPad, BoschGBA} + energy-bound:`);
+  if (whitelistCommitReading < 0) {
+    console.log(`    NEVER COMMITS in ${(readings.length * 5 / 60).toFixed(1)} min — would prompt user (active-learning fallback).`);
+  } else {
+    const min = (whitelistCommitReading * 5 / 60).toFixed(1);
+    console.log(`    Commits at reading #${whitelistCommitReading} (${min} min) → ${whitelistCommitProfile!.name}`);
   }
   console.log(`  Pinned (iPad profile=4, taper-aware SoC):`);
   if (crossReading < 0) {

@@ -262,6 +262,88 @@ export function findMatchWithMargin(
 }
 
 /**
+ * v1.6 layered matcher. Three independent gates stacked on top of the
+ * legacy DTW-confidence + margin pipeline:
+ *
+ *   - **Whitelist**: profile candidates filtered to `whitelistIds` BEFORE
+ *     DTW runs. NULL = all comparable profiles (legacy behaviour).
+ *   - **Bayesian prior**: `posterior = DTW_confidence × prior(profile|plug)`.
+ *     The prior comes from `getPlugProfilePrior` over completed sessions.
+ *     Posterior is recomputed for every candidate, then rebound onto each
+ *     MatchResult's `confidence` field so downstream gates (margin) operate
+ *     on the same scale.
+ *   - **Energy bound**: candidates whose reference total energy is exceeded
+ *     by the current session's delivered Wh are eliminated outright. Cheap
+ *     guard — runs after DTW but before margin so a single survivor commits
+ *     trivially.
+ *
+ * Returns the same shape as `findMatchWithMargin` plus a new
+ * `'no_candidates'` rejection reason when the whitelist or energy bound
+ * filtered everything out.
+ */
+export function findMatchWithMarginAndPrior(
+  queryReadings: number[],
+  profiles: ProfileWithCurve[],
+  opts: {
+    whitelistIds?: number[] | null;
+    prior?: Map<number, number>;
+    currentSessionWh?: number;
+    profileMaxEnergyWh?: Map<number, number>;
+    confidenceThreshold?: number;
+    marginRatio?: number;
+  } = {},
+): { match: MatchResult | null; rejectionReason: 'low_confidence' | 'low_margin' | 'no_candidates' | null } {
+  const confidenceThreshold = opts.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+  const marginRatio = opts.marginRatio ?? DEFAULT_CONFIDENCE_MARGIN_RATIO;
+
+  let candidates = profiles;
+  if (opts.whitelistIds && opts.whitelistIds.length > 0) {
+    const allow = new Set(opts.whitelistIds);
+    candidates = candidates.filter((p) => allow.has(p.id));
+  }
+  if (opts.currentSessionWh !== undefined && opts.profileMaxEnergyWh) {
+    const wh = opts.currentSessionWh;
+    const tolerance = 1.1;
+    candidates = candidates.filter((p) => {
+      const max = opts.profileMaxEnergyWh!.get(p.id);
+      return max === undefined || max <= 0 || wh <= max * tolerance;
+    });
+  }
+
+  if (candidates.length === 0) {
+    return { match: null, rejectionReason: 'no_candidates' };
+  }
+
+  const ranked = rankCandidates(queryReadings, candidates);
+  if (ranked.length === 0) return { match: null, rejectionReason: null };
+
+  // Multiplicative posterior: confidence × prior, then re-sort. Prior of
+  // 0 (impossible) effectively eliminates a candidate; prior > 1 (impossible
+  // — priors are normalised to 1 across candidates) cannot occur.
+  if (opts.prior) {
+    for (const r of ranked) {
+      const p = opts.prior.get(r.profileId);
+      if (p !== undefined) r.confidence = r.confidence * p;
+    }
+    ranked.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  const best = ranked[0];
+  if (best.confidence < confidenceThreshold) {
+    return { match: null, rejectionReason: 'low_confidence' };
+  }
+
+  if (ranked.length === 1) return { match: best, rejectionReason: null };
+
+  const runnerUp = ranked[1];
+  if (runnerUp.confidence > 0 && best.confidence < runnerUp.confidence * marginRatio) {
+    return { match: null, rejectionReason: 'low_margin' };
+  }
+
+  return { match: best, rejectionReason: null };
+}
+
+/**
  * Backward-compatible convenience wrapper. Returns the best match only if
  * its confidence meets the threshold (default 0.70). Existing callers can
  * keep using this; new callers that want progress visibility should use

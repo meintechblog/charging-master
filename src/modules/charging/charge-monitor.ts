@@ -24,6 +24,7 @@ import {
   getEarlyCorrection,
 } from './calibration';
 import { estimateSoc, estimateSocTaperAware, type TaperCurvePoint } from './soc-estimator';
+import { parseAllowedProfileIds, getPlugProfilePrior, isEnergyImpossible } from './plug-prior';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
 import { renderSocBandAscii } from './soc-band-ascii';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
@@ -46,6 +47,11 @@ const MIN_MATCH_READINGS = 12;          // ~1 min at 5 s sampling
 const MATCH_INTERVAL_READINGS = 12;     // re-probe every minute while detecting
 const MAX_DETECTION_READINGS = 120;     // ~10 min hard cap → detectionExhausted
 const DETECTION_TARGET_READINGS = 60;   // displayed denominator: "samples/60"
+
+// v1.6.2 active-learning. After this many ms in 'detecting' without a clean
+// commit, send one Pushover prompt listing the top-3 candidates. The user
+// resolves manually via the dashboard's existing profile-override PUT path.
+const AMBIGUITY_PROMPT_THRESHOLD_MS = 5 * 60 * 1000; // 5 min
 
 // Phase-appropriate thresholds. With a small buffer DTW can over-fit a
 // transient slice of the wrong reference, so we demand near-perfect fit
@@ -130,6 +136,16 @@ export class ChargeMonitor {
   // taper-region apower→offset lookup. Lazy-loaded on the first
   // updateSocTracking call after match, cleared in cleanupSession.
   private taperCurvePoints = new Map<string, TaperCurvePoint[]>();
+
+  // v1.6.2 active-learning prompt. Track when the current detection cycle
+  // started (set on transition to 'detecting', cleared on commit /
+  // cleanupSession) and whether we've already sent the Pushover prompt
+  // (one per session — don't spam). When detection has been running for
+  // more than AMBIGUITY_PROMPT_THRESHOLD_MS without a commit, fire a
+  // Pushover with the top candidate profiles. The user opens the dashboard
+  // and resolves manually via the existing PUT override path.
+  private detectionStartedAt = new Map<string, number>();
+  private ambiguityPromptSentAt = new Map<string, number>();
   private readingsSinceLastMatch = new Map<string, number>();
   // FPD-03 last-stop-mode surface. Written synchronously BEFORE the
   // handleStopping invocation (so captureEventContext's snapshot reads the
@@ -536,6 +552,22 @@ export class ChargeMonitor {
       if (buffer.length >= MAX_DETECTION_READINGS && machine.state === 'detecting') {
         this.emitChargeEvent(plugId, 'detecting', true);
       }
+
+      // v1.6.2 active-learning prompt. If detection has been running > 5 min
+      // without a commit AND we haven't already prompted this session, fire
+      // one Pushover with the top candidates. The user resolves via the
+      // dashboard's PUT-override path (same flow as the manual /override
+      // smoke-test from yesterday's iPad UAT).
+      const startedAt = this.detectionStartedAt.get(plugId);
+      if (
+        machine.state === 'detecting' &&
+        startedAt !== undefined &&
+        timestamp - startedAt >= AMBIGUITY_PROMPT_THRESHOLD_MS &&
+        !this.ambiguityPromptSentAt.has(plugId)
+      ) {
+        this.fireAmbiguousDetectionPrompt(plugId, buffer);
+        this.ambiguityPromptSentAt.set(plugId, timestamp);
+      }
     }
 
     // Handle state transitions
@@ -649,6 +681,78 @@ export class ChargeMonitor {
     };
     if (monospace) body.monospace = monospace;
 
+    fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(body).toString(),
+    }).catch(() => { /* non-fatal */ });
+  }
+
+  /**
+   * v1.6.2 active-learning Pushover prompt. Fires once per detecting cycle
+   * after AMBIGUITY_PROMPT_THRESHOLD_MS without a clean commit. Lists the
+   * top-3 candidate profiles (post-whitelist, post-energy-bound, with
+   * Bayesian prior applied) so the user can resolve via the dashboard.
+   *
+   * Body explicitly does NOT include action URLs — the app is LAN-only and
+   * Pushover requires absolute URLs which won't work when the user's phone
+   * is on cellular. Plain-text prompt; user opens the dashboard manually.
+   */
+  private fireAmbiguousDetectionPrompt(plugId: string, buffer: number[]): void {
+    const userKeyRow = db.select().from(config).where(eq(config.key, 'pushover.userKey')).get();
+    const tokenRow = db.select().from(config).where(eq(config.key, 'pushover.apiToken')).get();
+    if (!userKeyRow?.value || !tokenRow?.value) return;
+
+    const plugRow = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+    if (!plugRow) return;
+
+    const profiles = this.loadProfilesWithCurves();
+    const whitelistIds = parseAllowedProfileIds(plugRow.allowedProfileIds ?? null);
+    const currentSessionWh = this.sessionWh.get(plugId) ?? 0;
+    const profileMaxEnergyWh = new Map<number, number>();
+    for (const p of profiles) profileMaxEnergyWh.set(p.id, p.curve.totalEnergyWh);
+    const candidateIds = (whitelistIds ?? profiles.map((p) => p.id)).filter((id) => {
+      const max = profileMaxEnergyWh.get(id);
+      return max === undefined || !isEnergyImpossible(currentSessionWh, max);
+    });
+    if (candidateIds.length === 0) return;
+    const prior = getPlugProfilePrior(db, plugId, candidateIds);
+
+    // Get ranked candidates (uses the same posterior logic the matcher does).
+    const ranked = curveMatcher.findMatchWithMarginAndPrior(buffer, profiles, {
+      whitelistIds: candidateIds,
+      prior,
+      profileMaxEnergyWh,
+      currentSessionWh,
+      confidenceThreshold: 0,
+      marginRatio: 0,
+    });
+    if (!ranked.match) return;
+
+    // Look up the top-3 names by profile ID (the ranked.match is just the
+    // winner; we want the others too for the prompt).
+    const candidates = candidateIds
+      .map((id) => profiles.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => p !== undefined)
+      .slice(0, 3);
+
+    const title = `Erkennung unsicher: ${plugRow.name}`;
+    const lines = [
+      `Der Plug "${plugRow.name}" lädt seit 5+ Minuten ohne dass ein eindeutiges Profil erkannt wurde.`,
+      ``,
+      `Mögliche Kandidaten:`,
+      ...candidates.map((p) => `• ${p.name}`),
+      ``,
+      `Bitte am Dashboard das richtige Profil auswählen, damit Auto-Stop bei ${plugRow.name} korrekt greifen kann.`,
+    ];
+
+    const body: Record<string, string> = {
+      token: tokenRow.value,
+      user: userKeyRow.value,
+      title,
+      message: lines.join('\n'),
+      priority: '0',
+    };
     fetch('https://api.pushover.net/1/messages.json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -813,20 +917,19 @@ export class ChargeMonitor {
         this.socBaselineEnergy.set(plugId, reading.totalEnergy);
         this.sessionStartedAt.set(plugId, now);
         this.sessionWh.set(plugId, 0);
+        this.detectionStartedAt.set(plugId, now);
+        this.ambiguityPromptSentAt.delete(plugId);
         this.emitChargeEvent(plugId, 'detecting');
 
-        // v1.5 plug pinning — bypass DTW entirely when the plug has a hard-
-        // assigned profile. Mirrors what tryMatch would do on a clean win,
-        // but skips the flat-power-ambiguity coin-flip surfaced by
-        // scripts/diagnose/replay-session.ts on Sessions 19/20/21. The
-        // synthetic match starts with a fully-uncertain band [0, 100]
-        // bandConfidence=0; FPD-03 then routes ALL stop predicates through
-        // the energy-fallback path (estimatedSoc grows with energy delta).
-        // Initial estSoc=0 — the user can override mid-session via PUT
-        // /api/charging/sessions/<id> if they know the real starting SoC.
+        // v1.6 single-profile-whitelist shortcut. When a plug's
+        // allowed_profile_ids is a JSON array of length 1, treat it as a
+        // hard pin and bypass DTW entirely. Multi-profile whitelists fall
+        // through to the regular detection flow, where tryMatch consults
+        // the same whitelist + Bayesian prior to narrow candidates.
         const plugRow = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
-        if (plugRow && plugRow.pinnedProfileId != null) {
-          this.commitPinnedMatch(plugId, plugRow.pinnedProfileId, reading.timestamp);
+        const allowed = parseAllowedProfileIds(plugRow?.allowedProfileIds ?? null);
+        if (allowed && allowed.length === 1) {
+          this.commitPinnedMatch(plugId, allowed[0], reading.timestamp);
         }
         break;
       }
@@ -1034,28 +1137,45 @@ export class ChargeMonitor {
     const profiles = this.loadProfilesWithCurves();
     if (profiles.length === 0) return;
 
-    const candidate = curveMatcher.findBestCandidate(buffer, profiles);
-    if (!candidate) return;
+    // v1.6 — gather the three layered gates BEFORE running DTW so the
+    // speculative-best snapshot we publish to the UI is computed over the
+    // narrowed candidate set, not the full catalogue. Layers: (1) plug
+    // whitelist, (2) Bayesian per-plug prior, (3) energy-bound elimination.
+    const plugRow = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+    const whitelistIds = parseAllowedProfileIds(plugRow?.allowedProfileIds ?? null);
+    const currentSessionWh = this.sessionWh.get(plugId) ?? 0;
+    const profileMaxEnergyWh = new Map<number, number>();
+    for (const p of profiles) profileMaxEnergyWh.set(p.id, p.curve.totalEnergyWh);
+    const candidateIds = (whitelistIds ?? profiles.map((p) => p.id)).filter((id) => {
+      const max = profileMaxEnergyWh.get(id);
+      return max === undefined || !isEnergyImpossible(currentSessionWh, max);
+    });
+    const prior = getPlugProfilePrior(db, plugId, candidateIds);
 
-    // Always remember the best speculative candidate so the UI can render
-    // it during detection ("vermutlich iPad Pro (78%)"). matchData double-
-    // duties as the committed match for downstream code paths (anomaly
-    // detection reads it once we transition to 'matched').
-    this.matchData.set(plugId, candidate);
+    const speculative = curveMatcher.findMatchWithMarginAndPrior(buffer, profiles, {
+      whitelistIds: candidateIds,
+      prior,
+      profileMaxEnergyWh,
+      currentSessionWh,
+      confidenceThreshold: 0, // speculative pass — don't gate, just want the best
+      marginRatio: 0,
+    });
+    if (!speculative.match) return; // candidate set is empty (whitelist + energy-bound killed everyone)
+    this.matchData.set(plugId, speculative.match);
 
     const threshold = thresholdForBufferSize(buffer.length);
-    if (candidate.confidence < threshold) return; // keep accumulating
-
-    // v1.5 margin gate. The legacy single-threshold check above accepts any
-    // confidence ≥ 0.70, which a flat-power query satisfies against EVERY
-    // profile that has a similar power level somewhere in its curve. Diagnosed
-    // 2026-05-15 via scripts/diagnose/replay-session.ts: 3 of 4 real-iPad
-    // sessions committed to wrong profiles because margins were universally
-    // < ×1.05. Re-run findMatchWithMargin and bail if the margin's not clean.
-    // This stays purely additive — speculative matchData above still updates,
-    // the UI keeps showing "vermutlich X (78%)" during ambiguous detection.
-    const gated = curveMatcher.findMatchWithMargin(buffer, profiles, threshold);
-    if (gated.rejectionReason === 'low_margin') return; // keep accumulating
+    const gated = curveMatcher.findMatchWithMarginAndPrior(buffer, profiles, {
+      whitelistIds: candidateIds,
+      prior,
+      profileMaxEnergyWh,
+      currentSessionWh,
+      confidenceThreshold: threshold,
+    });
+    if (!gated.match) return; // keep accumulating
+    // The candidate that passed the gates IS the speculative match by
+    // construction (same call, same ranking) — bind it as the canonical
+    // `candidate` reference downstream code paths use.
+    const candidate = gated.match;
 
     // Confidence cleared the phase threshold → commit.
     const matchedProfile = profiles.find((p) => p.id === candidate.profileId);
@@ -1790,6 +1910,9 @@ export class ChargeMonitor {
     this.lastStopMode.delete(plugId);
     // v1.5 taper-aware SoC
     this.taperCurvePoints.delete(plugId);
+    // v1.6.2 active-learning
+    this.detectionStartedAt.delete(plugId);
+    this.ambiguityPromptSentAt.delete(plugId);
   }
 
   /**

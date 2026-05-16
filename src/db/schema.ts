@@ -9,13 +9,19 @@ export const plugs = sqliteTable('plugs', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   online: integer('online', { mode: 'boolean' }).notNull().default(false),
   lastSeen: integer('last_seen'),
-  // v1.5 plug-level profile pinning. When set, tryMatch's DTW path is
-  // bypassed entirely — every new session on this plug is committed to
-  // pinnedProfileId at session-start with a wide initial band ([0, 100],
-  // bandConfidence=0). Use this for plugs whose attached device is known
-  // (e.g. the office plug only ever charges the iPad). NULL = use DTW
-  // detection + margin gate per the unpinned default flow.
-  pinnedProfileId: integer('pinned_profile_id').references(() => deviceProfiles.id, { onDelete: 'set null' }),
+  // v1.6 plug-level profile constraint. Stores a JSON-serialised array of
+  // device_profiles.id integers, e.g. `[4]` (single-pin, semantically the
+  // v1.5 pinnedProfileId) or `[4, 6, 8]` (whitelist — Büro plug only ever
+  // charges iPad/MacBook/iPhone, so DTW skips the rest of the profile
+  // catalogue). NULL = match against ALL profiles (legacy auto-detect).
+  //
+  // The runtime matcher fans out via three stacked gates against the
+  // surviving candidate set: (1) DTW confidence, (2) Bayesian per-plug
+  // prior derived from completed charge_sessions, (3) energy-bound
+  // elimination (drop a candidate once delivered_Wh exceeds 1.1 ×
+  // reference_curves.total_energy_wh). Single-element arrays bypass
+  // DTW entirely, same as the v1.5 commitPinnedMatch fast-path.
+  allowedProfileIds: text('allowed_profile_ids'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

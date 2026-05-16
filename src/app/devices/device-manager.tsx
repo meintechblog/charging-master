@@ -17,7 +17,8 @@ type Plug = {
   ipAddress: string | null;
   channel: number;
   lastSeen: number | null;
-  pinnedProfileId: number | null;
+  /** JSON-encoded array of integer profile IDs, or null = all profiles. */
+  allowedProfileIds: string | null;
 };
 
 type ProfileChoice = { id: number; name: string };
@@ -119,11 +120,12 @@ export function DeviceManager({ registeredPlugs, profileChoices }: DeviceManager
     }
   }
 
-  async function handlePinProfile(id: string, profileId: number | null) {
+  async function handleAllowedProfilesChange(id: string, profileIds: number[]) {
+    const payload = profileIds.length === 0 ? null : JSON.stringify(profileIds);
     const res = await fetch('/api/devices', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, pinnedProfileId: profileId }),
+      body: JSON.stringify({ id, allowedProfileIds: payload }),
     });
     if (res.ok) router.refresh();
   }
@@ -236,7 +238,7 @@ export function DeviceManager({ registeredPlugs, profileChoices }: DeviceManager
                 onDeleteClick={() => handleDeleteClick(plug.id)}
                 errorMessage={deleteError?.id === plug.id ? deleteError.message : null}
                 profileChoices={profileChoices}
-                onPinProfile={(pid) => handlePinProfile(plug.id, pid)}
+                onAllowedProfilesChange={(ids) => handleAllowedProfilesChange(plug.id, ids)}
               />
             ))}
           </div>
@@ -292,7 +294,7 @@ type RegisteredDeviceRowProps = {
   onDeleteClick: () => void;
   errorMessage: string | null;
   profileChoices: ProfileChoice[];
-  onPinProfile: (profileId: number | null) => void;
+  onAllowedProfilesChange: (profileIds: number[]) => void;
 };
 
 function RegisteredDeviceRow({
@@ -312,8 +314,37 @@ function RegisteredDeviceRow({
   onDeleteClick,
   errorMessage,
   profileChoices,
-  onPinProfile,
+  onAllowedProfilesChange,
 }: RegisteredDeviceRowProps) {
+  // Parse allowedProfileIds (JSON or null) into a Set the chip group can
+  // diff. Defensive: malformed cell falls back to "all profiles" (= empty
+  // Set + null roundtrip).
+  const allowedSet = (() => {
+    if (!plug.allowedProfileIds) return new Set<number>();
+    try {
+      const parsed = JSON.parse(plug.allowedProfileIds);
+      if (!Array.isArray(parsed)) return new Set<number>();
+      return new Set<number>(parsed.filter((x): x is number => typeof x === 'number'));
+    } catch {
+      return new Set<number>();
+    }
+  })();
+  const allowedIsAll = allowedSet.size === 0;
+  const allowedLabel = allowedIsAll
+    ? 'Alle Profile (Auto-Erkennung)'
+    : allowedSet.size === 1
+      ? 'Fest: ' + (profileChoices.find((p) => p.id === [...allowedSet][0])?.name ?? '?')
+      : `${allowedSet.size} Profile erlaubt`;
+
+  function toggleProfile(profileId: number) {
+    const next = new Set(allowedSet);
+    if (next.has(profileId)) next.delete(profileId);
+    else next.add(profileId);
+    onAllowedProfilesChange([...next]);
+  }
+  function clearAllowed() {
+    onAllowedProfilesChange([]);
+  }
   const [watts, setWatts] = useState<number | null>(null);
   const [relayOn, setRelayOn] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(plug.online);
@@ -468,32 +499,45 @@ function RegisteredDeviceRow({
       {errorMessage && (
         <div className="text-xs text-red-400 mt-1">{errorMessage}</div>
       )}
-      <div className="flex items-center gap-2 text-xs text-neutral-400 mt-1 pl-5">
-        <label className="shrink-0" htmlFor={`pin-${plug.id}`}>
-          Festes Profil:
-        </label>
-        <select
-          id={`pin-${plug.id}`}
-          value={plug.pinnedProfileId ?? ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            onPinProfile(v === '' ? null : parseInt(v, 10));
-          }}
-          disabled={isActiveCharge}
-          title={
-            isActiveCharge
-              ? 'Während laufendem Ladevorgang nicht änderbar.'
-              : 'Bei gesetztem Profil wird die Auto-Erkennung übersprungen — neue Sessions starten direkt mit diesem Profil.'
-          }
-          className="bg-neutral-900 border border-neutral-700 rounded px-2 py-0.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-        >
-          <option value="">— Auto-Erkennung —</option>
-          {profileChoices.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-col gap-1 text-xs text-neutral-400 mt-1 pl-5">
+        <div className="flex items-center gap-2">
+          <span className="shrink-0">Erlaubte Profile:</span>
+          <span className="text-neutral-300">{allowedLabel}</span>
+          {!allowedIsAll && !isActiveCharge && (
+            <button
+              type="button"
+              onClick={clearAllowed}
+              className="text-[10px] text-neutral-500 hover:text-blue-400 underline"
+            >
+              zurücksetzen (alle)
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {profileChoices.map((p) => {
+            const active = allowedSet.has(p.id);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => toggleProfile(p.id)}
+                disabled={isActiveCharge}
+                title={
+                  isActiveCharge
+                    ? 'Während laufendem Ladevorgang nicht änderbar.'
+                    : 'Toggle: ein Profil → "Pin" (DTW bypass). Mehrere → Whitelist (DTW nur gegen Auswahl + Bayesian Prior).'
+                }
+                className={`px-2 py-0.5 rounded-full text-[11px] border transition-colors disabled:opacity-50 ${
+                  active
+                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-200'
+                    : 'bg-neutral-900 border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                }`}
+              >
+                {active ? '✓ ' : ''}{p.name}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

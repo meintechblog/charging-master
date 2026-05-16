@@ -89,7 +89,7 @@ export async function PATCH(request: Request) {
     ipAddress?: string | null;
     pollingInterval?: number;
     enabled?: boolean;
-    pinnedProfileId?: number | null;
+    allowedProfileIds?: string | null;
   };
 
   if (!id || typeof id !== 'string') {
@@ -106,7 +106,7 @@ export async function PATCH(request: Request) {
   if (updates.ipAddress !== undefined) fields.ipAddress = updates.ipAddress;
   if (updates.pollingInterval !== undefined) fields.pollingInterval = updates.pollingInterval;
   if (updates.enabled !== undefined) fields.enabled = updates.enabled;
-  if (updates.pinnedProfileId !== undefined) fields.pinnedProfileId = updates.pinnedProfileId;
+  if (updates.allowedProfileIds !== undefined) fields.allowedProfileIds = updates.allowedProfileIds;
 
   db.update(plugs).set(fields).where(eq(plugs.id, id)).run();
 
