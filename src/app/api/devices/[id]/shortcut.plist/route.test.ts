@@ -60,9 +60,14 @@ describe('GET /api/devices/[id]/shortcut.plist', () => {
     expect(body).toContain('http://charging-master.local/api/devices/plug-x/report-soc');
   });
 
-  it('bakes the request origin into the POST URL (so IP-host requests work too)', async () => {
+  it('uses the Host header (not request.url) so reverse-proxy localhost leaks do not poison the URL', async () => {
     fakeState.plugRows.push({ id: 'plug-x', name: 'Büro' });
-    const res = await GET(makeReq('http://192.168.3.185:80/api/devices/plug-x/shortcut.plist'), ctx);
+    // Simulate a browser hitting via IP. The Host header is what we use.
+    const req = new Request('http://localhost:3000/api/devices/plug-x/shortcut.plist', {
+      method: 'GET',
+      headers: { host: '192.168.3.185' },
+    });
+    const res = await GET(req, ctx);
     const body = await res.text();
     expect(body).toContain('http://192.168.3.185/api/devices/plug-x/report-soc');
   });

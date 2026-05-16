@@ -36,8 +36,13 @@ export async function GET(
     return Response.json({ error: 'plug_not_found' }, { status: 404 });
   }
 
-  const requestUrl = new URL(request.url);
-  const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+  // CRITICAL: derive baseUrl from the Host header the CLIENT used, NOT
+  // from request.url. server.ts binds 0.0.0.0:80 but Next.js's custom-
+  // server integration reports request.url as http://localhost:3000/...
+  // which would bake an unreachable URL into the iOS Shortcut.
+  const hostHeader = request.headers.get('host') ?? 'charging-master.local';
+  const proto = request.headers.get('x-forwarded-proto') ?? 'http';
+  const baseUrl = `${proto}://${hostHeader}`;
 
   const plistBody = buildReportSocShortcutPlist({
     plugId: plug.id,

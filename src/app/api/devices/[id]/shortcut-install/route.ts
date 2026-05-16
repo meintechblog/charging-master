@@ -44,8 +44,13 @@ export async function GET(
     return Response.json({ error: 'plug_not_found' }, { status: 404 });
   }
 
-  const requestUrl = new URL(request.url);
-  const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+  // CRITICAL: see /shortcut.plist route — request.url leaks internal
+  // localhost:3000 under the custom Next.js server. Use the client-sent
+  // Host header so the URL we bake into the redirect actually resolves
+  // on the iPhone's network.
+  const hostHeader = request.headers.get('host') ?? 'charging-master.local';
+  const proto = request.headers.get('x-forwarded-proto') ?? 'http';
+  const baseUrl = `${proto}://${hostHeader}`;
   const plistUrl = `${baseUrl}/api/devices/${plug.id}/shortcut.plist`;
 
   const ua = request.headers.get('user-agent');
