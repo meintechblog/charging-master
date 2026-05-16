@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import type { ChargeStateEvent } from '@/modules/charging/types';
+import type { TransientFeatures } from '@/modules/charging/plug-in-transient';
 
 export interface PowerReading {
   plugId: string;
@@ -14,6 +15,13 @@ export interface PowerReading {
 export interface PlugOnlineEvent {
   plugId: string;
   online: boolean;
+}
+
+export interface PlugTransientEvent {
+  plugId: string;
+  features: TransientFeatures;
+  /** Burst start timestamp (ms) — when the active-threshold crossing fired. */
+  startedAt: number;
 }
 
 export class EventBus extends EventEmitter {
@@ -34,5 +42,10 @@ export class EventBus extends EventEmitter {
   emitChargeState(event: ChargeStateEvent) {
     this.emit(`charge:${event.plugId}`, event);
     this.emit('charge:*', event);
+  }
+
+  emitPlugTransient(event: PlugTransientEvent) {
+    this.emit(`transient:${event.plugId}`, event);
+    this.emit('transient:*', event);
   }
 }

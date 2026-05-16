@@ -2,6 +2,13 @@ import type { EventBus, PowerReading } from '../events/event-bus';
 import { db } from '@/db/client';
 import { plugs, powerReadings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import {
+  BURST_DURATION_MS,
+  BURST_INTERVAL_MS,
+  TRANSIENT_ACTIVE_THRESHOLD_W,
+  extractTransientFeatures,
+  type TransientSample,
+} from '../charging/plug-in-transient';
 
 /**
  * Standalone HTTP polling service for Shelly Plug S Gen3 devices.
@@ -24,6 +31,21 @@ export class HttpPollingService {
   // every poll AND skip Switch.GetStatus to avoid emitting bogus readings
   // from a squatter device.
   private lastIdCheckResult: Map<string, 'ok' | 'fail'> = new Map();
+
+  // v1.7-B plug-in transient capture. The first 30 s after apower crosses
+  // the active-charge threshold (idle → active transition) carries unique
+  // discriminative information per the NILM literature. We detect the
+  // edge, fire a parallel 1 Hz poller for BURST_DURATION_MS alongside the
+  // normal one, accumulate every sample (from both pollers) into
+  // `burstBuffers`, then on burst end extract a fixed-shape feature
+  // vector via the pure-functional module and emit it for ChargeMonitor
+  // to attach to the active session.
+  private lastApower: Map<string, number> = new Map();
+  private burstBuffers: Map<string, TransientSample[]> = new Map();
+  private burstEndsAt: Map<string, number> = new Map();
+  private burstTimers: Map<string, NodeJS.Timeout> = new Map();
+  private plugIpAddress: Map<string, string> = new Map();
+  private plugChannel: Map<string, number> = new Map();
 
   private readonly ACTIVE_POWER_THRESHOLD = 5; // watts
   private readonly ACTIVE_INTERVAL = 1_000; // ms -- persist every 1s during active charging
@@ -69,6 +91,8 @@ export class HttpPollingService {
     if (this.pollers.has(plugId)) return;
 
     const safeChannel = Number.isInteger(channel) && channel >= 0 ? channel : 0;
+    this.plugIpAddress.set(plugId, ipAddress);
+    this.plugChannel.set(plugId, safeChannel);
 
     const expectedBaseId = this.baseDeviceId(plugId);
 
@@ -149,6 +173,7 @@ export class HttpPollingService {
 
           this.eventBus.emitPowerReading(reading);
           this.persistIfDue(reading);
+          this.handleTransientCapture(plugId, reading);
 
           // Update online status
           try {
@@ -167,6 +192,119 @@ export class HttpPollingService {
     poll();
     const timer = setInterval(poll, intervalMs);
     this.pollers.set(plugId, timer);
+  }
+
+  /**
+   * v1.7-B plug-in transient capture. Detects the idle→active edge, fans
+   * the per-plug poller from its normal interval (default 5 s) down to
+   * BURST_INTERVAL_MS (1 s) for BURST_DURATION_MS (30 s), accumulates
+   * samples, and emits a TransientFeatures event when the burst ends.
+   *
+   * No-ops cleanly when:
+   *   - apower stays below the active threshold (no burst trigger)
+   *   - apower stays above the active threshold (we're mid-charge, not
+   *     just plugged in — the previous burst already captured features)
+   *   - the burst is already in flight (subsequent reading just appends
+   *     to the buffer and lets the timer reach `burstEndsAt` naturally)
+   */
+  private handleTransientCapture(plugId: string, reading: PowerReading): void {
+    const prevApower = this.lastApower.get(plugId) ?? 0;
+    this.lastApower.set(plugId, reading.apower);
+
+    // Edge trigger: prev < threshold AND current >= threshold AND no burst
+    // currently in flight on this plug.
+    const wasIdle = prevApower < TRANSIENT_ACTIVE_THRESHOLD_W;
+    const isActive = reading.apower >= TRANSIENT_ACTIVE_THRESHOLD_W;
+    const burstInFlight = this.burstEndsAt.has(plugId);
+
+    if (wasIdle && isActive && !burstInFlight) {
+      this.startBurst(plugId, reading);
+    } else if (burstInFlight) {
+      // Append this reading to the burst buffer regardless of whether the
+      // poller is currently in 1 s burst-mode or back to 5 s — the feature
+      // extractor handles uneven spacing via the raw `ts` values.
+      const buffer = this.burstBuffers.get(plugId);
+      if (buffer) buffer.push({ ts: reading.timestamp, apower: reading.apower });
+
+      const endsAt = this.burstEndsAt.get(plugId);
+      if (endsAt !== undefined && reading.timestamp >= endsAt) {
+        this.finishBurst(plugId);
+      }
+    }
+  }
+
+  private startBurst(plugId: string, firstReading: PowerReading): void {
+    const buffer: TransientSample[] = [
+      { ts: firstReading.timestamp, apower: firstReading.apower },
+    ];
+    this.burstBuffers.set(plugId, buffer);
+    this.burstEndsAt.set(plugId, firstReading.timestamp + BURST_DURATION_MS);
+
+    // Spawn a parallel 1 Hz poller for BURST_DURATION_MS. The normal poller
+    // keeps running at its configured interval; both feed handleTransient-
+    // Capture which appends every reading to `buffer`. We tear the burst
+    // poller down via `burstTimers` either when the buffer's time window
+    // closes (handled in handleTransientCapture) or via clearBurstTimer
+    // from cleanup paths.
+    const ipAddress = this.plugIpAddress.get(plugId);
+    const channel = this.plugChannel.get(plugId) ?? 0;
+    if (!ipAddress) return; // shouldn't happen — startPolling populates it
+
+    const burstPoll = async () => {
+      try {
+        const res = await fetch(
+          `http://${ipAddress}/rpc/Switch.GetStatus?id=${channel}`,
+          { signal: AbortSignal.timeout(2000) },
+        );
+        if (!res.ok) return;
+        const status = await res.json();
+        const reading: PowerReading = {
+          plugId,
+          apower: status.apower ?? 0,
+          voltage: status.voltage ?? 0,
+          current: status.current ?? 0,
+          output: status.output ?? false,
+          totalEnergy: status.aenergy?.total ?? 0,
+          timestamp: Date.now(),
+        };
+        this.eventBus.emitPowerReading(reading);
+        this.persistIfDue(reading);
+        this.handleTransientCapture(plugId, reading);
+      } catch {
+        // Burst poll failures are non-fatal — the normal poller covers the
+        // happy path; one missed 1 s sample doesn't break feature extraction.
+      }
+    };
+
+    const timer = setInterval(burstPoll, BURST_INTERVAL_MS);
+    this.burstTimers.set(plugId, timer);
+  }
+
+  private finishBurst(plugId: string): void {
+    const buffer = this.burstBuffers.get(plugId);
+    const endsAt = this.burstEndsAt.get(plugId);
+    this.burstBuffers.delete(plugId);
+    this.burstEndsAt.delete(plugId);
+    const burstTimer = this.burstTimers.get(plugId);
+    if (burstTimer) {
+      clearInterval(burstTimer);
+      this.burstTimers.delete(plugId);
+    }
+    if (!buffer || buffer.length < 5) return; // not enough samples to be useful
+
+    const features = extractTransientFeatures(buffer);
+    this.eventBus.emitPlugTransient({
+      plugId,
+      features,
+      startedAt: buffer[0].ts,
+    });
+    console.log(
+      `[Transient] ${plugId}: peakW=${features.peakInrushW.toFixed(1)} ` +
+        `settlingFrac=${features.settlingFractionOfPeak.toFixed(2)} ` +
+        `tStable=${features.tToStableSeconds.toFixed(1)}s ` +
+        `osc=${features.oscillationCount} ` +
+        `(burst ${buffer.length} samples, ${endsAt ? ((endsAt - buffer[0].ts) / 1000).toFixed(1) : '?'}s)`,
+    );
   }
 
   /**
@@ -194,6 +332,17 @@ export class HttpPollingService {
       }
       this.lastIdCheckAt.delete(plugId);
       this.lastIdCheckResult.delete(plugId);
+      // v1.7-B clear any in-flight burst poller too.
+      const burstTimer = this.burstTimers.get(plugId);
+      if (burstTimer) {
+        clearInterval(burstTimer);
+        this.burstTimers.delete(plugId);
+      }
+      this.burstBuffers.delete(plugId);
+      this.burstEndsAt.delete(plugId);
+      this.lastApower.delete(plugId);
+      this.plugIpAddress.delete(plugId);
+      this.plugChannel.delete(plugId);
       return;
     }
 
@@ -205,6 +354,14 @@ export class HttpPollingService {
     this.pollers.clear();
     this.lastIdCheckAt.clear();
     this.lastIdCheckResult.clear();
+    // v1.7-B drain burst pollers too.
+    for (const timer of this.burstTimers.values()) clearInterval(timer);
+    this.burstTimers.clear();
+    this.burstBuffers.clear();
+    this.burstEndsAt.clear();
+    this.lastApower.clear();
+    this.plugIpAddress.clear();
+    this.plugChannel.clear();
     // Brief settle window so any fetch() that fired just before the interval
     // was cleared has a chance to resolve and land its DB write BEFORE the
     // caller checkpoints the WAL. 100ms is empirically enough -- the fetch
@@ -225,6 +382,14 @@ export class HttpPollingService {
     this.pollers.clear();
     this.lastIdCheckAt.clear();
     this.lastIdCheckResult.clear();
+    // v1.7-B mirror the stopPolling() teardown.
+    for (const timer of this.burstTimers.values()) clearInterval(timer);
+    this.burstTimers.clear();
+    this.burstBuffers.clear();
+    this.burstEndsAt.clear();
+    this.lastApower.clear();
+    this.plugIpAddress.clear();
+    this.plugChannel.clear();
   }
 
   /**

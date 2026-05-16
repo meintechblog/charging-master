@@ -25,6 +25,12 @@ import {
 } from './calibration';
 import { estimateSoc, estimateSocTaperAware, type TaperCurvePoint } from './soc-estimator';
 import { parseAllowedProfileIds, getPlugProfilePrior, isEnergyImpossible } from './plug-prior';
+import {
+  extractTransientFeatures,
+  compareTransientFeatures,
+  type TransientFeatures,
+} from './plug-in-transient';
+import type { PlugTransientEvent } from '../events/event-bus';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
 import { renderSocBandAscii } from './soc-band-ascii';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
@@ -158,6 +164,11 @@ export class ChargeMonitor {
   private pendingTransitionData = new Map<string, unknown>();
 
   private powerHandler: ((reading: PowerReading) => void) | null = null;
+  private transientHandler: ((event: PlugTransientEvent) => void) | null = null;
+  // v1.7-B per-plug latest captured plug-in transient features. Lifetime
+  // mirrors detectionBuffers: populated by the eventBus transient
+  // subscription, read in tryMatch, cleared on cleanupSession.
+  private sessionTransientFeatures = new Map<string, TransientFeatures>();
 
   constructor(eventBus: EventBus, _db?: unknown) {
     this.eventBus = eventBus;
@@ -172,6 +183,16 @@ export class ChargeMonitor {
     };
     this.eventBus.on('power:*', this.powerHandler);
 
+    // v1.7-B subscribe to transient features. HttpPollingService emits one
+    // PlugTransientEvent per (plug, plug-in-edge) once the 30 s burst
+    // closes. Stash the features in `sessionTransientFeatures` so the next
+    // tryMatch consults them as a multiplicative confidence boost in the
+    // layered matcher.
+    this.transientHandler = (event: PlugTransientEvent) => {
+      this.sessionTransientFeatures.set(event.plugId, event.features);
+    };
+    this.eventBus.on('transient:*', this.transientHandler);
+
     // Resume active sessions from DB (D-28)
     this.resumeActiveSessions();
   }
@@ -184,9 +205,14 @@ export class ChargeMonitor {
       this.eventBus.removeListener('power:*', this.powerHandler);
       this.powerHandler = null;
     }
+    if (this.transientHandler) {
+      this.eventBus.removeListener('transient:*', this.transientHandler);
+      this.transientHandler = null;
+    }
     this.machines.clear();
     this.detectionBuffers.clear();
     this.sessionWh.clear();
+    this.sessionTransientFeatures.clear();
   }
 
   /**
@@ -1152,9 +1178,45 @@ export class ChargeMonitor {
     });
     const prior = getPlugProfilePrior(db, plugId, candidateIds);
 
+    // v1.7-B transient features blend. If a plug-in transient was captured
+    // during the first 30 s of charging, extract per-profile reference
+    // transient features and merge them into the per-candidate prior. The
+    // similarity score becomes a multiplicative boost on top of the
+    // Bayesian prior — clean stacking, no special-case branching.
+    const observedTransient = this.sessionTransientFeatures.get(plugId);
+    let priorWithTransient = prior;
+    if (observedTransient) {
+      const transientBoosted = new Map<number, number>();
+      let scaleSum = 0;
+      const boosts = new Map<number, number>();
+      for (const id of candidateIds) {
+        const profile = profiles.find((p) => p.id === id);
+        if (!profile) continue;
+        const refFirst30s: TransientFeatures = extractTransientFeatures(
+          profile.curvePoints
+            .filter((p) => p.offsetSeconds <= 30)
+            .map((p) => ({ ts: p.offsetSeconds * 1000, apower: p.apower })),
+        );
+        const similarity = compareTransientFeatures(observedTransient, refFirst30s);
+        // Boost = similarity in [0,1]. Final prior contribution =
+        // base_prior × boost. Re-normalise so the distribution still sums
+        // to 1 (multinomial posterior — well-defined).
+        const base = prior.get(id) ?? 1 / Math.max(1, candidateIds.length);
+        const blended = base * similarity;
+        boosts.set(id, blended);
+        scaleSum += blended;
+      }
+      if (scaleSum > 0) {
+        for (const [id, blended] of boosts) {
+          transientBoosted.set(id, blended / scaleSum);
+        }
+        priorWithTransient = transientBoosted;
+      }
+    }
+
     const speculative = curveMatcher.findMatchWithMarginAndPrior(buffer, profiles, {
       whitelistIds: candidateIds,
-      prior,
+      prior: priorWithTransient,
       profileMaxEnergyWh,
       currentSessionWh,
       confidenceThreshold: 0, // speculative pass — don't gate, just want the best
@@ -1166,7 +1228,7 @@ export class ChargeMonitor {
     const threshold = thresholdForBufferSize(buffer.length);
     const gated = curveMatcher.findMatchWithMarginAndPrior(buffer, profiles, {
       whitelistIds: candidateIds,
-      prior,
+      prior: priorWithTransient,
       profileMaxEnergyWh,
       currentSessionWh,
       confidenceThreshold: threshold,
@@ -1913,6 +1975,8 @@ export class ChargeMonitor {
     // v1.6.2 active-learning
     this.detectionStartedAt.delete(plugId);
     this.ambiguityPromptSentAt.delete(plugId);
+    // v1.7-B plug-in transient features
+    this.sessionTransientFeatures.delete(plugId);
   }
 
   /**
