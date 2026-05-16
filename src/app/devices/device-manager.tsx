@@ -7,6 +7,7 @@ import { AddDeviceForm } from '@/components/devices/add-device-form';
 import { usePowerStream, useOnlineStream } from '@/hooks/use-power-stream';
 import { useChargeStream } from '@/hooks/use-charge-stream';
 import { RelayToggle } from '@/components/devices/relay-toggle';
+import { IosShortcutButton } from '@/components/devices/ios-shortcut-button';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 
 type Plug = {
@@ -539,6 +540,7 @@ function RegisteredDeviceRow({
           })}
         </div>
       </div>
+      <IosShortcutButton plugId={plug.id} />
     </div>
   );
 }

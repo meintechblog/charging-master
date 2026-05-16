@@ -4,6 +4,30 @@ This guide walks through wiring an iOS Shortcut so your iPad / iPhone /
 Mac automatically tells Charging-Master its real battery level the
 moment it starts charging.
 
+## Easy path: 1-Tap installation from `/devices`
+
+Each plug on the dashboard's **`Geräte`** page now has an **iOS Shortcut
+installieren** button. The flow:
+
+1. Open `http://charging-master.local/devices` ON the iPhone/iPad you want
+   to wire up (must be on the same WiFi as the LXC).
+2. iOS → Settings → Shortcuts → enable **Allow Untrusted Shortcuts**.
+   (The toggle only appears after you've run at least one Shortcut. If
+   it isn't there, run any built-in Shortcut once and come back.)
+3. Tap the **iOS Shortcut installieren** button next to your plug. iOS
+   redirects to Shortcuts.app's import dialog.
+4. Confirm **"Untrusted Shortcut hinzufügen"**. The Shortcut is now
+   installed with the plug's ID and your LAN URL baked in — no manual
+   editing.
+5. *(Optional, recommended)* Shortcuts.app → **Automation** tab → "+" →
+   **Wenn Ladegerät verbunden ist** → run the just-installed Shortcut →
+   uncheck **Vor dem Ausführen fragen**. Now every plug-in event auto-
+   reports the iPad's real SoC.
+
+The remainder of this document covers the **manual** path (for non-iOS
+clients, Home Assistant, curl, debugging) and explains the why behind
+the architecture.
+
 ## Why?
 
 The matcher knows the *device* (via plug pinning or DTW) and the
