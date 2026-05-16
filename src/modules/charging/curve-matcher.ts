@@ -18,6 +18,27 @@ import type { MatchResult } from './types';
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.70;
 
 /**
+ * Margin gate — refuse to commit a match unless the winning profile's
+ * confidence is at least DEFAULT_CONFIDENCE_MARGIN_RATIO × the runner-up's
+ * confidence. Diagnosed via scripts/diagnose/replay-session.ts against four
+ * real-iPad sessions on 2026-05-15:
+ *
+ *   - Sessions 19/20/21 had margins universally < ×1.01 → matcher coin-flipped
+ *     between profiles whose curves all have a "40W somewhere" segment.
+ *     ALL three committed to a wrong profile in production (Winbot, BoschGBA,
+ *     and the lucky iPad win that still anchored at a wrong offset).
+ *   - Session 22 reached the iPad's taper region after ~5 min; margin crossed
+ *     ×1.05 at minute 5.5 and grew to ×1.247 by minute 30 — the correct iPad
+ *     match is clearly distinguishable once taper data arrives.
+ *
+ * ×1.05 is the cutoff: commits at minute 5.5 of session 22 (correct), holds
+ * detection mode through 19/20/21 (safe). A user who plugs in an unmatched
+ * device sees "Erkennung unsicher" and can manually pin the plug profile;
+ * the charge proceeds with NO auto-stop until they do.
+ */
+export const DEFAULT_CONFIDENCE_MARGIN_RATIO = 1.05;
+
+/**
  * Plausible-offset cutoff for the confidence band: every offset whose DTW
  * distance is within (1 + DEFAULT_BAND_THRESHOLD_PCT) × best is considered a
  * plausible start-SOC.
@@ -142,12 +163,23 @@ export function findBestCandidate(
   queryReadings: number[],
   profiles: ProfileWithCurve[]
 ): MatchResult | null {
-  if (queryReadings.length === 0 || profiles.length === 0) return null;
+  return rankCandidates(queryReadings, profiles)[0] ?? null;
+}
+
+/**
+ * Internal — rank every comparable profile by confidence (desc). Exported via
+ * findBestCandidate's single-result return AND via the matched-with-margin
+ * wrapper below that needs the runner-up score. Empty array when no profile
+ * is structurally comparable.
+ */
+function rankCandidates(
+  queryReadings: number[],
+  profiles: ProfileWithCurve[],
+): MatchResult[] {
+  if (queryReadings.length === 0 || profiles.length === 0) return [];
 
   const avgQueryPower = queryReadings.reduce((a, b) => a + b, 0) / queryReadings.length;
-
-  let bestMatch: MatchResult | null = null;
-  let bestConfidence = -1;
+  const ranked: MatchResult[] = [];
 
   for (const profile of profiles) {
     const referencePowers = profile.curvePoints.map((p) => p.apower);
@@ -159,37 +191,74 @@ export function findBestCandidate(
     );
     const confidence = Math.max(0, 1 - distance / (avgQueryPower || 1));
 
-    if (confidence > bestConfidence) {
-      bestConfidence = confidence;
+    const totalDuration = profile.curve.durationSeconds;
+    const offsetSeconds = profile.curvePoints[offset]?.offsetSeconds ?? 0;
+    const band = deriveBand(
+      distances,
+      windowStep,
+      profile.curvePoints,
+      totalDuration,
+      DEFAULT_BAND_THRESHOLD_PCT,
+    );
 
-      const totalDuration = profile.curve.durationSeconds;
-      const offsetSeconds = profile.curvePoints[offset]?.offsetSeconds ?? 0;
-      const band = deriveBand(
-        distances,
-        windowStep,
-        profile.curvePoints,
-        totalDuration,
-        DEFAULT_BAND_THRESHOLD_PCT,
-      );
-
-      bestMatch = {
-        profileId: profile.id,
-        profileName: profile.name,
-        confidence,
-        curveOffsetSeconds: offsetSeconds,
-        // Back-compat alias: estimatedStartSoc IS socBest. Existing consumers
-        // (charge-monitor.ts, charge-state-machine.ts) keep reading
-        // estimatedStartSoc unchanged.
-        estimatedStartSoc: band.socBest,
-        socMin: band.socMin,
-        socMax: band.socMax,
-        socBest: band.socBest,
-        bandConfidence: band.bandConfidence,
-      };
-    }
+    ranked.push({
+      profileId: profile.id,
+      profileName: profile.name,
+      confidence,
+      curveOffsetSeconds: offsetSeconds,
+      // Back-compat alias: estimatedStartSoc IS socBest. Existing consumers
+      // (charge-monitor.ts, charge-state-machine.ts) keep reading
+      // estimatedStartSoc unchanged.
+      estimatedStartSoc: band.socBest,
+      socMin: band.socMin,
+      socMax: band.socMax,
+      socBest: band.socBest,
+      bandConfidence: band.bandConfidence,
+    });
   }
 
-  return bestMatch;
+  ranked.sort((a, b) => b.confidence - a.confidence);
+  return ranked;
+}
+
+/**
+ * Return the best match ONLY if both gates pass:
+ *   1. best.confidence ≥ confidenceThreshold (default 0.70 — legacy gate)
+ *   2. best.confidence ≥ marginRatio × runnerUp.confidence (default ×1.05 —
+ *      flat-power-ambiguity gate, per the Session 19/20/21 diagnosis above)
+ *
+ * Returns null when either gate fails. Single-profile case (no runner-up)
+ * skips gate 2 and falls back to gate 1 only.
+ *
+ * Internally calls rankCandidates once — same DTW cost as findBestCandidate,
+ * just keeps the second-best score in scope so the margin can be computed.
+ */
+export function findMatchWithMargin(
+  queryReadings: number[],
+  profiles: ProfileWithCurve[],
+  confidenceThreshold: number = DEFAULT_CONFIDENCE_THRESHOLD,
+  marginRatio: number = DEFAULT_CONFIDENCE_MARGIN_RATIO,
+): { match: MatchResult | null; rejectionReason: 'low_confidence' | 'low_margin' | null } {
+  const ranked = rankCandidates(queryReadings, profiles);
+  if (ranked.length === 0) return { match: null, rejectionReason: null };
+
+  const best = ranked[0];
+  if (best.confidence < confidenceThreshold) {
+    return { match: null, rejectionReason: 'low_confidence' };
+  }
+
+  // Single comparable profile — no margin to check.
+  if (ranked.length === 1) return { match: best, rejectionReason: null };
+
+  const runnerUp = ranked[1];
+  // runnerUp.confidence can legitimately be 0 (zero-distance match across a
+  // profile that doesn't fit at all). Treat that as "no realistic competitor"
+  // and commit. Otherwise enforce the multiplicative margin.
+  if (runnerUp.confidence > 0 && best.confidence < runnerUp.confidence * marginRatio) {
+    return { match: null, rejectionReason: 'low_margin' };
+  }
+
+  return { match: best, rejectionReason: null };
 }
 
 /**

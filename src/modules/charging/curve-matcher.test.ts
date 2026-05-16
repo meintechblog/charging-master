@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 
 import {
   DEFAULT_BAND_THRESHOLD_PCT,
+  DEFAULT_CONFIDENCE_MARGIN_RATIO,
   deriveBand,
   findBestCandidate,
+  findMatchWithMargin,
   type ProfileWithCurve,
 } from './curve-matcher';
 import { subsequenceDtw } from './dtw';
@@ -256,5 +258,74 @@ describe('DEFAULT_BAND_THRESHOLD_PCT empirical calibration sweep (B1 / RESEARCH 
     );
     const flatWidth = flatBandAtConstant.socMax - flatBandAtConstant.socMin;
     expect(flatWidth).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe('findMatchWithMargin — v1.5 flat-power-ambiguity gate', () => {
+  // Two structurally-similar profiles, both with a flat 40W region. A query
+  // matching that flat region produces near-identical DTW distances on both —
+  // exactly the Session 19/20/21 production failure mode.
+  function makeFlatProfile(id: number, name: string, flatLen: number): ProfileWithCurve {
+    const points: CurvePoint[] = [];
+    let cumulativeWh = 0;
+    for (let t = 0; t < flatLen; t++) {
+      cumulativeWh += 40 / 3600;
+      points.push({ offsetSeconds: t, apower: 40, cumulativeWh });
+    }
+    return {
+      id,
+      name,
+      curve: { startPower: 40, durationSeconds: flatLen, totalEnergyWh: cumulativeWh },
+      curvePoints: points,
+    };
+  }
+
+  it('rejects the match with low_margin when two profiles tie within ×1.05', () => {
+    const profileA = makeFlatProfile(10, 'flat-A', 600);
+    const profileB = makeFlatProfile(11, 'flat-B', 600);
+    const query = new Array(30).fill(40);
+
+    const result = findMatchWithMargin(query, [profileA, profileB], 0.7, 1.05);
+    expect(result.match).toBeNull();
+    expect(result.rejectionReason).toBe('low_margin');
+  });
+
+  it('commits the match when the winner clearly out-confidences the runner-up', () => {
+    // profileA matches 40W exactly; profileB is 100W everywhere — DTW distance
+    // for B is huge, confidence near 0. Margin trivially exceeded.
+    const profileA = makeFlatProfile(10, 'flat-A', 600);
+    const profileB = makeFlatProfile(11, 'flat-B', 600);
+    profileB.curvePoints = profileB.curvePoints.map((p) => ({ ...p, apower: 100 }));
+    const query = new Array(30).fill(40);
+
+    const result = findMatchWithMargin(query, [profileA, profileB], 0.7, 1.05);
+    expect(result.match).not.toBeNull();
+    expect(result.match!.profileId).toBe(10);
+    expect(result.rejectionReason).toBeNull();
+  });
+
+  it('rejects when no profile clears the confidence floor', () => {
+    const profile = makeFlatProfile(10, 'flat', 600);
+    const query = new Array(30).fill(200); // wildly off the profile's 40W
+
+    const result = findMatchWithMargin(query, [profile], 0.7, 1.05);
+    expect(result.match).toBeNull();
+    expect(result.rejectionReason).toBe('low_confidence');
+  });
+
+  it('falls back to single-profile commit when only one profile is comparable', () => {
+    const profile = makeFlatProfile(10, 'flat', 600);
+    const query = new Array(30).fill(40);
+
+    const result = findMatchWithMargin(query, [profile], 0.7, 1.05);
+    expect(result.match).not.toBeNull();
+    expect(result.match!.profileId).toBe(10);
+    expect(result.rejectionReason).toBeNull();
+  });
+
+  it('exports the default margin ratio at the agreed value', () => {
+    // 1.05 was chosen via scripts/diagnose/replay-session.ts against four
+    // real-iPad sessions; changing it requires re-running the replay.
+    expect(DEFAULT_CONFIDENCE_MARGIN_RATIO).toBe(1.05);
   });
 });

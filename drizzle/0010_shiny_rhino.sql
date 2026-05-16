@@ -1,0 +1,1 @@
+ALTER TABLE `plugs` ADD `pinned_profile_id` integer REFERENCES device_profiles(id);

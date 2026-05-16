@@ -17,10 +17,14 @@ type Plug = {
   ipAddress: string | null;
   channel: number;
   lastSeen: number | null;
+  pinnedProfileId: number | null;
 };
+
+type ProfileChoice = { id: number; name: string };
 
 type DeviceManagerProps = {
   registeredPlugs: Plug[];
+  profileChoices: ProfileChoice[];
 };
 
 const ACTIVE_CHARGE_STATES: ReadonlySet<ChargeStateEvent['state']> = new Set([
@@ -38,7 +42,7 @@ function deriveModelLabel(deviceId: string): string {
   return deviceId.split('-')[0] ?? 'Unbekannt';
 }
 
-export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
+export function DeviceManager({ registeredPlugs, profileChoices }: DeviceManagerProps) {
   const router = useRouter();
   const [showManual, setShowManual] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -113,6 +117,15 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
     } finally {
       setSavingRename(false);
     }
+  }
+
+  async function handlePinProfile(id: string, profileId: number | null) {
+    const res = await fetch('/api/devices', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, pinnedProfileId: profileId }),
+    });
+    if (res.ok) router.refresh();
   }
 
   async function handleAddFromDiscovery(
@@ -222,6 +235,8 @@ export function DeviceManager({ registeredPlugs }: DeviceManagerProps) {
                 isConfirmingDelete={confirmingDelete === plug.id}
                 onDeleteClick={() => handleDeleteClick(plug.id)}
                 errorMessage={deleteError?.id === plug.id ? deleteError.message : null}
+                profileChoices={profileChoices}
+                onPinProfile={(pid) => handlePinProfile(plug.id, pid)}
               />
             ))}
           </div>
@@ -276,6 +291,8 @@ type RegisteredDeviceRowProps = {
   isConfirmingDelete: boolean;
   onDeleteClick: () => void;
   errorMessage: string | null;
+  profileChoices: ProfileChoice[];
+  onPinProfile: (profileId: number | null) => void;
 };
 
 function RegisteredDeviceRow({
@@ -294,6 +311,8 @@ function RegisteredDeviceRow({
   isConfirmingDelete,
   onDeleteClick,
   errorMessage,
+  profileChoices,
+  onPinProfile,
 }: RegisteredDeviceRowProps) {
   const [watts, setWatts] = useState<number | null>(null);
   const [relayOn, setRelayOn] = useState<boolean | null>(null);
@@ -449,6 +468,33 @@ function RegisteredDeviceRow({
       {errorMessage && (
         <div className="text-xs text-red-400 mt-1">{errorMessage}</div>
       )}
+      <div className="flex items-center gap-2 text-xs text-neutral-400 mt-1 pl-5">
+        <label className="shrink-0" htmlFor={`pin-${plug.id}`}>
+          Festes Profil:
+        </label>
+        <select
+          id={`pin-${plug.id}`}
+          value={plug.pinnedProfileId ?? ''}
+          onChange={(e) => {
+            const v = e.target.value;
+            onPinProfile(v === '' ? null : parseInt(v, 10));
+          }}
+          disabled={isActiveCharge}
+          title={
+            isActiveCharge
+              ? 'Während laufendem Ladevorgang nicht änderbar.'
+              : 'Bei gesetztem Profil wird die Auto-Erkennung übersprungen — neue Sessions starten direkt mit diesem Profil.'
+          }
+          className="bg-neutral-900 border border-neutral-700 rounded px-2 py-0.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+        >
+          <option value="">— Auto-Erkennung —</option>
+          {profileChoices.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

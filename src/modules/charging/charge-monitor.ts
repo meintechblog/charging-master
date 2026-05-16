@@ -23,7 +23,7 @@ import {
   recalibrateEta,
   getEarlyCorrection,
 } from './calibration';
-import { estimateSoc } from './soc-estimator';
+import { estimateSoc, estimateSocTaperAware, type TaperCurvePoint } from './soc-estimator';
 import { switchRelayOff, canSwitchRelay } from './relay-controller';
 import { renderSocBandAscii } from './soc-band-ascii';
 import type { ChargeState, ChargeSessionData, ChargeStateEvent, MatchResult } from './types';
@@ -126,6 +126,10 @@ export class ChargeMonitor {
   // Cleared by cleanupSession. readingsSinceLastMatch is the counter.
   // RESEARCH §FPD-02 Q3 + Pitfall 14: in-memory beats DB query (~138 KB / 24h).
   private chargingBuffers = new Map<string, { apower: number[]; profile: ProfileWithCurve }>();
+  // v1.5 taper-aware SoC. Cached reference-curve points per session for the
+  // taper-region apower→offset lookup. Lazy-loaded on the first
+  // updateSocTracking call after match, cleared in cleanupSession.
+  private taperCurvePoints = new Map<string, TaperCurvePoint[]>();
   private readingsSinceLastMatch = new Map<string, number>();
   // FPD-03 last-stop-mode surface. Written synchronously BEFORE the
   // handleStopping invocation (so captureEventContext's snapshot reads the
@@ -810,6 +814,20 @@ export class ChargeMonitor {
         this.sessionStartedAt.set(plugId, now);
         this.sessionWh.set(plugId, 0);
         this.emitChargeEvent(plugId, 'detecting');
+
+        // v1.5 plug pinning — bypass DTW entirely when the plug has a hard-
+        // assigned profile. Mirrors what tryMatch would do on a clean win,
+        // but skips the flat-power-ambiguity coin-flip surfaced by
+        // scripts/diagnose/replay-session.ts on Sessions 19/20/21. The
+        // synthetic match starts with a fully-uncertain band [0, 100]
+        // bandConfidence=0; FPD-03 then routes ALL stop predicates through
+        // the energy-fallback path (estimatedSoc grows with energy delta).
+        // Initial estSoc=0 — the user can override mid-session via PUT
+        // /api/charging/sessions/<id> if they know the real starting SoC.
+        const plugRow = db.select().from(plugs).where(eq(plugs.id, plugId)).get();
+        if (plugRow && plugRow.pinnedProfileId != null) {
+          this.commitPinnedMatch(plugId, plugRow.pinnedProfileId, reading.timestamp);
+        }
         break;
       }
 
@@ -1028,6 +1046,17 @@ export class ChargeMonitor {
     const threshold = thresholdForBufferSize(buffer.length);
     if (candidate.confidence < threshold) return; // keep accumulating
 
+    // v1.5 margin gate. The legacy single-threshold check above accepts any
+    // confidence ≥ 0.70, which a flat-power query satisfies against EVERY
+    // profile that has a similar power level somewhere in its curve. Diagnosed
+    // 2026-05-15 via scripts/diagnose/replay-session.ts: 3 of 4 real-iPad
+    // sessions committed to wrong profiles because margins were universally
+    // < ×1.05. Re-run findMatchWithMargin and bail if the margin's not clean.
+    // This stays purely additive — speculative matchData above still updates,
+    // the UI keeps showing "vermutlich X (78%)" during ambiguous detection.
+    const gated = curveMatcher.findMatchWithMargin(buffer, profiles, threshold);
+    if (gated.rejectionReason === 'low_margin') return; // keep accumulating
+
     // Confidence cleared the phase threshold → commit.
     const matchedProfile = profiles.find((p) => p.id === candidate.profileId);
     if (matchedProfile) {
@@ -1104,6 +1133,70 @@ export class ChargeMonitor {
       curveOffsetSeconds: candidate.curveOffsetSeconds,
       targetSoc: machine.targetSoc,
       estimatedSoc: candidate.estimatedStartSoc,
+    }).where(eq(chargeSessions.id, sessionId)).run();
+
+    this.emitChargeEvent(plugId, 'matched');
+  }
+
+  /**
+   * v1.5 plug pinning. Commit a synthetic match against `pinnedProfileId`
+   * with no DTW — the plug owner has guaranteed the device. Band starts
+   * fully uncertain ([0, 100], bandConfidence=0) so FPD-03's low-confidence
+   * gate routes every stop predicate through the energy-fallback path
+   * (estSoc grows with delivered Wh, stop fires at estSoc≥targetSoc). The
+   * user can refine via PUT /api/charging/sessions/<id> if they know the
+   * starting real SoC. Mirrors the commit half of tryMatch — sessionId
+   * lookup, anomalyCurve setup, matchData write, DB UPDATE.
+   */
+  private commitPinnedMatch(plugId: string, pinnedProfileId: number, timestamp: number): void {
+    const sessionId = this.sessionIds.get(plugId);
+    const machine = this.machines.get(plugId);
+    if (!sessionId || !machine) return;
+
+    const profile = db.select().from(deviceProfiles).where(eq(deviceProfiles.id, pinnedProfileId)).get();
+    if (!profile) return;
+
+    const profilesWithCurves = this.loadProfilesWithCurves();
+    const matchedProfile = profilesWithCurves.find((p) => p.id === pinnedProfileId);
+    if (!matchedProfile) return;
+
+    this.anomalyCurve.set(plugId, matchedProfile.curvePoints.map((p) => ({
+      offsetSeconds: p.offsetSeconds,
+      apower: p.apower,
+    })));
+    this.anomalyDeviationCount.set(plugId, 0);
+
+    const syntheticMatch: MatchResult = {
+      profileId: profile.id,
+      profileName: profile.name,
+      confidence: 1.0,        // user-pinned ≡ ground truth from the plug owner
+      curveOffsetSeconds: 0,
+      estimatedStartSoc: 0,
+      socMin: 0,
+      socMax: 100,
+      socBest: 0,
+      bandConfidence: 0,      // fully uncertain → FPD-03 fallback path
+    };
+    this.matchData.set(plugId, syntheticMatch);
+
+    this.sessionSocMin.set(plugId, 0);
+    this.sessionSocMax.set(plugId, 100);
+    this.sessionBandConfidence.set(plugId, 0);
+    machine.socMin = 0;
+    machine.socMax = 100;
+    machine.socBest = 0;
+    machine.socBandConfidence = 0;
+    machine.targetSoc = profile.targetSoc;
+
+    machine.setMatch(syntheticMatch, sessionId, timestamp);
+
+    db.update(chargeSessions).set({
+      state: 'matched',
+      profileId: profile.id,
+      detectionConfidence: 1.0,
+      curveOffsetSeconds: 0,
+      targetSoc: machine.targetSoc,
+      estimatedSoc: 0,
     }).where(eq(chargeSessions.id, sessionId)).run();
 
     this.emitChargeEvent(plugId, 'matched');
@@ -1225,7 +1318,30 @@ export class ChargeMonitor {
       .where(eq(referenceCurves.profileId, match.profileId)).get();
     if (!curve) return;
 
-    const soc = estimateSoc(socWh, curve.totalEnergyWh, match.estimatedStartSoc);
+    // v1.5 taper-aware SoC. When live apower is below the taper threshold
+    // (default 70% of peakPower), prefer curve-position lookup over pure
+    // energy-fallback math. Session 22 (2026-05-15) overshot real SoC by
+    // ~15% because the iPad's BMS started tapering at ~80% real while the
+    // energy math kept treating each Wh as if the BMS were still in CC.
+    // Curve points are lazy-loaded once per session via taperCurvePoints
+    // (cached after first taper-region entry).
+    let curvePointsForTaper = this.taperCurvePoints.get(plugId);
+    if (!curvePointsForTaper) {
+      const points = db.select().from(referenceCurvePoints)
+        .where(eq(referenceCurvePoints.curveId, curve.id)).all();
+      curvePointsForTaper = points.map((p) => ({ offsetSeconds: p.offsetSeconds, apower: p.apower }));
+      this.taperCurvePoints.set(plugId, curvePointsForTaper);
+    }
+    const taperResult = estimateSocTaperAware({
+      apower: reading.apower,
+      peakPower: curve.peakPower,
+      currentWh: socWh,
+      totalWh: curve.totalEnergyWh,
+      startSoc: match.estimatedStartSoc,
+      curvePoints: curvePointsForTaper,
+      totalDurationSeconds: curve.durationSeconds,
+    });
+    const soc = taperResult.soc;
     machine.estimatedSoc = soc;
 
     // Forward-propagate the band edges in lock-step with socBest (Pattern 2,
@@ -1672,6 +1788,8 @@ export class ChargeMonitor {
     this.readingsSinceLastMatch.delete(plugId);
     // FPD-03
     this.lastStopMode.delete(plugId);
+    // v1.5 taper-aware SoC
+    this.taperCurvePoints.delete(plugId);
   }
 
   /**
