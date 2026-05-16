@@ -6,8 +6,6 @@
 -- the old one — single-pin becomes a length-1 JSON array, semantically
 -- identical at runtime.
 
-ALTER TABLE `plugs` ADD `allowed_profile_ids` TEXT;
-UPDATE `plugs`
-  SET `allowed_profile_ids` = '[' || `pinned_profile_id` || ']'
-  WHERE `pinned_profile_id` IS NOT NULL;
+ALTER TABLE `plugs` ADD `allowed_profile_ids` TEXT;--> statement-breakpoint
+UPDATE `plugs` SET `allowed_profile_ids` = '[' || `pinned_profile_id` || ']' WHERE `pinned_profile_id` IS NOT NULL;--> statement-breakpoint
 ALTER TABLE `plugs` DROP COLUMN `pinned_profile_id`;
