@@ -85,6 +85,13 @@
       "when": 1778892000000,
       "tag": "0011_replace_pinned_with_whitelist",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1778902000000,
+      "tag": "0012_add_session_review_columns",
+      "breakpoints": true
     }
   ]
 }

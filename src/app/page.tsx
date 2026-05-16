@@ -1,7 +1,8 @@
 import { db } from '@/db/client';
-import { plugs, powerReadings } from '@/db/schema';
-import { desc, eq } from 'drizzle-orm';
+import { plugs, powerReadings, chargeSessions } from '@/db/schema';
+import { desc, eq, isNotNull } from 'drizzle-orm';
 import { DashboardChargeBanners } from '@/components/charging/dashboard-charge-banners';
+import { FlaggedSessionsBanner } from '@/components/charging/flagged-sessions-banner';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -25,9 +26,21 @@ export default async function HomePage() {
     };
   });
 
+  // v1.7-C post-cycle calibration banner. Count sessions flagged by the
+  // self-calibration scorer (delivered Wh didn't fit committed profile,
+  // or another profile fits better). Server-rendered count is fine — the
+  // banner is informational, not real-time.
+  const flaggedCount = db
+    .select({ id: chargeSessions.id })
+    .from(chargeSessions)
+    .where(isNotNull(chargeSessions.flagReason))
+    .all().length;
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-neutral-100 mb-6">Dashboard</h1>
+
+      {flaggedCount > 0 && <FlaggedSessionsBanner count={flaggedCount} />}
 
       {plugsWithOutput.length === 0 ? (
         <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-8 text-center">

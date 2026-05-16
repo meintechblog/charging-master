@@ -25,6 +25,7 @@ import {
 } from './calibration';
 import { estimateSoc, estimateSocTaperAware, type TaperCurvePoint } from './soc-estimator';
 import { parseAllowedProfileIds, getPlugProfilePrior, isEnergyImpossible } from './plug-prior';
+import { runPostCycleCalibration } from './post-cycle-calibration';
 import {
   extractTransientFeatures,
   compareTransientFeatures,
@@ -1132,6 +1133,19 @@ export class ChargeMonitor {
             stoppedAt: Date.now(),
             stopReason: reason,
           }).where(eq(chargeSessions.id, sessionId)).run();
+
+          // v1.7-C — stale-power aborts are usually "device finished charging"
+          // (apower drops to 0 because BMS taper-stopped). Their delivered
+          // Wh is excellent ground truth — score it.
+          if (reason === 'stale_power') {
+            try {
+              const match = this.matchData.get(plugId);
+              const deliveredWh = this.sessionWh.get(plugId) ?? 0;
+              runPostCycleCalibration(db, sessionId, plugId, match?.profileId ?? null, deliveredWh);
+            } catch (err) {
+              console.error('[post-cycle-calibration] failed:', err instanceof Error ? err.message : err);
+            }
+          }
         }
 
         // Relay off — mirrors the learn_complete fire-and-forget pattern.
@@ -1738,6 +1752,16 @@ export class ChargeMonitor {
           this.recalibrateChargerEtaIfPossible(plugId, sessionId);
         } catch (err) {
           console.error('[Calibration] recalibrateChargerEta failed:', err instanceof Error ? err.message : err);
+        }
+
+        // v1.7-C post-cycle self-calibration. Score delivered Wh against
+        // the committed profile + plug whitelist; verify or flag for review.
+        try {
+          const match = this.matchData.get(plugId);
+          const deliveredWh = this.sessionWh.get(plugId) ?? 0;
+          runPostCycleCalibration(db, sessionId, plugId, match?.profileId ?? null, deliveredWh);
+        } catch (err) {
+          console.error('[post-cycle-calibration] failed:', err instanceof Error ? err.message : err);
         }
       }
       this.emitChargeEvent(plugId, 'complete', false, completionCtx);

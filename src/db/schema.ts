@@ -204,6 +204,15 @@ export const chargeSessions = sqliteTable('charge_sessions', {
   // Wh stays correct across service restarts AND SOC corrections.
   startTotalEnergy: real('start_total_energy'),
   dtwScore: real('dtw_score'),
+  // v1.7-C post-cycle self-calibration. When a session reaches a terminal
+  // state (complete / aborted via stale-power), runPostCycleCalibration
+  // scores `delivered_wh / profile.total_energy_wh` against the committed
+  // profile and the other plug-whitelist candidates. `verified_at` is set
+  // when the committed profile is the best match (within tolerance);
+  // `flag_reason` is a short German string when another profile would fit
+  // better, surfacing the discrepancy to the user via the dashboard.
+  verifiedAt: integer('verified_at'),
+  flagReason: text('flag_reason'),
   // Phase 11 SOC confidence band persistence. Nullable — legacy rows produced
   // before plan 11-02 have NULL; resume code reads NULL as "use estimatedSoc
   // for socMin and socMax, bandConfidence=1" (zero-width band).
