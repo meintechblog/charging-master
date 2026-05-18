@@ -79,6 +79,42 @@ const ANOMALY_SUSTAINED_READINGS = 10;       // ~50 s at 5 s sample → no false
 const ANOMALY_MIN_EXPECTED_W = 5;            // ignore noise comparison when expected is near zero
 const ANOMALY_COOLDOWN_MS = 30 * 60 * 1000;  // notify at most once per 30 min per plug
 
+/**
+ * v1.7-D: Honor user anchor across FPD-02 adaptive matcher refresh.
+ *
+ * overrideSession (e.g. iOS Shortcut report-soc) sets match.bandConfidence=1
+ * and match.socBest = userValue. Without this guard, the next adaptive refresh
+ * runs DTW against the live curve (post-anchor) and computes a fresh socBest
+ * that REPLACES the user's ground truth. Diagnosed on Session 23
+ * (2026-05-18): user injected soc=13 on a real iPad → adaptive refresh
+ * matched the iPad's mid-charge CC plateau against the 80%-region of the
+ * reference curve → candidateSocBest jumped to 80 → shouldStop fired at
+ * real ~68 %.
+ *
+ * Post-guard behavior: candidate.socBest stays pinned to the user anchor;
+ * updateSocTracking continues to advance machine.socBest via energy fallback
+ * from that anchor as Wh accumulate; DTW still refines band edges (socMin/
+ * socMax) via the existing monotonic-narrowing path because we leave those
+ * fields untouched.
+ *
+ * MUTATES candidate IN PLACE — the call site immediately reads candidate.*
+ * to commit the band, so a returned copy would not propagate.
+ */
+export function applyUserAnchorGuard(
+  candidate: MatchResult,
+  priorMatch: MatchResult | undefined,
+  plugId?: string,
+): void {
+  if (priorMatch?.bandConfidence === 1 && priorMatch.socBest != null) {
+    candidate.socBest = priorMatch.socBest;
+    candidate.estimatedStartSoc = priorMatch.socBest;
+    candidate.bandConfidence = 1;
+    console.log(
+      `[user-anchor] preserved socBest=${priorMatch.socBest} across FPD-02 refresh${plugId ? ` for plug ${plugId}` : ''}`,
+    );
+  }
+}
+
 export class ChargeMonitor {
   private eventBus: EventBus;
 
@@ -1283,6 +1319,10 @@ export class ChargeMonitor {
       candidate.estimatedStartSoc = biasedStartSoc;
       console.log(`[Calibration] applied start-SOC bias ${biasApplied >= 0 ? '+' : ''}${biasApplied} for profile ${candidate.profileId} → estimatedStartSoc=${biasedStartSoc}`);
     }
+
+    // v1.7-D: Honor user anchor across FPD-02 adaptive refresh.
+    // See applyUserAnchorGuard for rationale + Session 23 incident details.
+    applyUserAnchorGuard(candidate, this.matchData.get(plugId), plugId);
 
     // Commit the band to the per-plug Maps. Monotonic narrowing (Pitfall 1):
     // if a prior band exists for this plug, never widen — take max of socMin

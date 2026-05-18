@@ -153,7 +153,7 @@ vi.mock('./relay-controller', () => ({
   canSwitchRelay: () => true,
 }));
 
-import { ChargeMonitor } from './charge-monitor';
+import { ChargeMonitor, applyUserAnchorGuard } from './charge-monitor';
 import { __resetStopModeCacheForTests } from './stop-mode';
 
 // --- Helpers --------------------------------------------------------------
@@ -1855,5 +1855,69 @@ describe('ChargeMonitor — Phase 12 FPD-04: max-session-duration watchdog', () 
     expect(anyWrite).toBeUndefined();
 
     warnSpy.mockRestore();
+  });
+});
+
+describe('applyUserAnchorGuard (v1.7-D — preserve user override across FPD-02 refresh)', () => {
+  function buildMatch(over: Partial<MatchResult> = {}): MatchResult {
+    return {
+      profileId: 1,
+      profileName: 'iPad',
+      confidence: 0.8,
+      curveOffsetSeconds: 0,
+      estimatedStartSoc: 50,
+      socMin: 45,
+      socMax: 55,
+      socBest: 50,
+      bandConfidence: 0.8,
+      ...over,
+    };
+  }
+
+  it('preserves prior socBest when prior bandConfidence === 1 (user override marker)', () => {
+    const prior = buildMatch({ socBest: 13, estimatedStartSoc: 13, socMin: 13, socMax: 13, bandConfidence: 1 });
+    const candidate = buildMatch({ socBest: 80, estimatedStartSoc: 80, socMin: 70, socMax: 90, bandConfidence: 0.6 });
+    applyUserAnchorGuard(candidate, prior, 'plug-test');
+    expect(candidate.socBest).toBe(13);
+    expect(candidate.estimatedStartSoc).toBe(13);
+    expect(candidate.bandConfidence).toBe(1);
+  });
+
+  it('leaves band edges (socMin/socMax) untouched so DTW can still refine them', () => {
+    const prior = buildMatch({ socBest: 13, socMin: 13, socMax: 13, bandConfidence: 1 });
+    const candidate = buildMatch({ socBest: 80, socMin: 70, socMax: 90, bandConfidence: 0.6 });
+    applyUserAnchorGuard(candidate, prior);
+    // Only socBest / estimatedStartSoc / bandConfidence are pinned; band edges
+    // pass through so the monotonic-narrowing path can still tighten them.
+    expect(candidate.socMin).toBe(70);
+    expect(candidate.socMax).toBe(90);
+  });
+
+  it('does NOT touch candidate when prior bandConfidence < 1 (normal DTW refresh path)', () => {
+    const prior = buildMatch({ socBest: 50, bandConfidence: 0.9 });
+    const candidate = buildMatch({ socBest: 80, bandConfidence: 0.7 });
+    applyUserAnchorGuard(candidate, prior);
+    expect(candidate.socBest).toBe(80);
+    expect(candidate.bandConfidence).toBe(0.7);
+  });
+
+  it('does NOT touch candidate when there is no prior match (initial commit path)', () => {
+    const candidate = buildMatch({ socBest: 80, bandConfidence: 0.7 });
+    applyUserAnchorGuard(candidate, undefined);
+    expect(candidate.socBest).toBe(80);
+  });
+
+  it('regression — Session 23 (2026-05-18): real iPad 13→80 with DTW jumping to 80 mid-charge stays anchored at 13', () => {
+    // Reproduction of the production failure mode that motivated this guard.
+    // User called report-soc with soc=13. Subsequent adaptive refresh's DTW
+    // matched the live CC-region pattern against the 80%-offset of the
+    // reference curve and produced candidateSocBest=80 — which, without the
+    // guard, would have triggered shouldStop (socBest 80 >= target 80) at
+    // real ~68 % battery.
+    const afterOverride = buildMatch({ socBest: 13, estimatedStartSoc: 13, socMin: 13, socMax: 13, bandConfidence: 1 });
+    const dtwRefreshCandidate = buildMatch({ socBest: 80, estimatedStartSoc: 80, socMin: 75, socMax: 85, bandConfidence: 0.8 });
+    applyUserAnchorGuard(dtwRefreshCandidate, afterOverride, 'shellyplugsg3-d885ac15b828');
+    expect(dtwRefreshCandidate.socBest).toBeLessThan(80); // would have fired shouldStop
+    expect(dtwRefreshCandidate.socBest).toBe(13);
   });
 });
