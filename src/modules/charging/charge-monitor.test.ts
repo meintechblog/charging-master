@@ -1182,6 +1182,60 @@ describe('ChargeMonitor — Phase 12 FPD-02: adaptive matcher refresh', () => {
     expect(machine.socBandConfidence).toBe(0.8);
   });
 
+  it('refreshMatch — v1.7-E: user-anchor (bandConfidence=1) preserves socBest across refresh', async () => {
+    // Regression for Session 25 (2026-05-19): user injected real-SoC via
+    // report-soc, charge progressed correctly, then refreshMatch fired and
+    // overwrote machine.socBest at line 1714 with the raw DTW candidate
+    // (which mapped the live taper-region apower to ~78% on the curve).
+    // socBest dropped back below target → shouldStop never re-armed → the
+    // charge ran past the intended cutoff and only the manual relay-off
+    // saved us. v1.7-D had this guard in tryMatch but missed refreshMatch
+    // — same pattern, separate function. v1.7-E plugs the second site.
+    const profile = seedIpadProfileWithCurve(1);
+    seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 76 });
+
+    // Prior match carries the user-anchor marker (bandConfidence === 1)
+    // and the user-supplied socBest. Matches what overrideSession leaves
+    // in matchData after the iOS Shortcut hook fires.
+    const anchoredMatch = makeMatch({
+      socMin: 76, socMax: 76, socBest: 76, bandConfidence: 1, estimatedStartSoc: 76,
+    });
+    injectActiveSession(monitor, 'plug-1', 1, anchoredMatch, { state: 'charging', targetSoc: 80 });
+
+    const internals = monitor as unknown as MonitorInternals;
+    internals.chargingBuffers.set('plug-1', { apower: [28, 27, 28, 29], profile });
+
+    // DTW says "you're at offset 78%" — without the guard this would
+    // replace the anchor and pull socBest from 76 back to ~78 below target.
+    vi.spyOn(curveMatcher, 'findBestCandidate').mockReturnValue({
+      profileId: 1,
+      profileName: 'iPad',
+      confidence: 0.85,
+      curveOffsetSeconds: 6000,
+      estimatedStartSoc: 78,
+      socMin: 73,
+      socMax: 83,
+      socBest: 78,
+      bandConfidence: 0.7,
+    });
+
+    await (monitor as unknown as {
+      refreshMatch(p: string, t: number): Promise<void>;
+    }).refreshMatch('plug-1', 1_001_000);
+
+    // socBest stayed pinned at the user anchor (76), bandConfidence stayed
+    // at 1 — the next updateSocTracking will keep walking forward via
+    // energy-fallback from 76.
+    const machine = internals.machines.get('plug-1')!;
+    expect(machine.socBest).toBe(76);
+    expect(machine.socBandConfidence).toBe(1);
+    expect(internals.sessionBandConfidence.get('plug-1')).toBe(1);
+    // matchData also preserved
+    const cached = internals.matchData.get('plug-1')!;
+    expect(cached.socBest).toBe(76);
+    expect(cached.bandConfidence).toBe(1);
+  });
+
   it('refreshMatch — partial-narrowing: only one edge narrows, the wider edge is held', () => {
     const profile = seedIpadProfileWithCurve(1);
     seedSession(1, 'plug-1', 'charging', { profileId: 1, estimatedSoc: 40 });

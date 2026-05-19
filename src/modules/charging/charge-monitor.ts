@@ -1677,6 +1677,16 @@ export class ChargeMonitor {
     const candidate = curveMatcher.findBestCandidate(entry.apower, [entry.profile]);
     if (!candidate) return;
 
+    // v1.7-E: honor user anchor on the recurring-refresh path too. v1.7-D
+    // covered tryMatch (initial commit) but missed this site — diagnosed on
+    // Session 25 (2026-05-19): user injected real-SoC, charge proceeded
+    // correctly, then the 5-min FPD-02 refreshMatch tick overwrote
+    // machine.socBest at line below with the raw DTW candidate (≈ live
+    // taper-region offset), pulling socBest BACK below target. shouldStop
+    // then re-armed and the charge ran past the intended cutoff. Same
+    // guard, same MatchResult-mutation contract.
+    applyUserAnchorGuard(candidate, this.matchData.get(plugId), plugId);
+
     const priorSocMin = this.sessionSocMin.get(plugId);
     const priorSocMax = this.sessionSocMax.get(plugId);
     // refreshMatch only runs after handleTransition('charging') which seeds

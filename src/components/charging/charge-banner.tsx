@@ -405,7 +405,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
             </svg>
             <span className="text-sm text-neutral-300">
               {showCandidate
-                ? `Vermutlich ${session.bestCandidateName} (${candidatePct} %)`
+                ? `Vermutlich ${session.bestCandidateName} (Match ${candidatePct} %)`
                 : 'Gerät wird erkannt…'}
             </span>
           </div>

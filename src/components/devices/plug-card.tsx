@@ -39,13 +39,14 @@ function formatDetectingLabel(charge: {
 
   // Surface the best speculative candidate when DTW already has a strong
   // (≥0.5) hint — keeps the user informed without committing to a profile.
+  // Label disambiguates from SoC: "Match 69 %" can't be misread as "69 % SoC".
   if (
     charge.bestCandidateName &&
     charge.bestCandidateConfidence != null &&
     charge.bestCandidateConfidence >= 0.5
   ) {
     const pct = Math.round(charge.bestCandidateConfidence * 100);
-    return `Vermutlich ${charge.bestCandidateName} (${pct} %)`;
+    return `Vermutlich ${charge.bestCandidateName} (Match ${pct} %)`;
   }
 
   if (samples != null && target != null) {
