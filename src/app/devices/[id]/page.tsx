@@ -5,6 +5,7 @@ import { plugs, powerReadings } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { ChargeSessionChart } from '@/components/charts/charge-session-chart';
 import { PlugChargeBanner } from './plug-charge-banner';
+import { formatEnergy } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ export default async function PlugDetailPage({
   const relayOn = latestReading?.output ?? false;
   const totalEnergy =
     latestReading?.totalEnergy != null
-      ? `${latestReading.totalEnergy.toFixed(2)} Wh`
+      ? formatEnergy(latestReading.totalEnergy)
       : '--';
 
   return (

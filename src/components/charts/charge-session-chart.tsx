@@ -39,7 +39,11 @@ import { usePowerStream } from '@/hooks/use-power-stream';
 import { useChargeStream } from '@/hooks/use-charge-stream';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 
-type ReferencePoint = { offsetSeconds: number; apower: number };
+type ReferencePoint = {
+  offsetSeconds: number;
+  apower: number;
+  cumulativeWh?: number;
+};
 
 type SessionMeta = {
   sessionId: number;
@@ -49,6 +53,8 @@ type SessionMeta = {
   curveOffsetSeconds: number;
   targetSoc: number;
   durationSeconds: number;
+  /** total Wh of the reference curve — needed to map targetSoc → offsetSeconds */
+  totalEnergyWh: number;
 };
 
 type ChargeSessionChartProps = {
@@ -125,6 +131,11 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           (curvePoints.length > 0
             ? curvePoints[curvePoints.length - 1].offsetSeconds
             : 0);
+        const totalEnergyWh: number =
+          (Array.isArray(curveRes) ? 0 : curveRes.totalEnergyWh) ??
+          (curvePoints.length > 0
+            ? curvePoints[curvePoints.length - 1].cumulativeWh ?? 0
+            : 0);
         const meta: SessionMeta = {
           sessionId,
           startedAt,
@@ -133,6 +144,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           curveOffsetSeconds,
           targetSoc,
           durationSeconds,
+          totalEnergyWh,
         };
 
         // Backfill: load all readings since session start so the chart
@@ -243,6 +255,32 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
     [xMax]
   );
 
+  // Offset on the reference curve where cumulativeWh first crosses the
+  // session's target SoC. Drawn as a vertical mark-line so the user sees
+  // "the charge stops here." Returns null when the reference doesn't
+  // include cumulativeWh (legacy curves) or when the target falls beyond
+  // the curve's coverage.
+  const targetOffsetSec = useMemo<number | null>(() => {
+    if (!session || referenceCurve.length === 0) return null;
+    if (!Number.isFinite(session.totalEnergyWh) || session.totalEnergyWh <= 0) {
+      return null;
+    }
+    const targetWh = (session.targetSoc / 100) * session.totalEnergyWh;
+    let bestIdx = -1;
+    let bestDelta = Infinity;
+    for (let i = 0; i < referenceCurve.length; i++) {
+      const cw = referenceCurve[i].cumulativeWh;
+      if (cw == null) continue;
+      const delta = Math.abs(cw - targetWh);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) return null;
+    return referenceCurve[bestIdx].offsetSeconds;
+  }, [session, referenceCurve]);
+
   const chartOption = useMemo<EChartsOption>(() => {
     const latestLive = liveDataAligned.length > 0
       ? liveDataAligned[liveDataAligned.length - 1]
@@ -331,6 +369,27 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           data: referenceData,
           z: 1,
           animation: false,
+          markLine: targetOffsetSec != null && session
+            ? {
+                symbol: 'none',
+                silent: true,
+                lineStyle: {
+                  color: '#f59e0b',
+                  type: 'dashed',
+                  width: 1.5,
+                  opacity: 0.9,
+                },
+                label: {
+                  show: true,
+                  position: 'insideEndTop',
+                  color: '#f59e0b',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  formatter: `Ziel ${session.targetSoc} %`,
+                },
+                data: [{ xAxis: targetOffsetSec }],
+              }
+            : undefined,
         },
         {
           name: 'Aktuell',
@@ -361,7 +420,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
       animationDuration: 200,
       animationDurationUpdate: 200,
     };
-  }, [referenceData, liveDataAligned, yMax, xMax, tickInterval]);
+  }, [referenceData, liveDataAligned, yMax, xMax, tickInterval, targetOffsetSec, session]);
 
   if (!session) {
     return (

@@ -5,8 +5,10 @@ import { useChargeStream } from '@/hooks/use-charge-stream';
 import { SocButtons } from '@/components/charging/soc-buttons';
 import { CountdownDisplay } from '@/components/charging/countdown-display';
 import { UnknownDeviceDialog } from '@/components/charging/unknown-device-dialog';
-import { SocBandIndicator } from '@/components/charging/soc-band-indicator';
+import { formatEnergy } from '@/lib/format';
 import type { ChargeStateEvent } from '@/modules/charging/types';
+
+const formatWh = formatEnergy;
 
 type Profile = { id: number; name: string };
 
@@ -78,11 +80,6 @@ export function deriveWatchdogFraction(
   return Math.max(0, Math.min(1, raw));
 }
 
-function formatWh(wh: number | undefined): string {
-  if (wh == null || !Number.isFinite(wh)) return '--';
-  if (wh < 10) return `${wh.toFixed(1)} Wh`;
-  return `${Math.round(wh)} Wh`;
-}
 
 function formatDuration(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '--';
@@ -543,41 +540,43 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          {/* Phase 11 SOC confidence band — renders live CSS-animated band when
-              ChargeStateEvent carries socMin/socMax; degrades to <pre> ASCII
-              fallback or nothing on idle. Does not replace the percent above. */}
-          <div className="mt-2">
-            <SocBandIndicator plugId={plugId} initialAsciiBar={session.socAsciiBar} />
-          </div>
         </div>
       )}
 
-      {/* Row 4: metrics strip — Wh charged · Wh remaining · elapsed · eta */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-neutral-400 tabular-nums">
-        {session.energyChargedWh != null && (
-          <span>
-            <span className="text-neutral-200">{formatWh(session.energyChargedWh)}</span>
-            <span className="text-neutral-500 ml-1">geladen</span>
-          </span>
-        )}
-        {session.energyRemainingWh != null && session.energyRemainingWh > 0 && (
-          <span>
-            <span className="text-neutral-200">{formatWh(session.energyRemainingWh)}</span>
-            <span className="text-neutral-500 ml-1">fehlen</span>
-          </span>
-        )}
-        {session.elapsedMs != null && (
-          <span>
-            <span className="text-neutral-500">seit</span>{' '}
-            <span className="text-neutral-200">{formatDuration(session.elapsedMs / 1000)}</span>
-          </span>
-        )}
-        {session.etaSeconds != null && session.etaSeconds > 0 && (
-          <span>
-            <span className="text-neutral-500">noch ca.</span>{' '}
-            <span className="text-neutral-200">{formatDuration(session.etaSeconds)}</span>
-          </span>
-        )}
+      {/* Row 4: metrics as prominent stat cards (replaces the old inline
+          text strip + ASCII SOC band). The ChargeSessionChart on the detail
+          page covers SoC visualization; the cards surface the four numbers
+          users actually scan: how much charged, how much remains, elapsed
+          time, ETA. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="bg-neutral-800/50 rounded-md px-3 py-2">
+          <div className="text-[10px] text-neutral-500 uppercase tracking-wide">Geladen</div>
+          <div className="text-lg font-semibold text-neutral-100 tabular-nums">
+            {formatWh(session.energyChargedWh)}
+          </div>
+        </div>
+        <div className="bg-neutral-800/50 rounded-md px-3 py-2">
+          <div className="text-[10px] text-neutral-500 uppercase tracking-wide">Fehlt</div>
+          <div className="text-lg font-semibold text-neutral-100 tabular-nums">
+            {session.energyRemainingWh != null && session.energyRemainingWh > 0
+              ? formatWh(session.energyRemainingWh)
+              : '–'}
+          </div>
+        </div>
+        <div className="bg-neutral-800/50 rounded-md px-3 py-2">
+          <div className="text-[10px] text-neutral-500 uppercase tracking-wide">Seit</div>
+          <div className="text-lg font-semibold text-neutral-100 tabular-nums">
+            {session.elapsedMs != null ? formatDuration(session.elapsedMs / 1000) : '–'}
+          </div>
+        </div>
+        <div className="bg-neutral-800/50 rounded-md px-3 py-2">
+          <div className="text-[10px] text-neutral-500 uppercase tracking-wide">Noch ca.</div>
+          <div className="text-lg font-semibold text-neutral-100 tabular-nums">
+            {session.etaSeconds != null && session.etaSeconds > 0
+              ? formatDuration(session.etaSeconds)
+              : '–'}
+          </div>
+        </div>
       </div>
 
       {/* Phase 12 FPD-05 — yellow watchdog warning bar. Gated on
