@@ -71,9 +71,9 @@ export function CatalogSettings({ initialSettings }: Props) {
   const initialEnabled = initialSettings['catalog.enabled'] === 'true' ? 'true' : 'false';
   const initialToken = initialSettings['github.contentsToken'] ?? '';
   const initialRepo = initialSettings['github.repo'] ?? '';
-  // catalog.autoSync defaults to "true" when absent — matches server-side
-  // isAutoSyncEnabled().
-  const initialAutoSync = initialSettings['catalog.autoSync'] === 'false' ? 'false' : 'true';
+  // catalog.autoSync defaults to "false" when absent — matches server-side
+  // isAutoSyncEnabled() while the feature is parked (see auto-sync.ts).
+  const initialAutoSync = initialSettings['catalog.autoSync'] === 'true' ? 'true' : 'false';
 
   const [enabled, setEnabled] = useState(initialEnabled);
   const [token, setToken] = useState(initialToken);
@@ -216,94 +216,44 @@ export function CatalogSettings({ initialSettings }: Props) {
       )}
 
       {isOn && hasToken && (
-        <div className="border-t border-neutral-800 pt-3 space-y-3">
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={isAutoSyncOn}
-              onChange={(e) => setAutoSync(e.target.checked ? 'true' : 'false')}
-              className="w-4 h-4 accent-blue-500"
-            />
-            <span className="text-sm text-neutral-200">
-              Auto-Sync der Profile
+        <div className="border-t border-neutral-800 pt-3 space-y-3 relative">
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-3 select-none cursor-not-allowed opacity-40">
+              <input
+                type="checkbox"
+                checked={false}
+                disabled
+                className="w-4 h-4 accent-blue-500"
+              />
+              <span className="text-sm text-neutral-200">
+                Auto-Sync der Profile
+              </span>
+            </label>
+            <span className="px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/60 text-amber-300 text-[10px] font-medium uppercase tracking-wide">
+              Noch in Arbeit
             </span>
-          </label>
-          <p className="text-[11px] text-neutral-500 leading-relaxed -mt-1">
+          </div>
+          <p className="text-[11px] text-neutral-500 leading-relaxed -mt-1 opacity-60">
             Wenn aktiv, werden Änderungen an einem Profil (neues Foto, Curve-Save, Metadaten-Edit, Ladegerät-Edit)
-            automatisch ~15s später in den Katalog auf GitHub gepushed. Bei deaktiviertem Auto-Sync musst du
-            Profile manuell über die Profil-Detailseite einreichen.
+            automatisch ~15s später in den Katalog auf GitHub gepushed.
+          </p>
+          <p className="text-[11px] text-amber-300/70 leading-relaxed">
+            Der Auto-Sync wird zurückgestellt, bis das Auth-Modell (GitHub PAT vs. GitHub App vs. PR-basiert) entschieden ist.
+            Du kannst Profile bis dahin weiterhin manuell über die Profil-Detailseite einreichen.
           </p>
 
-          {syncStatus && (
-            <div className="rounded-md bg-neutral-900 border border-neutral-800 px-3 py-2 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] text-neutral-400">
-                  {syncStatus.lastSuccess ? (
-                    <>
-                      Letzte Synchronisation:{' '}
-                      <span className="text-neutral-200">{formatRelative(syncStatus.lastSuccess.createdAt)}</span>
-                      {syncStatus.lastSuccess.profileName && (
-                        <span className="text-neutral-500"> · {syncStatus.lastSuccess.profileName}</span>
-                      )}
-                      {syncStatus.lastSuccess.commitSha && (
-                        <span className="text-neutral-600 font-mono"> · {syncStatus.lastSuccess.commitSha.slice(0, 7)}</span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-neutral-500">Noch keine erfolgreiche Synchronisation.</span>
-                  )}
-                </div>
-                <span className={`text-[11px] ${syncStatus.canAutoSync ? 'text-green-400' : 'text-amber-400'}`}>
-                  {syncStatus.canAutoSync ? '● aktiv' : '○ inaktiv'}
-                </span>
-              </div>
-
-              {syncStatus.recentSyncErrors.length > 0 && (
-                <details className="text-[11px]">
-                  <summary className="cursor-pointer text-red-400 hover:text-red-300">
-                    {syncStatus.recentSyncErrors.length} letzte Fehler
-                  </summary>
-                  <ul className="mt-1 space-y-1 pl-2 text-red-300/80">
-                    {syncStatus.recentSyncErrors.slice(0, 5).map((e) => (
-                      <li key={e.id} className="font-mono break-all">
-                        <span className="text-neutral-500">{formatRelative(e.createdAt)}</span>{' '}
-                        {e.profileName && <span className="text-neutral-400">{e.profileName} · </span>}
-                        {e.errorMessage?.slice(0, 120) ?? 'unknown'}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex items-center justify-between gap-3 pt-1 opacity-40">
             <p className="text-[11px] text-neutral-500 leading-snug">
               Backfill: Alle lokalen Profile mit Referenzkurve neu publishen — z. B. nach erstmaliger Token-Eingabe.
             </p>
             <button
               type="button"
-              onClick={triggerBackfill}
-              disabled={backfillState === 'running'}
-              className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-medium whitespace-nowrap"
+              disabled
+              className="px-3 py-1.5 rounded-md bg-neutral-700 text-neutral-500 text-xs font-medium whitespace-nowrap cursor-not-allowed"
             >
-              {backfillState === 'running' ? 'Synchronisiere…' : 'Jetzt synchronisieren'}
+              Jetzt synchronisieren
             </button>
           </div>
-          {backfillResult && (
-            <div className={`text-[11px] ${backfillState === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>
-              {backfillState === 'error' ? (
-                <span>Fehler: {backfillResult.firstError ?? 'unbekannt'}</span>
-              ) : (
-                <span>
-                  {backfillResult.synced}/{backfillResult.requested} Profile synchronisiert
-                  {backfillResult.firstError && (
-                    <span className="text-red-400/80"> · Erster Fehler: {backfillResult.firstError}</span>
-                  )}
-                </span>
-              )}
-            </div>
-          )}
         </div>
       )}
 

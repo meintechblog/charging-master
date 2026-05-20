@@ -31,11 +31,14 @@ const debounceTimers = new Map<number, NodeJS.Timeout>();
 const pendingReason = new Map<number, string>();
 
 export function isAutoSyncEnabled(): boolean {
+  // PARKED 2026-05-20: feature deferred until we decide on the GitHub auth
+  // model (PAT vs GitHub App vs PR-based). Backend wiring kept in place so
+  // we can re-enable by changing the default below. UI is greyed out in
+  // catalog-settings.tsx.
   try {
     const row = db.select().from(config).where(eq(config.key, AUTO_SYNC_KEY)).get();
-    // Default ON when key absent.
-    if (!row) return true;
-    return row.value !== 'false';
+    if (!row) return false;
+    return row.value === 'true';
   } catch {
     return false;
   }
