@@ -5,6 +5,7 @@ import { useChargeStream } from '@/hooks/use-charge-stream';
 import { SocButtons } from '@/components/charging/soc-buttons';
 import { CountdownDisplay } from '@/components/charging/countdown-display';
 import { UnknownDeviceDialog } from '@/components/charging/unknown-device-dialog';
+import { SocConfidenceBar } from '@/components/charging/soc-confidence-bar';
 import { formatEnergy } from '@/lib/format';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 
@@ -530,16 +531,26 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
               {session.estimatedSoc ?? '--'}
             </span>
             <span className="text-lg text-neutral-500">%</span>
+            {session.socMin != null && session.socMax != null &&
+              session.socMax - session.socMin > 1 && (
+                <span className="text-xs text-neutral-500 ml-1">
+                  ± Band {session.socMin}–{session.socMax}
+                </span>
+              )}
             <span className="ml-auto text-xs text-neutral-500">
               Ziel {session.targetSoc ?? '--'} %
             </span>
           </div>
-          <div className="relative h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full ${fill} rounded-full transition-all duration-1000 ease-linear`}
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
+          {/* Full 0–100 % SoC bar with uncertainty band, current best, and
+              target marker. Replaces the old fill-to-target progress + the
+              separate ASCII band that lived below it. */}
+          <SocConfidenceBar
+            socBest={session.estimatedSoc ?? 0}
+            socMin={session.socMin ?? session.estimatedSoc ?? 0}
+            socMax={session.socMax ?? session.estimatedSoc ?? 0}
+            targetSoc={session.targetSoc ?? 80}
+            fillClass={fill}
+          />
         </div>
       )}
 
