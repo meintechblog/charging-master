@@ -47,8 +47,9 @@ export function SocConfidenceBar({
 
   return (
     <div className="relative">
-      {/* Battery-style track */}
-      <div className="relative h-3 bg-neutral-800 rounded-full overflow-hidden">
+      {/* Battery-style track — tall + fully rounded so it reads as a
+          chunky battery indicator, not a thin slider. */}
+      <div className="relative h-10 bg-neutral-800 rounded-full overflow-hidden">
         {/* Solid "definitely at least" fill — extends to socMin */}
         <div
           className={`absolute inset-y-0 left-0 ${fillClass} transition-[width] duration-1000 ease-linear`}
@@ -73,17 +74,16 @@ export function SocConfidenceBar({
         />
       </div>
 
-      {/* Scale labels underneath: 0, target, 100. The target label sits
-          exactly under the amber line and self-positions via transform. */}
+      {/* Only the target label under the bar — 0/100 are implicit (a
+          horizontal fill bar reads as 0→full). Keeps the label from
+          colliding with the right edge when target sits at 80 %+. */}
       <div className="relative mt-1 h-3 text-[10px] tabular-nums">
-        <span className="absolute left-0 text-neutral-600">0</span>
         <span
-          className="absolute -translate-x-1/2 text-amber-400 font-medium"
+          className="absolute -translate-x-1/2 text-amber-400 font-medium whitespace-nowrap"
           style={{ left: `${target}%` }}
         >
-          Ziel {Math.round(target)}
+          Ziel {Math.round(target)} %
         </span>
-        <span className="absolute right-0 text-neutral-600">100</span>
       </div>
     </div>
   );
