@@ -14,12 +14,22 @@
  *   - dataZoom: inside, wheel + pinch, X-axis only. No range tabs.
  *   - No Y-axis toggle, no time-window tabs. The chart IS the controls.
  *
- * Reference alignment: the matcher records `curveOffsetSeconds` as the
- * reference-curve position where the LIVE session is anchored at t=0. We
- * shift the reference x-coordinates by `-curveOffsetSeconds` so:
- *   - session-elapsed x=0 lines up with reference at `curveOffsetSeconds`
- *   - reference points with `offsetSeconds < curveOffsetSeconds` are
- *     trimmed (would land at x<0 — pre-history we joined into)
+ * Reference alignment (v1.7-F revised):
+ *   - X-axis = absolute reference-curve time (offsetSeconds, 0 → durationSec)
+ *   - Reference plotted at NATIVE offsetSeconds positions
+ *   - Live plotted at `[sessionElapsedSec + curveOffsetSeconds, apower]`
+ *
+ * This puts both series on the same "where on the reference curve are we"
+ * X-axis. The matcher (or v1.7-F overrideSession recompute) writes
+ * `curveOffsetSeconds` to tell us where the live charge JOINED the
+ * reference — a Bosch eBike plugged in at 32 % SoC joins the reference at
+ * about offset 3800 s (the point where the reference cumulativeWh first
+ * crosses 32 % of totalEnergyWh). The live curve then grows to the right.
+ *
+ * Pre-v1.7-F bug: reference was shifted left by curveOffsetSeconds and
+ * live started at session-elapsed x=0 — looked clean but mis-anchored
+ * Bosch curves where curveOffsetSeconds was 0 (pin-bypass default) even
+ * after override.
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -38,6 +48,7 @@ type SessionMeta = {
   profileName: string;
   curveOffsetSeconds: number;
   targetSoc: number;
+  durationSeconds: number;
 };
 
 type ChargeSessionChartProps = {
@@ -71,6 +82,20 @@ function formatElapsed(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+/**
+ * Pick a "nice" X-axis tick interval (in seconds) so 4–6 labels fit the
+ * total duration. 50-minute auto-ticks are jarring — round to canonical
+ * units: 1/2/5/10/15/30/60 minutes.
+ */
+function pickTickIntervalSec(totalSec: number): number {
+  const targetTicks = 5;
+  const target = totalSec / targetTicks;
+  const nice = [
+    60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 14400,
+  ];
+  return nice.find((n) => n >= target) ?? 3600;
+}
+
 export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionChartProps) {
   const [session, setSession] = useState<SessionMeta | null>(null);
   const [referenceCurve, setReferenceCurve] = useState<ReferencePoint[]>([]);
@@ -92,6 +117,14 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
         const startedAt: number = sessPayload.startedAt ?? Date.now();
         const curveOffsetSeconds: number = sessPayload.curveOffsetSeconds ?? 0;
         const targetSoc: number = sessPayload.targetSoc ?? 80;
+        const curvePoints: ReferencePoint[] = Array.isArray(curveRes)
+          ? curveRes
+          : curveRes.points ?? [];
+        const durationSeconds: number =
+          (Array.isArray(curveRes) ? 0 : curveRes.durationSeconds) ??
+          (curvePoints.length > 0
+            ? curvePoints[curvePoints.length - 1].offsetSeconds
+            : 0);
         const meta: SessionMeta = {
           sessionId,
           startedAt,
@@ -99,10 +132,8 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           profileName,
           curveOffsetSeconds,
           targetSoc,
+          durationSeconds,
         };
-        const curvePoints: ReferencePoint[] = Array.isArray(curveRes)
-          ? curveRes
-          : curveRes.points ?? [];
 
         // Backfill: load all readings since session start so the chart
         // doesn't show empty space when the user opens the page mid-session.
@@ -178,24 +209,44 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
     sessionRef.current = session;
   }, [session]);
 
+  // v1.7-F: reference plotted at native offsetSeconds positions.
   const referenceData = useMemo<Array<[number, number]>>(() => {
+    return referenceCurve.map((p) => [p.offsetSeconds, p.apower] as [number, number]);
+  }, [referenceCurve]);
+
+  // Live data shifted right by curveOffsetSeconds — so live x=0 (session
+  // start) appears at the reference offset where the user's start-SoC lives.
+  const liveDataAligned = useMemo<Array<[number, number]>>(() => {
     if (!session) return [];
     const offset = session.curveOffsetSeconds;
-    return referenceCurve
-      .filter((p) => p.offsetSeconds >= offset)
-      .map((p) => [p.offsetSeconds - offset, p.apower] as [number, number]);
-  }, [session, referenceCurve]);
+    return liveData.map((d) => [d[0] + offset, d[1]] as [number, number]);
+  }, [session, liveData]);
 
   const yMax = useMemo(() => {
-    if (referenceData.length === 0 && liveData.length === 0) return 250;
+    if (referenceData.length === 0 && liveDataAligned.length === 0) return 250;
     const refMax = referenceData.reduce((m, [, w]) => (w > m ? w : m), 0);
-    const liveMax = liveData.reduce((m, [, w]) => (w > m ? w : m), 0);
+    const liveMax = liveDataAligned.reduce((m, [, w]) => (w > m ? w : m), 0);
     const peak = Math.max(refMax, liveMax, 1);
     return Math.ceil((peak * 1.15) / 10) * 10;
-  }, [referenceData, liveData]);
+  }, [referenceData, liveDataAligned]);
+
+  const xMax = useMemo(() => {
+    if (!session) return 0;
+    const liveMax = liveDataAligned.length > 0
+      ? liveDataAligned[liveDataAligned.length - 1][0]
+      : 0;
+    return Math.max(session.durationSeconds, liveMax + 60);
+  }, [session, liveDataAligned]);
+
+  const tickInterval = useMemo(
+    () => pickTickIntervalSec(xMax > 0 ? xMax : 1800),
+    [xMax]
+  );
 
   const chartOption = useMemo<EChartsOption>(() => {
-    const latestLive = liveData.length > 0 ? liveData[liveData.length - 1] : null;
+    const latestLive = liveDataAligned.length > 0
+      ? liveDataAligned[liveDataAligned.length - 1]
+      : null;
 
     return {
       backgroundColor: 'transparent',
@@ -222,7 +273,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
             color?: string;
           }>;
           if (!items || items.length === 0) return '';
-          const elapsed = formatElapsed(items[0].value[0]);
+          const refTime = formatElapsed(items[0].value[0]);
           const lines = items.map((item) => {
             const dot =
               `<span style="display:inline-block;margin-right:6px;border-radius:50%;` +
@@ -230,12 +281,14 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
             const label = item.seriesName ? `${item.seriesName}: ` : '';
             return `${dot}${label}<b>${item.value[1].toFixed(1)} W</b>`;
           });
-          return `<div style="font-weight:600;margin-bottom:4px;color:#fafafa">${elapsed}</div>${lines.join('<br/>')}`;
+          return `<div style="font-weight:600;margin-bottom:4px;color:#fafafa">@ ${refTime}</div>${lines.join('<br/>')}`;
         },
       },
       xAxis: {
         type: 'value',
         min: 0,
+        max: xMax > 0 ? xMax : undefined,
+        interval: tickInterval,
         axisLine: { lineStyle: { color: '#404040' } },
         axisTick: { lineStyle: { color: '#404040' } },
         axisLabel: {
@@ -285,7 +338,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           smooth: false,
           showSymbol: false,
           lineStyle: { color: '#06b6d4', width: 2.5 },
-          data: liveData,
+          data: liveDataAligned,
           z: 2,
           animation: false,
           markPoint: latestLive
@@ -308,7 +361,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
       animationDuration: 200,
       animationDurationUpdate: 200,
     };
-  }, [referenceData, liveData, yMax]);
+  }, [referenceData, liveDataAligned, yMax, xMax, tickInterval]);
 
   if (!session) {
     return (
@@ -337,7 +390,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           </span>
         </div>
         <div className="text-[11px] text-neutral-500">
-          Session-Zeit · Referenz auf Match-Offset ausgerichtet
+          Referenzkurven-Zeit · Live startet bei {formatElapsed(session.curveOffsetSeconds)}
         </div>
       </div>
       <ReactECharts

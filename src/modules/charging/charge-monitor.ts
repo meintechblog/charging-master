@@ -180,6 +180,13 @@ export class ChargeMonitor {
   // updateSocTracking call after match, cleared in cleanupSession.
   private taperCurvePoints = new Map<string, TaperCurvePoint[]>();
 
+  // v1.7-F: stash a recomputed curveOffsetSeconds during overrideSession so
+  // the single DB update at the end of the override path can include it
+  // alongside estimatedSoc/socMin/socMax/bandConfidence. Cleared after each
+  // write. Not concurrent-safe across plugs — fine because overrideSession
+  // runs synchronously per request.
+  private pendingCurveOffsetForOverride: number | null = null;
+
   // v1.6.2 active-learning prompt. Track when the current detection cycle
   // started (set on transition to 'detecting', cleared on commit /
   // cleanupSession) and whether we've already sent the Pushover prompt
@@ -363,6 +370,52 @@ export class ChargeMonitor {
         existingMatch.bandConfidence = 1;
       }
 
+      // v1.7-F: recompute curveOffsetSeconds from the user-supplied SoC.
+      // Without this, a user who reports soc=32 mid-Bosch-charge leaves
+      // curveOffsetSeconds at whatever the matcher (or pin-bypass) had —
+      // often 0 — and the visualization places "live x=0" at the very
+      // beginning of the reference curve when it should align at the
+      // offset where cumulativeWh reaches the user's target SoC. Compute
+      // the offset by inverting the curve's cumulativeWh function:
+      // find the point whose cumulativeWh first crosses
+      // totalEnergyWh × soc/100, persist + propagate.
+      const profileIdForOffset = existingMatch?.profileId ?? opts.profileId;
+      if (profileIdForOffset != null) {
+        try {
+          const curve = db.select().from(referenceCurves)
+            .where(eq(referenceCurves.profileId, profileIdForOffset)).get();
+          if (curve != null && curve.totalEnergyWh > 0) {
+            const targetWh = (opts.estimatedSoc / 100) * curve.totalEnergyWh;
+            const points = db.select({
+              offsetSeconds: referenceCurvePoints.offsetSeconds,
+              cumulativeWh: referenceCurvePoints.cumulativeWh,
+            }).from(referenceCurvePoints)
+              .where(eq(referenceCurvePoints.curveId, curve.id))
+              .all();
+            if (points.length > 0) {
+              // Linear scan — curves are ~1k–6k points, sub-ms.
+              let bestIdx = 0;
+              let bestDelta = Math.abs((points[0].cumulativeWh ?? 0) - targetWh);
+              for (let i = 1; i < points.length; i++) {
+                const delta = Math.abs((points[i].cumulativeWh ?? 0) - targetWh);
+                if (delta < bestDelta) {
+                  bestDelta = delta;
+                  bestIdx = i;
+                }
+              }
+              const newOffset = points[bestIdx].offsetSeconds;
+              if (existingMatch) {
+                existingMatch.curveOffsetSeconds = newOffset;
+              }
+              // Persist to DB below in the same update.
+              this.pendingCurveOffsetForOverride = newOffset;
+            }
+          }
+        } catch (err) {
+          console.error('[override] curveOffsetSeconds recompute failed:', err instanceof Error ? err.message : err);
+        }
+      }
+
       const oldBaseline = this.socBaselineEnergy.get(targetPlugId);
       const sessionStart = this.sessionStartEnergy.get(targetPlugId);
       const totalConsumed = this.sessionWh.get(targetPlugId) ?? 0;
@@ -371,13 +424,21 @@ export class ChargeMonitor {
         this.socBaselineEnergy.set(targetPlugId, sessionStart + totalConsumed);
       }
 
+      const updatePayload: Record<string, unknown> = {
+        estimatedSoc: opts.estimatedSoc,
+        socMin: opts.estimatedSoc,
+        socMax: opts.estimatedSoc,
+        bandConfidence: 1,
+      };
+      if (this.pendingCurveOffsetForOverride !== null) {
+        updatePayload.curveOffsetSeconds = this.pendingCurveOffsetForOverride;
+        console.log(
+          `[override] plug=${targetPlugId} soc=${opts.estimatedSoc} → curveOffsetSeconds=${this.pendingCurveOffsetForOverride}`
+        );
+        this.pendingCurveOffsetForOverride = null;
+      }
       db.update(chargeSessions)
-        .set({
-          estimatedSoc: opts.estimatedSoc,
-          socMin: opts.estimatedSoc,
-          socMax: opts.estimatedSoc,
-          bandConfidence: 1,
-        })
+        .set(updatePayload)
         .where(eq(chargeSessions.id, sessionId))
         .run();
     }
