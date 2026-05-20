@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { db } from '@/db/client';
 import { plugs, powerReadings } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
-import { PlugDetailChart } from './plug-detail-chart';
+import { ChargeSessionChart } from '@/components/charts/charge-session-chart';
 import { PlugChargeBanner } from './plug-charge-banner';
 
 export const dynamic = 'force-dynamic';
@@ -102,10 +102,9 @@ export default async function PlugDetailPage({
         </div>
       </div>
 
-      {/* Chart section with reference curve overlay support */}
-      <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-6">
-        <PlugDetailChart plugId={id} enableReferenceCurve />
-      </div>
+      {/* Session-relative live charge chart with reference overlay.
+          Empty state when no charge is active; full overlay during session. */}
+      <ChargeSessionChart plugId={id} />
     </div>
   );
 }
