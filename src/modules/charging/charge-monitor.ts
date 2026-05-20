@@ -371,16 +371,23 @@ export class ChargeMonitor {
       }
 
       // v1.7-F: recompute curveOffsetSeconds from the user-supplied SoC.
-      // Without this, a user who reports soc=32 mid-Bosch-charge leaves
-      // curveOffsetSeconds at whatever the matcher (or pin-bypass) had —
-      // often 0 — and the visualization places "live x=0" at the very
-      // beginning of the reference curve when it should align at the
-      // offset where cumulativeWh reaches the user's target SoC. Compute
-      // the offset by inverting the curve's cumulativeWh function:
-      // find the point whose cumulativeWh first crosses
-      // totalEnergyWh × soc/100, persist + propagate.
+      // Only on the FIRST anchor per session (sessionWh < 5 Wh OR existing
+      // offset is the pin-bypass default 0). Subsequent overrides are
+      // mid-session corrections — the session's JOIN POINT on the reference
+      // hasn't moved, so curveOffsetSeconds must stay where it was set at
+      // session start. Without this guard, re-anchoring at soc=45 after
+      // charging from soc=32 would overwrite the legitimate 3810 s offset
+      // with 6581 s, mis-aligning the entire live trajectory.
       const profileIdForOffset = existingMatch?.profileId ?? opts.profileId;
-      if (profileIdForOffset != null) {
+      const sessionWhSoFar = this.sessionWh.get(targetPlugId) ?? 0;
+      const existingOffsetIsDefault =
+        existingMatch == null ||
+        existingMatch.curveOffsetSeconds == null ||
+        existingMatch.curveOffsetSeconds === 0;
+      const shouldRecomputeOffset =
+        profileIdForOffset != null &&
+        (sessionWhSoFar < 5 || existingOffsetIsDefault);
+      if (shouldRecomputeOffset) {
         try {
           const curve = db.select().from(referenceCurves)
             .where(eq(referenceCurves.profileId, profileIdForOffset)).get();
