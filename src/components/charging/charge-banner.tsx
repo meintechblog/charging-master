@@ -534,12 +534,9 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
             {session.socMin != null && session.socMax != null &&
               session.socMax - session.socMin > 1 && (
                 <span className="text-xs text-neutral-500 ml-1">
-                  ± Band {session.socMin}–{session.socMax}
+                  ({session.socMin}–{session.socMax} %)
                 </span>
               )}
-            <span className="ml-auto text-xs text-neutral-500">
-              Ziel {session.targetSoc ?? '--'} %
-            </span>
           </div>
           {/* Full 0–100 % SoC bar with uncertainty band, current best, and
               target marker. Replaces the old fill-to-target progress + the

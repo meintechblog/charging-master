@@ -1,15 +1,21 @@
 /**
- * SoC confidence bar — graphical replacement for the ASCII SocBandIndicator.
+ * SoC confidence bar — battery-style fill with uncertainty band.
  *
- * Renders a full 0–100 % horizontal scale with three overlaid layers:
- *   1. Background scale (0–100), with subtle tick marks at 0/25/50/75/100.
- *   2. Uncertainty band [socMin .. socMax] as a translucent fill — the
- *      "where the matcher thinks the device is" range.
- *   3. Bright dot at socBest (the matcher's point estimate).
- *   4. Amber inverted-V notch at targetSoc.
+ * The bar reads like a battery icon: SOLID fill = "definitely at least this
+ * full" (= socMin), translucent fill = "probably up to here" (= socMax). The
+ * gap between them is the matcher's honest uncertainty. With a clean
+ * user-override anchor (socMin == socMax) the bar collapses to a single
+ * solid fill — what the user sees matches the precision they have.
  *
- * Pure presentational component — no streams, no fetches. Caller passes the
- * already-resolved {socMin, socMax, socBest, targetSoc}.
+ * Layered over the fill:
+ *   - Vertical amber line at targetSoc with a "Ziel" label — matches the
+ *     amber Ziel-line on the ChargeSessionChart below for visual parity.
+ *   - Scale labels at 0 / 50 / 100 underneath.
+ *
+ * Pure presentational — caller passes resolved {socMin, socMax, socBest,
+ * targetSoc}. socBest is currently unused for rendering (kept in props
+ * because semantically it's the point estimate; future versions may surface
+ * it as a tick mark inside the band).
  */
 
 type SocConfidenceBarProps = {
@@ -17,8 +23,8 @@ type SocConfidenceBarProps = {
   socMin: number;
   socMax: number;
   targetSoc: number;
-  /** Tailwind bg-* class for the bright "current SoC" dot (matches the
-      banner's blue/amber accent). */
+  /** Tailwind bg-* class for the solid fill (e.g. "bg-blue-500" during
+      charging, "bg-amber-400" during countdown). */
   fillClass: string;
 };
 
@@ -28,35 +34,30 @@ function clamp01(v: number): number {
 }
 
 export function SocConfidenceBar({
-  socBest,
   socMin,
   socMax,
   targetSoc,
   fillClass,
 }: SocConfidenceBarProps) {
-  const best = clamp01(socBest);
   const lo = clamp01(Math.min(socMin, socMax));
   const hi = clamp01(Math.max(socMin, socMax));
   const target = clamp01(targetSoc);
   const bandWidth = Math.max(0, hi - lo);
-  const hasBand = bandWidth > 1; // ≤1 pp → degenerate; hide.
+  const hasBand = bandWidth > 1;
 
   return (
     <div className="relative">
-      {/* Track */}
+      {/* Battery-style track */}
       <div className="relative h-3 bg-neutral-800 rounded-full overflow-hidden">
-        {/* Tick marks at 25/50/75 % */}
-        {[25, 50, 75].map((t) => (
-          <div
-            key={t}
-            className="absolute top-0 bottom-0 w-px bg-neutral-700/60"
-            style={{ left: `${t}%` }}
-          />
-        ))}
-        {/* Uncertainty band (where the matcher thinks the device is) */}
+        {/* Solid "definitely at least" fill — extends to socMin */}
+        <div
+          className={`absolute inset-y-0 left-0 ${fillClass} transition-[width] duration-1000 ease-linear`}
+          style={{ width: `${lo}%` }}
+        />
+        {/* Translucent "could be up to" fill — only when band > 1 pp */}
         {hasBand && (
           <div
-            className={`absolute top-0 bottom-0 ${fillClass} opacity-25`}
+            className={`absolute inset-y-0 ${fillClass} opacity-35 transition-[left,width] duration-1000 ease-linear`}
             style={{
               left: `${lo}%`,
               width: `${bandWidth}%`,
@@ -64,29 +65,25 @@ export function SocConfidenceBar({
             title={`Wahrscheinlich ${Math.round(lo)} – ${Math.round(hi)} %`}
           />
         )}
-        {/* Bright dot at best estimate */}
+        {/* Vertical target line — clear amber divider at the stop-point */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 ${fillClass} rounded-full shadow-md ring-1 ring-neutral-900 transition-[left] duration-1000 ease-linear`}
-          style={{ left: `${best}%` }}
-          title={`Aktuell ${Math.round(best)} %`}
+          className="absolute top-0 bottom-0 w-0.5 bg-amber-400 pointer-events-none"
+          style={{ left: `${target}%` }}
+          title={`Ziel ${Math.round(target)} %`}
         />
       </div>
-      {/* Target marker — amber inverted V notch ABOVE the bar (matches the
-          chart's amber Ziel line for visual consistency). */}
-      <div
-        className="absolute -top-1.5 -translate-x-1/2 pointer-events-none"
-        style={{ left: `${target}%` }}
-        title={`Ziel ${Math.round(target)} %`}
-      >
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
-          <path d="M5 6 L0 0 L10 0 Z" fill="#f59e0b" />
-        </svg>
-      </div>
-      {/* Scale labels (0 / 50 / 100) — tiny, subtle */}
-      <div className="flex justify-between mt-1 text-[10px] text-neutral-600 tabular-nums">
-        <span>0</span>
-        <span>50</span>
-        <span>100</span>
+
+      {/* Scale labels underneath: 0, target, 100. The target label sits
+          exactly under the amber line and self-positions via transform. */}
+      <div className="relative mt-1 h-3 text-[10px] tabular-nums">
+        <span className="absolute left-0 text-neutral-600">0</span>
+        <span
+          className="absolute -translate-x-1/2 text-amber-400 font-medium"
+          style={{ left: `${target}%` }}
+        >
+          Ziel {Math.round(target)}
+        </span>
+        <span className="absolute right-0 text-neutral-600">100</span>
       </div>
     </div>
   );
