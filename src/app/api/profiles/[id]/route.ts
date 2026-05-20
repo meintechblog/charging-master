@@ -1,8 +1,22 @@
 import { db } from '@/db/client';
 import { deviceProfiles, referenceCurves, socBoundaries, priceHistory, chargeSessions, chargers } from '@/db/schema';
 import { eq, desc, and, sql } from 'drizzle-orm';
+import { scheduleCatalogSync } from '@/modules/catalog';
 
 export const runtime = 'nodejs';
+
+const CATALOG_RELEVANT_FIELDS = new Set([
+  'name', 'modelName', 'manufacturer', 'articleNumber', 'gtin',
+  'capacityWh', 'weightGrams', 'productUrl', 'documentUrl',
+  'chemistry', 'cellDesignation', 'cellConfiguration',
+  'nominalVoltageV', 'nominalCapacityMah',
+  'maxChargeCurrentA', 'maxChargeVoltageV',
+  'chargeTempMinC', 'chargeTempMaxC', 'dischargeTempMinC', 'dischargeTempMaxC',
+  'serialNumber', 'productionDate', 'countryOfOrigin', 'certifications',
+  'batteryFormFactor', 'replaceable',
+  'endOfLifeCapacityPct', 'warrantyUntil', 'warrantyCycles',
+  'chargerModel', 'chargerEfficiency', 'chargerId', 'targetSoc',
+]);
 
 /**
  * GET /api/profiles/[id] -- Fetch single profile with curve metadata and SOC boundaries.
@@ -267,6 +281,13 @@ export async function PUT(
 
   const updated = db.select().from(deviceProfiles)
     .where(eq(deviceProfiles.id, profileId)).get();
+
+  // Sync to catalog only when a catalog-visible field changed. Skips churn
+  // from price-only or estimated-cycles edits.
+  const touchedCatalogField = Object.keys(updates).some((k) => CATALOG_RELEVANT_FIELDS.has(k));
+  if (touchedCatalogField) {
+    scheduleCatalogSync(profileId, 'profile-edit');
+  }
 
   // Include price history
   const prices = db.select().from(priceHistory)

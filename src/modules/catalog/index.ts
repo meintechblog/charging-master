@@ -20,3 +20,11 @@ export { findMatches, resamplePower } from './match';
 export { importProfile, importChargerOnly } from './import';
 export { buildPublishBundle, rebuildIndex, type PublishBundle, type PublishArtifact, type ValidationIssue } from './publish';
 export { publishToGitHub, isGitHubPublishConfigured, type GitHubPushResult } from './github-publish';
+export {
+  scheduleCatalogSync,
+  runSyncOnce,
+  isAutoSyncEnabled,
+  getRecentSyncLog,
+  getLastSuccessfulSync,
+  AUTO_SYNC_KEY,
+} from './auto-sync';

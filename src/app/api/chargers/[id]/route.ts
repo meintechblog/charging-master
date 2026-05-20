@@ -1,6 +1,7 @@
 import { db } from '@/db/client';
 import { chargers, deviceProfiles } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import { scheduleCatalogSync } from '@/modules/catalog';
 
 export const runtime = 'nodejs';
 
@@ -74,6 +75,17 @@ export async function PUT(
 
   db.update(chargers).set(updates).where(eq(chargers.id, chargerId)).run();
   const updated = db.select().from(chargers).where(eq(chargers.id, chargerId)).get();
+
+  // Catalog profiles embed the resolved charger metadata; refresh every
+  // profile that points at this charger.
+  const affectedProfiles = db.select({ id: deviceProfiles.id })
+    .from(deviceProfiles)
+    .where(eq(deviceProfiles.chargerId, chargerId))
+    .all();
+  for (const p of affectedProfiles) {
+    scheduleCatalogSync(p.id, 'charger-edit');
+  }
+
   return Response.json({ charger: updated });
 }
 

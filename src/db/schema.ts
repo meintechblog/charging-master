@@ -274,3 +274,24 @@ export const updateRuns = sqliteTable('update_runs', {
 
 export type UpdateRunRow = typeof updateRuns.$inferSelect;
 export type NewUpdateRunRow = typeof updateRuns.$inferInsert;
+
+// --- Phase 8: Catalog auto-sync audit log ---
+// One row per catalog-sync attempt (auto-triggered or manual). Surfaced in
+// Settings as "letzte Synchronisation" + recent errors widget. Bounded growth
+// by trimming to last 200 rows on insert.
+export const catalogSyncLog = sqliteTable('catalog_sync_log', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  profileId: integer('profile_id'),                       // local device_profiles.id; null = global rebuild
+  catalogProfileId: text('catalog_profile_id'),           // 16-char catalog id, once known
+  reason: text('reason').notNull(),                       // 'photo-upload' | 'profile-patch' | 'curve-save' | 'photo-primary' | 'manual' | 'backfill'
+  status: text('status', {
+    enum: ['success', 'error', 'skipped'] as const,
+  }).notNull(),
+  commitSha: text('commit_sha'),
+  filesCommitted: integer('files_committed'),
+  errorMessage: text('error_message'),
+  createdAt: integer('created_at').notNull(),
+});
+
+export type CatalogSyncLogRow = typeof catalogSyncLog.$inferSelect;
+export type NewCatalogSyncLogRow = typeof catalogSyncLog.$inferInsert;

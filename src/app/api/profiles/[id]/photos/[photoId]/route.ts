@@ -3,6 +3,7 @@ import { profilePhotos } from '@/db/schema';
 import { eq, and, ne } from 'drizzle-orm';
 import { unlinkSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { scheduleCatalogSync } from '@/modules/catalog';
 
 export const runtime = 'nodejs';
 
@@ -58,6 +59,13 @@ export async function PATCH(
 
   db.update(profilePhotos).set(updates).where(eq(profilePhotos.id, ids.photoId)).run();
   const updated = db.select().from(profilePhotos).where(eq(profilePhotos.id, ids.photoId)).get();
+
+  if (updates.isPrimary === true) {
+    // Catalog uses the primary photo as THE photo, so an isPrimary swap
+    // changes catalog content. Caption-only edits don't propagate.
+    scheduleCatalogSync(ids.profileId, 'photo-primary');
+  }
+
   return Response.json({ photo: updated });
 }
 
@@ -83,6 +91,7 @@ export async function DELETE(
   db.delete(profilePhotos).where(eq(profilePhotos.id, ids.photoId)).run();
 
   // If we deleted the primary, promote the next-oldest survivor (if any).
+  let primaryChanged = false;
   if (photo.isPrimary) {
     const successor = db.select()
       .from(profilePhotos)
@@ -93,8 +102,15 @@ export async function DELETE(
         .set({ isPrimary: true })
         .where(eq(profilePhotos.id, successor.id))
         .run();
+      primaryChanged = true;
+    } else {
+      // Profile is now photo-less — catalog should be re-published so
+      // hasPhoto reflects reality.
+      primaryChanged = true;
     }
   }
+
+  if (primaryChanged) scheduleCatalogSync(ids.profileId, 'photo-delete');
 
   return Response.json({ ok: true });
 }

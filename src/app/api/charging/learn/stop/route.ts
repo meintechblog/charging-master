@@ -13,6 +13,7 @@ import {
 import { eq, and, gte, lte, inArray, asc } from 'drizzle-orm';
 import { computeSocBoundaries } from '@/modules/charging/soc-estimator';
 import { switchRelayOff } from '@/modules/charging/relay-controller';
+import { scheduleCatalogSync } from '@/modules/catalog';
 
 /**
  * Best-effort: turn the Shelly plug off when a learning session ends.
@@ -271,6 +272,10 @@ export async function POST(request: Request) {
   // 11. Turn the plug off — auto-complete may already have done this, but
   // if the user saved before idle detection kicked in, the relay is still on.
   await turnPlugOff(plugId);
+
+  // 12. New curve = new catalog identity (curve hash is the catalog id).
+  // Schedule a sync so the catalog gets the new entry within DEBOUNCE_MS.
+  scheduleCatalogSync(profileId, 'curve-save');
 
   return Response.json({
     ok: true,

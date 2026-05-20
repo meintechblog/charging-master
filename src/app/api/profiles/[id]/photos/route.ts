@@ -3,6 +3,7 @@ import { deviceProfiles, profilePhotos } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { scheduleCatalogSync } from '@/modules/catalog';
 
 export const runtime = 'nodejs';
 
@@ -95,6 +96,8 @@ export async function POST(
   writeFileSync(join(dir, fileName), buf);
 
   db.update(profilePhotos).set({ fileName }).where(eq(profilePhotos.id, inserted.id)).run();
+
+  scheduleCatalogSync(profileId, 'photo-upload');
 
   const saved = db.select().from(profilePhotos).where(eq(profilePhotos.id, inserted.id)).get();
   return Response.json({ photo: saved }, { status: 201 });
