@@ -132,8 +132,38 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   // 'none' event flicker) + ack flag keyed on sessionId.
   const [firedSnapshot, setFiredSnapshot] = useState<FiredSnapshot | null>(null);
   const [ackedSessionId, setAckedSessionId] = useState<number | null>(null);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const dismissedUnknownRef = useRef(false);
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch the primary photo when the matched profile changes. Falls back to
+  // the first available photo if none are flagged as primary.
+  useEffect(() => {
+    const pid = session?.profileId;
+    if (pid == null) {
+      setProfilePhotoUrl(null);
+      return;
+    }
+    let aborted = false;
+    fetch(`/api/profiles/${pid}/photos`)
+      .then((r) => r.json())
+      .then((data: { photos?: Array<{ id: number; isPrimary: boolean }> }) => {
+        if (aborted) return;
+        const photos = data.photos ?? [];
+        if (photos.length === 0) {
+          setProfilePhotoUrl(null);
+          return;
+        }
+        const primary = photos.find((p) => p.isPrimary) ?? photos[0];
+        setProfilePhotoUrl(`/api/profiles/${pid}/photos/${primary.id}/file`);
+      })
+      .catch(() => {
+        if (!aborted) setProfilePhotoUrl(null);
+      });
+    return () => {
+      aborted = true;
+    };
+  }, [session?.profileId]);
 
   // Fetch profiles for override dropdown
   useEffect(() => {
@@ -504,16 +534,30 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
         </button>
       </div>
 
-      {/* Row 2: profile name + optional confidence subtitle */}
-      <div className="mt-1 mb-4">
-        <div className="text-base font-semibold text-neutral-100">
-          {session.profileName ?? 'Unbekannt'}
-        </div>
-        {session.confidence != null && session.confidence > 0 && session.confidence < 1 && (
-          <div className="text-[11px] text-neutral-500 mt-0.5">
-            {Math.round(session.confidence * 100)} % Konfidenz
-          </div>
+      {/* Row 2: device photo (if any) + profile name + optional confidence
+          subtitle. Photo is a 96 px wide thumbnail with object-contain so
+          horizontal battery cells stay full-frame; falls back to text-only
+          when no photo is attached to the profile. */}
+      <div className="mt-1 mb-4 flex items-center gap-3">
+        {profilePhotoUrl != null && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={profilePhotoUrl}
+            alt={session.profileName ?? 'Profilfoto'}
+            className="w-24 h-12 object-contain rounded-md bg-neutral-800/60 ring-1 ring-neutral-800 shrink-0"
+            loading="lazy"
+          />
         )}
+        <div className="min-w-0">
+          <div className="text-base font-semibold text-neutral-100 truncate">
+            {session.profileName ?? 'Unbekannt'}
+          </div>
+          {session.confidence != null && session.confidence > 0 && session.confidence < 1 && (
+            <div className="text-[11px] text-neutral-500 mt-0.5">
+              {Math.round(session.confidence * 100)} % Match-Konfidenz
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Row 3: big SOC number + progress bar + target marker */}
