@@ -547,6 +547,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
             socMax={session.socMax ?? session.estimatedSoc ?? 0}
             targetSoc={session.targetSoc ?? 80}
             fillClass={fill}
+            bandConfidence={session.socBandConfidence}
           />
         </div>
       )}

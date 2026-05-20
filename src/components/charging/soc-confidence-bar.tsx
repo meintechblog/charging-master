@@ -26,6 +26,10 @@ type SocConfidenceBarProps = {
   /** Tailwind bg-* class for the solid fill (e.g. "bg-blue-500" during
       charging, "bg-amber-400" during countdown). */
   fillClass: string;
+  /** 0..1 — the matcher's overall confidence. Distinct from band width
+      (which is the spread of plausible SoC values). Override sets it to
+      exactly 1; normal DTW matches range ~0.5–0.95. */
+  bandConfidence?: number;
 };
 
 function clamp01(v: number): number {
@@ -38,12 +42,27 @@ export function SocConfidenceBar({
   socMax,
   targetSoc,
   fillClass,
+  bandConfidence,
 }: SocConfidenceBarProps) {
   const lo = clamp01(Math.min(socMin, socMax));
   const hi = clamp01(Math.max(socMin, socMax));
   const target = clamp01(targetSoc);
   const bandWidth = Math.max(0, hi - lo);
   const hasBand = bandWidth > 1;
+
+  // Confidence is meaningful when present + < 1. Override sets it to exactly
+  // 1 (ground truth), and the user doesn't need a "100 % confidence" badge.
+  const confidencePct =
+    bandConfidence != null && Number.isFinite(bandConfidence) && bandConfidence < 0.999
+      ? Math.round(bandConfidence * 100)
+      : null;
+  // Pick a tint for the confidence indicator. ≥80 % green-ish, 50-79 %
+  // neutral/amber, <50 % red — mirrors the Pushover anomaly-band convention.
+  let confColor = 'text-emerald-400';
+  if (confidencePct != null) {
+    if (confidencePct < 50) confColor = 'text-red-400';
+    else if (confidencePct < 80) confColor = 'text-amber-400';
+  }
 
   return (
     <div className="relative">
@@ -74,16 +93,25 @@ export function SocConfidenceBar({
         />
       </div>
 
-      {/* Only the target label under the bar — 0/100 are implicit (a
-          horizontal fill bar reads as 0→full). Keeps the label from
-          colliding with the right edge when target sits at 80 %+. */}
-      <div className="relative mt-1 h-3 text-[10px] tabular-nums">
+      {/* Bottom row: target label (left), confidence chip (right). The
+          target label centers under the amber vertical line via transform;
+          the confidence chip floats right and is hidden when the matcher
+          is at full ground-truth (override) confidence. */}
+      <div className="relative mt-1.5 h-4 text-[10px] tabular-nums">
         <span
           className="absolute -translate-x-1/2 text-amber-400 font-medium whitespace-nowrap"
           style={{ left: `${target}%` }}
         >
           Ziel {Math.round(target)} %
         </span>
+        {confidencePct != null && (
+          <span
+            className={`absolute right-0 ${confColor} font-medium`}
+            title="Konfidenz des Matchers in der aktuellen SoC-Schätzung"
+          >
+            {confidencePct} % Konfidenz
+          </span>
+        )}
       </div>
     </div>
   );
