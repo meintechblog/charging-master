@@ -7,6 +7,7 @@ import { NotificationService } from './src/modules/notifications/notification-se
 import { SessionRecorder } from './src/modules/charging/session-recorder';
 import { UpdateStateStore } from './src/modules/self-update/update-state-store';
 import { UpdateChecker } from './src/modules/self-update/update-checker';
+import { RetentionJanitor } from './src/modules/maintenance/retention-janitor';
 import { db } from './src/db/client';
 import { plugs } from './src/db/schema';
 import { env } from './src/lib/env';
@@ -79,6 +80,11 @@ async function main() {
   const sessionRecorder = new SessionRecorder(eventBus);
   sessionRecorder.start();
 
+  // Background DB hygiene — bounded prune of stale power_readings every 4 h
+  // plus a WAL truncate so the -wal file doesn't grow without bound.
+  const retentionJanitor = new RetentionJanitor();
+  retentionJanitor.start();
+
   // Expose globals for route handlers
   globalThis.__eventBus = eventBus;
   globalThis.__httpPollingService = httpPollingService;
@@ -106,20 +112,64 @@ async function main() {
     console.log(`Charging Master ready on http://${host}:${env.PORT}`);
   });
 
-  // Graceful shutdown
-  const shutdown = async () => {
-    console.log('Shutting down...');
-    notificationService.stop();
-    sessionRecorder.stop();
-    chargeMonitor.stop();
-    httpPollingService.stopAll();
-    server.close(() => {
+  // Graceful shutdown.
+  //
+  // The previous version waited on `server.close(callback)` which only fires
+  // once every keep-alive socket has drained. Long-lived SSE connections
+  // (/api/sse/power, /api/update/log) NEVER drain on their own, so the
+  // callback was never reached and systemd's TimeoutStopSec=5 SIGKILLed the
+  // process — leaving a `charging-master.db.corrupt` on 2026-03-26 as proof.
+  //
+  // New approach:
+  //  1. Stop accepting NEW connections immediately (server.close).
+  //  2. Stop all background services (polling, charge monitor, notifications,
+  //     session recorder, update checker) so they stop emitting events.
+  //  3. Close idle keep-alives (server.closeIdleConnections, Node 18.2+).
+  //  4. Hard cutoff after a 4 s grace: server.closeAllConnections() yanks
+  //     remaining SSE/keep-alive sockets so the process can exit. Combined
+  //     with systemd TimeoutStopSec=30 this still leaves 26 s of slack.
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Shutting down (signal=${signal})…`);
+
+    try { notificationService.stop(); } catch (err) { console.warn('[shutdown] notificationService.stop failed:', err); }
+    try { sessionRecorder.stop(); } catch (err) { console.warn('[shutdown] sessionRecorder.stop failed:', err); }
+    try { chargeMonitor.stop(); } catch (err) { console.warn('[shutdown] chargeMonitor.stop failed:', err); }
+    try { httpPollingService.stopAll(); } catch (err) { console.warn('[shutdown] httpPollingService.stopAll failed:', err); }
+    try { retentionJanitor.stop(); } catch { /* not critical */ }
+    try { updateChecker.stop?.(); } catch { /* not critical */ }
+
+    server.close((err) => {
+      if (err) console.warn('[shutdown] server.close error:', err.message);
+      console.log('[shutdown] HTTP server closed cleanly.');
       process.exit(0);
     });
+    if (typeof server.closeIdleConnections === 'function') {
+      server.closeIdleConnections();
+    }
+
+    // Force-close any still-active SSE / keep-alive sockets after 4 s so the
+    // close-callback above can finally fire and the process exits before
+    // systemd's TimeoutStopSec=30 hard-kills us.
+    const force = setTimeout(() => {
+      console.log('[shutdown] Force-closing active connections after 4 s grace.');
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+      // Last-resort safety net: if even closeAllConnections can't break the
+      // event loop, hard-exit after another 2 s.
+      setTimeout(() => {
+        console.warn('[shutdown] Event loop still alive after force-close — exiting.');
+        process.exit(0);
+      }, 2000).unref();
+    }, 4000);
+    force.unref();
   };
 
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch(console.error);

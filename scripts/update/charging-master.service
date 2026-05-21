@@ -1,0 +1,43 @@
+[Unit]
+Description=Charging-Master Web App
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/charging-master
+# tsx still in use because the custom server (server.ts) bundles
+# background services (HttpPollingService, ChargeMonitor, NotificationService,
+# SessionRecorder, UpdateChecker) into one process. Switching to a
+# pre-compiled bundle is on the W4 roadmap; in the meantime tsx with
+# --no-warnings keeps the journal clean.
+ExecStart=/usr/bin/npx tsx server.ts
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=80
+# Node-side budget for graceful shutdown to drain HTTP + SSE sockets before
+# we hand control back to systemd. Must be strictly less than TimeoutStopSec.
+Environment=NODE_OPTIONS=--no-deprecation
+
+# Logging — explicit even though these are defaults so the intent is clear.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=charging-master
+
+# Shutdown protocol:
+#  1. systemd sends SIGTERM (KillSignal).
+#  2. server.ts's shutdown() handler stops background services, closes idle
+#     keep-alives, then after a 4 s grace force-closes remaining SSE sockets.
+#  3. If after 30 s the process hasn't exited, systemd escalates to SIGKILL.
+#
+# Previous TimeoutStopSec=5 caused SIGKILL on every update — risking DB
+# corruption (charging-master.db.corrupt on 2026-03-26 is the receipt).
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

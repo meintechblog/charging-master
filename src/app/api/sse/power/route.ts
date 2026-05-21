@@ -1,3 +1,22 @@
+// src/app/api/sse/power/route.ts
+// Multi-channel live stream for the dashboard: power readings + plug online
+// state + charge state events. Single SSE connection serves all three feeds
+// to keep the per-tab fd count down.
+//
+// Load-bearing details (mirrors the pattern proven in
+// /api/update/log/route.ts):
+//   1. 10 s SSE heartbeat as a comment frame (`: …`) — without this, idle
+//      tabs lose the TCP connection silently and the UI shows stale data
+//      until the user reloads, which is the classic "hängt beim Laden"
+//      perception.
+//   2. cleanup() is called from BOTH `request.signal.abort` AND the
+//      ReadableStream `cancel()` callback. Either alone leaves dangling
+//      EventBus listeners that pile up on tab switches (memory leak in the
+//      server process, eventually mistuned event delivery).
+//   3. enqueue() throws if the controller has been closed by the time a
+//      late event fires — wrapped in safeEnqueue() so a stale callback can
+//      never crash the request.
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -15,13 +34,55 @@ const ACTIVE_REPLAY_STATES: ChargeState[] = [
   'learning',
 ];
 
+const SSE_HEADERS = {
+  'Content-Type': 'text/event-stream; charset=utf-8',
+  'Cache-Control': 'no-cache, no-transform',
+  Connection: 'keep-alive',
+  'X-Accel-Buffering': 'no',
+} as const;
+
 export async function GET(request: Request) {
   const eventBus = globalThis.__eventBus;
-
   const encoder = new TextEncoder();
+
+  // Listener refs captured in closure so cleanup() can detach them. Set in
+  // start(), read in cleanup(). Initialised to null so the empty-bus case
+  // (eventBus undefined during a hot-reload race) doesn't NPE in cleanup.
+  let powerHandler: ((reading: PowerReading) => void) | null = null;
+  let onlineHandler: ((event: PlugOnlineEvent) => void) | null = null;
+  let chargeHandler: ((event: ChargeStateEvent) => void) | null = null;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let cleanedUp = false;
+
+  const cleanup = (): void => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (heartbeatTimer !== null) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (eventBus) {
+      if (powerHandler) eventBus.off('power:*', powerHandler);
+      if (onlineHandler) eventBus.off('online:*', onlineHandler);
+      if (chargeHandler) eventBus.off('charge:*', chargeHandler);
+    }
+    powerHandler = null;
+    onlineHandler = null;
+    chargeHandler = null;
+  };
+
+  request.signal.addEventListener('abort', cleanup);
 
   const stream = new ReadableStream({
     start(controller) {
+      const safeEnqueue = (data: Uint8Array): void => {
+        try {
+          controller.enqueue(data);
+        } catch {
+          /* stream closed */
+        }
+      };
+
       // Replay current charge-state for any active session so clients that
       // connect mid-session (page reload, tab open) see the current state
       // immediately. Without this, charge events only fire on state
@@ -40,8 +101,8 @@ export async function GET(request: Request) {
             estimatedSoc: chargeSessions.estimatedSoc,
             detectionConfidence: chargeSessions.detectionConfidence,
             startedAt: chargeSessions.startedAt,
-            // Phase 11: hydrate the SOC confidence band on mid-session reconnect
-            // so the dashboard's CSS-driven band paints immediately instead of
+            // Hydrate the SOC confidence band on mid-session reconnect so
+            // the dashboard's CSS-driven band paints immediately instead of
             // waiting for the next live charge event.
             socMin: chargeSessions.socMin,
             socMax: chargeSessions.socMax,
@@ -66,20 +127,8 @@ export async function GET(request: Request) {
             socMin: row.socMin ?? undefined,
             socMax: row.socMax ?? undefined,
             socBandConfidence: row.bandConfidence ?? undefined,
-            // socAsciiBar is intentionally undefined here — the next live event
-            // from ChargeMonitor's captureEventContext will populate it. The
-            // dashboard's SocBandIndicator renders the CSS band from min/max/best
-            // without needing the ASCII string.
-            //
-            // Phase 12 FPD-01 watchdog fields (watchdogKind, stalePowerSeconds,
-            // stalePowerFiresAt) are intentionally omitted from this snapshot:
-            // the counter is ephemeral (reading-based, NOT persisted to DB) and
-            // the post-restart 5-min re-arm is accepted per RESEARCH Pitfall 7.
-            // Live events emitted by ChargeMonitor.emitChargeEvent JSON-stringify
-            // the full ChargeStateEvent — the three watchdog fields flow through
-            // the live chargeHandler path below without any explicit copy.
           };
-          controller.enqueue(
+          safeEnqueue(
             encoder.encode(`event: charge\ndata: ${JSON.stringify(snapshot)}\n\n`)
           );
         }
@@ -87,59 +136,41 @@ export async function GET(request: Request) {
         // Snapshot is best-effort — never break the live stream
       }
 
-      const powerHandler = (reading: PowerReading) => {
-        try {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(reading)}\n\n`)
-          );
-        } catch {
-          // Controller closed, ignore
-        }
-      };
+      if (!eventBus) {
+        // Server hasn't finished booting (very early request) — emit one
+        // synthetic heartbeat so the client EventSource sees the connection
+        // as healthy, then keep ticking.
+        safeEnqueue(encoder.encode(`: bus-not-ready ${Date.now()}\n\n`));
+      } else {
+        powerHandler = (reading: PowerReading) => {
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify(reading)}\n\n`));
+        };
+        onlineHandler = (event: PlugOnlineEvent) => {
+          safeEnqueue(encoder.encode(`event: online\ndata: ${JSON.stringify(event)}\n\n`));
+        };
+        chargeHandler = (event: ChargeStateEvent) => {
+          safeEnqueue(encoder.encode(`event: charge\ndata: ${JSON.stringify(event)}\n\n`));
+        };
+        eventBus.on('power:*', powerHandler);
+        eventBus.on('online:*', onlineHandler);
+        eventBus.on('charge:*', chargeHandler);
+      }
 
-      const onlineHandler = (event: PlugOnlineEvent) => {
-        try {
-          controller.enqueue(
-            encoder.encode(`event: online\ndata: ${JSON.stringify(event)}\n\n`)
-          );
-        } catch {
-          // Controller closed, ignore
-        }
-      };
-
-      const chargeHandler = (event: ChargeStateEvent) => {
-        try {
-          controller.enqueue(
-            encoder.encode(`event: charge\ndata: ${JSON.stringify(event)}\n\n`)
-          );
-        } catch {
-          // Controller closed, ignore
-        }
-      };
-
-      eventBus.on('power:*', powerHandler);
-      eventBus.on('online:*', onlineHandler);
-      eventBus.on('charge:*', chargeHandler);
-
-      request.signal.addEventListener('abort', () => {
-        try {
-          eventBus.off('power:*', powerHandler);
-          eventBus.off('online:*', onlineHandler);
-          eventBus.off('charge:*', chargeHandler);
-          controller.close();
-        } catch {
-          // Already closed, ignore
-        }
-      });
+      // 10s heartbeat as SSE comment — invisible to the client's
+      // onmessage handler but keeps any intermediate proxy (and the
+      // browser's own TCP layer) from idle-timeout closing the stream.
+      heartbeatTimer = setInterval(() => {
+        safeEnqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`));
+      }, 10_000);
+    },
+    cancel() {
+      // Called when the client disconnects (tab closed) OR when the Response
+      // is garbage-collected. cleanup() is idempotent — request.signal.abort
+      // may also fire first, but browsers and Node versions differ on which
+      // hook is reached. Belt and braces.
+      cleanup();
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }

@@ -117,9 +117,16 @@ do_install() {
   apt-get install -y -qq avahi-daemon > /dev/null 2>&1
   systemctl enable --now avahi-daemon 2>/dev/null || true
 
-  # 9. Systemd service
-  log "Creating systemd service..."
-  cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<'UNIT'
+  # 9. Systemd service — canonical unit ships with the repo so install + self-
+  # update stay in lockstep. Fallback heredoc only used when the repo file is
+  # somehow missing (broken checkout).
+  log "Installing systemd service unit..."
+  if [ -f "${INSTALL_DIR}/scripts/update/charging-master.service" ]; then
+    cp "${INSTALL_DIR}/scripts/update/charging-master.service" \
+       "/etc/systemd/system/${SERVICE_NAME}.service"
+  else
+    warn "Canonical service unit not found — using fallback heredoc"
+    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<'UNIT'
 [Unit]
 Description=Charging-Master Web App
 After=network.target
@@ -133,11 +140,12 @@ RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=80
 KillMode=control-group
-TimeoutStopSec=5
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
 UNIT
+  fi
 
   # 9a. Updater systemd unit (Phase 9 — Type=oneshot sibling of the main service)
   log "Installing updater systemd unit..."
@@ -216,26 +224,11 @@ do_update() {
   log "Applying database schema..."
   pnpm db:push
 
-  log "Updating systemd service..."
-  cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<'UNIT'
-[Unit]
-Description=Charging-Master Web App
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/charging-master
-ExecStart=/usr/bin/npx tsx server.ts
-Restart=on-failure
-RestartSec=5
-Environment=NODE_ENV=production
-Environment=PORT=80
-KillMode=control-group
-TimeoutStopSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+  log "Refreshing systemd service unit from repo..."
+  if [ -f "${INSTALL_DIR}/scripts/update/charging-master.service" ]; then
+    cp "${INSTALL_DIR}/scripts/update/charging-master.service" \
+       "/etc/systemd/system/${SERVICE_NAME}.service"
+  fi
   systemctl daemon-reload
 
   log "Starting service..."

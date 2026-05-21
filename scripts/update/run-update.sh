@@ -581,6 +581,55 @@ do_build() {
     pnpm build || die "pnpm build failed"
 }
 
+do_refresh_units() {
+    CURRENT_STAGE="refresh_units"
+    db_update_stage "${CURRENT_STAGE}"
+
+    local repo_unit="${INSTALL_DIR}/scripts/update/charging-master.service"
+    local live_unit="/etc/systemd/system/charging-master.service"
+    local repo_updater_unit="${INSTALL_DIR}/scripts/update/charging-master-updater.service"
+    local live_updater_unit="/etc/systemd/system/charging-master-updater.service"
+    local changed=0
+
+    if [ -f "${repo_unit}" ]; then
+        if ! cmp -s "${repo_unit}" "${live_unit}" 2>/dev/null; then
+            log "refreshing ${live_unit} (differs from repo canonical)"
+            cp "${repo_unit}" "${live_unit}"
+            changed=1
+        fi
+    fi
+    if [ -f "${repo_updater_unit}" ]; then
+        if ! cmp -s "${repo_updater_unit}" "${live_updater_unit}" 2>/dev/null; then
+            log "refreshing ${live_updater_unit} (differs from repo canonical)"
+            cp "${repo_updater_unit}" "${live_updater_unit}"
+            changed=1
+        fi
+    fi
+    if [ "${changed}" = "1" ]; then
+        systemctl daemon-reload || log "systemctl daemon-reload failed (non-fatal)"
+        log "systemd unit files refreshed — new config applies on next start"
+    fi
+
+    # Idempotent cleanup of stale DB artefacts left by older install/update
+    # generations. Keeps /opt/charging-master/data slim and reduces the noise
+    # in any "ls data/" call.
+    cd "${INSTALL_DIR}/data" 2>/dev/null || return 0
+    rm -f charging-master.db.corrupt 2>/dev/null || true
+    # Empty placeholder created by an early misconfiguration on 2026-04-28.
+    if [ -f charging.db ] && [ ! -s charging.db ]; then
+        rm -f charging.db 2>/dev/null || true
+    fi
+    # Old .bak.* generation (pre-Phase-9 naming). Newer pre-migrate-* backups
+    # are pruned by do_backup_db's DB_BACKUP_RETAIN loop and stay untouched.
+    local stale_baks
+    stale_baks=$(ls -1 charging-master.db.bak.* 2>/dev/null | head -100 || true)
+    if [ -n "${stale_baks}" ]; then
+        log "removing $(echo "${stale_baks}" | wc -l | tr -d ' ') stale .bak.* backup(s)"
+        # shellcheck disable=SC2086
+        rm -f ${stale_baks} 2>/dev/null || true
+    fi
+}
+
 do_start() {
     CURRENT_STAGE="start"
     db_update_stage "${CURRENT_STAGE}"
@@ -794,6 +843,11 @@ main() {
     do_migrate
     do_clean_build
     do_build
+
+    # --- Refresh systemd units (idempotent — no-op when unchanged) ---
+    # Done after build (no failed builds → stale unit files) and before start
+    # so the new unit applies to THIS start. Cleans stale DB artefacts too.
+    do_refresh_units
 
     # --- Start + verify ---
     do_start
