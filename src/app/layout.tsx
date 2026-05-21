@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { AppShell } from '@/components/layout/app-shell';
+import { NavProgress } from '@/components/layout/nav-progress';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -15,6 +16,7 @@ export default async function RootLayout({
   return (
     <html lang="de" className="dark">
       <body className="bg-neutral-950 text-neutral-100 antialiased">
+        <NavProgress />
         <AppShell>{children}</AppShell>
       </body>
     </html>

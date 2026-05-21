@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
+import { makeLazyECharts } from '@/components/charts/lazy-echarts';
 
-const ReactECharts = dynamic(() => import('echarts-for-react'), { ssr: false });
+const LazyEChartsHealth = makeLazyECharts({ height: 220 });
 
 type Snapshot = {
   id: number;
@@ -121,7 +121,7 @@ export function BatteryHealthTrend({ profileId }: Props) {
       </div>
       {snapshots.length >= 2 && (
         <div className="rounded bg-neutral-950 p-2">
-          <ReactECharts option={option} style={{ height: 220 }} theme="dark" />
+          <LazyEChartsHealth option={option} style={{ height: 220 }} theme="dark" />
         </div>
       )}
     </div>

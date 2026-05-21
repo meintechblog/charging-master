@@ -1,13 +1,7 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
-import { ChartSkeleton } from './chart-skeleton';
-
-const ReactECharts = dynamic(() => import('echarts-for-react'), {
-  ssr: false,
-  loading: () => <ChartSkeleton height={40} width={120} />,
-});
+import { makeLazyECharts } from './lazy-echarts';
 
 type SparklineProps = {
   data: Array<[number, number]>;
@@ -46,9 +40,11 @@ function buildSparklineOption(data: Array<[number, number]>): EChartsOption {
   };
 }
 
+const LazyEChartsSparkline = makeLazyECharts({ height: 40, width: 120 });
+
 export function Sparkline({ data, width = 120, height = 40 }: SparklineProps) {
   return (
-    <ReactECharts
+    <LazyEChartsSparkline
       option={buildSparklineOption(data)}
       notMerge={true}
       style={{ width: `${width}px`, height: `${height}px` }}

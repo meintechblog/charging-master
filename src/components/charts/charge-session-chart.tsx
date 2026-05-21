@@ -33,17 +33,13 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
-import { ChartSkeleton } from './chart-skeleton';
+import { makeLazyECharts } from './lazy-echarts';
 import { usePowerStream } from '@/hooks/use-power-stream';
 import { useChargeStream } from '@/hooks/use-charge-stream';
 import type { ChargeStateEvent } from '@/modules/charging/types';
 
-const ReactECharts = dynamic(() => import('echarts-for-react'), {
-  ssr: false,
-  loading: () => <ChartSkeleton height={420} />,
-});
+const LazyEChartsSession = makeLazyECharts({ height: 420 });
 
 type ReferencePoint = {
   offsetSeconds: number;
@@ -458,7 +454,7 @@ export function ChargeSessionChart({ plugId, height = '420px' }: ChargeSessionCh
           Referenzkurven-Zeit · Live startet bei {formatElapsed(session.curveOffsetSeconds)}
         </div>
       </div>
-      <ReactECharts
+      <LazyEChartsSession
         option={chartOption}
         notMerge={false}
         lazyUpdate={true}
