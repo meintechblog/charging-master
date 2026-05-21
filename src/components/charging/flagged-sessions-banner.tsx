@@ -3,9 +3,8 @@
  * the post-cycle self-calibration scorer. Click-through to /history,
  * where each flagged row carries the per-session `flagReason` text.
  *
- * Intentionally minimal: a single yellow info strip, no expand/collapse,
- * no inline list. The banner exists to bring the user to the history
- * page where they can re-classify or accept the calibration verdict.
+ * Industrial instrument styling: amber rail on the left, mono index,
+ * eyebrow label, and a "→" hint that this is actionable.
  */
 
 import Link from 'next/link';
@@ -19,21 +18,49 @@ export function FlaggedSessionsBanner({ count }: Props) {
   return (
     <Link
       href="/history?filter=flagged"
-      className="block bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4 hover:bg-amber-500/20 transition-colors"
+      className="group relative block overflow-hidden mb-6 lift-hover"
+      style={{
+        background: 'var(--color-warn-soft)',
+        border: '1px solid color-mix(in srgb, var(--color-warn) 30%, transparent)',
+        borderRadius: 'var(--radius-lg)',
+      }}
     >
-      <div className="flex items-center gap-3">
-        <div className="text-amber-400 text-xl shrink-0" aria-hidden="true">⚠</div>
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{
+          background: 'var(--color-warn)',
+          boxShadow: '0 0 14px 0 var(--color-warn-soft)',
+        }}
+      />
+      <div className="relative flex items-center gap-4 pl-5 pr-5 py-4">
+        <div
+          className="font-mono text-[28px] font-medium leading-none tabular-nums"
+          style={{ color: 'var(--color-warn)' }}
+        >
+          {count.toString().padStart(2, '0')}
+        </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-amber-200">
-            {count === 1
-              ? '1 Ladevorgang braucht Prüfung'
-              : `${count} Ladevorgänge brauchen Prüfung`}
+          <div
+            className="font-mono text-[10px] uppercase tracking-[0.2em] mb-0.5"
+            style={{ color: 'var(--color-warn)' }}
+          >
+            Prüfung empfohlen
           </div>
-          <div className="text-xs text-amber-300/70">
-            Post-Cycle-Kalibrierung zeigt eine Diskrepanz zwischen der gelieferten
-            Energie und dem erkannten Profil. Tippen für Details.
+          <div className="text-[13px] leading-snug text-[color:var(--color-text-default)]">
+            {count === 1
+              ? '1 Ladevorgang braucht eine zweite Meinung'
+              : `${count} Ladevorgänge brauchen eine zweite Meinung`}
+            <span className="text-[color:var(--color-text-faint)]">
+              {' · '}Post-Cycle-Kalibrierung sieht eine Diskrepanz.
+            </span>
           </div>
         </div>
+        <span
+          className="font-mono text-[11px] uppercase tracking-[0.18em] transition-transform group-hover:translate-x-0.5 shrink-0"
+          style={{ color: 'var(--color-warn)' }}
+        >
+          Öffnen →
+        </span>
       </div>
     </Link>
   );

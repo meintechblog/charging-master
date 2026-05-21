@@ -1,6 +1,7 @@
 import { db } from '@/db/client';
 import { plugs, deviceProfiles } from '@/db/schema';
 import { DeviceManager } from './device-manager';
+import { PageHeader } from '@/components/layout/page-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,10 @@ export default async function DevicesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Geräte</h1>
+      <PageHeader
+        eyebrow={`Hardware · 02 · ${registeredPlugs.length.toString().padStart(2, '0')} aktiv`}
+        title="Geräte"
+      />
       <DeviceManager registeredPlugs={registeredPlugs} profileChoices={profileChoices} />
     </div>
   );

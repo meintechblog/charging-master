@@ -2,6 +2,7 @@ import { db } from '@/db/client';
 import { deviceProfiles, referenceCurves, profilePhotos } from '@/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import Link from 'next/link';
+import { PageHeader, PrimaryButton } from '@/components/layout/page-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,87 +41,121 @@ export default async function ProfilesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-neutral-100">Profile</h1>
-        <Link
-          href="/profiles/learn"
-          className="px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded hover:bg-blue-600 transition-colors"
-        >
-          Neues Profil
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow={`Daten · 03 · ${rows.length.toString().padStart(2, '0')} Profile`}
+        title="Profile"
+        action={
+          <PrimaryButton href="/profiles/learn">+ Neues Profil</PrimaryButton>
+        }
+      />
 
       {rows.length === 0 ? (
-        <div className="bg-neutral-900 rounded-lg p-8 text-center">
-          <p className="text-neutral-400">
-            Noch keine Profile angelegt. Starte mit dem Anlernen eines Geräts.
+        <div
+          className="relative overflow-hidden p-10 text-center"
+          style={{
+            background: 'var(--color-ink-2)',
+            border: '1px solid var(--color-line-soft)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div className="label-eyebrow mb-3">Sammlung leer</div>
+          <p className="text-[14px] text-[color:var(--color-text-soft)] mb-5">
+            Noch keine Profile angelegt. Lern ein Gerät an, damit die App seine Ladekurve verstehen kann.
           </p>
-          <Link
-            href="/profiles/learn"
-            className="inline-block mt-4 px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded hover:bg-blue-600 transition-colors"
-          >
-            Gerät anlernen
-          </Link>
+          <PrimaryButton href="/profiles/learn">Gerät anlernen →</PrimaryButton>
         </div>
       ) : (
-        <div className="bg-neutral-900 rounded-lg overflow-hidden">
+        <div
+          className="overflow-hidden"
+          style={{
+            background: 'var(--color-ink-2)',
+            border: '1px solid var(--color-line-soft)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
           <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px]">
-            <thead>
-              <tr className="border-b border-neutral-800">
-                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3 w-12" aria-label="Bild" />
-                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Name</th>
-                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Modell</th>
-                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Ziel-SOC</th>
-                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Referenzkurve</th>
-                <th className="text-left text-xs font-medium text-neutral-400 px-4 py-3">Erstellt</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-neutral-800 last:border-0 hover:bg-neutral-800/50 transition-colors">
-                  <td className="px-4 py-3 w-12">
-                    {row.primaryPhotoId != null ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={`/api/profiles/${row.id}/photos/${row.primaryPhotoId}/file`}
-                        alt=""
-                        className="w-9 h-9 rounded object-cover bg-neutral-950 border border-neutral-800"
-                      />
-                    ) : (
-                      <div
-                        className="w-9 h-9 rounded bg-neutral-800 border border-neutral-800 flex items-center justify-center text-xs text-neutral-500"
-                        aria-hidden
-                      >
-                        {row.name.slice(0, 1).toUpperCase()}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link href={`/profiles/${row.id}`} className="text-sm text-neutral-100 hover:text-blue-400 transition-colors">
-                      {row.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-neutral-400">
-                    {row.modelName || '--'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-neutral-400">
-                    {row.targetSoc}%
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {row.hasCurve ? (
-                      <span className="text-green-400">vorhanden</span>
-                    ) : (
-                      <span className="text-neutral-600">--</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-neutral-400">
-                    {new Date(row.createdAt).toLocaleDateString('de-DE')}
-                  </td>
+            <table className="w-full min-w-[640px]">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
+                  <th className="px-4 py-3 w-12" aria-label="Bild" />
+                  <th className="text-left label-eyebrow px-4 py-3">Name</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Modell</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Ziel-SoC</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Referenzkurve</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Erstellt</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr
+                    key={row.id}
+                    className="transition-colors hover:bg-[color:var(--color-ink-3)]"
+                    style={{
+                      borderTop: idx === 0 ? 'none' : '1px solid var(--color-line-faint)',
+                    }}
+                  >
+                    <td className="px-4 py-3 w-12">
+                      {row.primaryPhotoId != null ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={`/api/profiles/${row.id}/photos/${row.primaryPhotoId}/file`}
+                          alt=""
+                          className="w-9 h-9 object-cover"
+                          style={{
+                            background: 'var(--color-ink-1)',
+                            border: '1px solid var(--color-line-soft)',
+                            borderRadius: 'var(--radius-sm)',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="w-9 h-9 flex items-center justify-center text-[11px] font-mono uppercase"
+                          style={{
+                            background: 'var(--color-ink-1)',
+                            border: '1px solid var(--color-line-soft)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--color-text-faint)',
+                          }}
+                          aria-hidden
+                        >
+                          {row.name.slice(0, 1).toUpperCase()}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/profiles/${row.id}`}
+                        className="text-[14px] font-medium transition-colors hover:text-[color:var(--color-accent)]"
+                        style={{ color: 'var(--color-text-strong)' }}
+                      >
+                        {row.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-[13px] text-[color:var(--color-text-soft)]">
+                      {row.modelName || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] font-mono tabular-nums text-[color:var(--color-text-default)]">
+                      {row.targetSoc}%
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.hasCurve ? (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-[0.16em]" style={{ color: 'var(--color-ok)' }}>
+                          <span className="status-orb" style={{ color: 'var(--color-ok)' }} />
+                          aktiv
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-mono uppercase tracking-[0.16em] text-[color:var(--color-text-muted)]">
+                          fehlt
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] font-mono tabular-nums text-[color:var(--color-text-faint)]">
+                      {new Date(row.createdAt).toLocaleDateString('de-DE')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

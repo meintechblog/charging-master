@@ -28,84 +28,131 @@ export default async function PlugDetailPage({
     .get();
 
   const currentWatts =
-    latestReading != null ? latestReading.apower.toFixed(1) : '--';
+    latestReading != null ? latestReading.apower.toFixed(1) : '—';
   const relayOn = latestReading?.output ?? false;
   const totalEnergy =
     latestReading?.totalEnergy != null
       ? formatEnergy(latestReading.totalEnergy)
-      : '--';
+      : '—';
 
   return (
     <div className="space-y-6">
-      {/* Back link */}
+      {/* Breadcrumb — minimal, mono, with arrow */}
       <Link
         href="/"
-        className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-neutral-100 transition-colors"
+        className="group inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.18em] transition-colors"
+        style={{ color: 'var(--color-text-faint)' }}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        >
-          <path d="M10 12L6 8l4-4" />
-        </svg>
-        Dashboard
+        <span className="transition-transform group-hover:-translate-x-0.5">←</span>
+        <span className="group-hover:text-[color:var(--color-text-default)] transition-colors">
+          Dashboard
+        </span>
       </Link>
 
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-neutral-100">{plug.name}</h1>
-        <span
-          className={`w-2.5 h-2.5 rounded-full ${
-            plug.online ? 'bg-green-500' : 'bg-neutral-600'
-          }`}
-          title={plug.online ? 'Online' : 'Offline'}
-        />
-        {plug.ipAddress && (
-          <span className="text-xs text-neutral-500 font-mono">{plug.ipAddress}</span>
-        )}
-      </div>
+      {/* Header — eyebrow ID + big tracking-tight title + status rail */}
+      <header className="flex items-end justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="label-eyebrow mb-2">Gerät</div>
+          <h1
+            className="text-[32px] sm:text-[40px] font-semibold leading-none tracking-tight text-[color:var(--color-text-strong)] truncate"
+            style={{ letterSpacing: '-0.02em' }}
+          >
+            {plug.name}
+          </h1>
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="status-orb"
+                style={{ color: plug.online ? 'var(--color-ok)' : 'var(--color-danger)' }}
+              />
+              <span
+                className="font-mono text-[10px] uppercase tracking-[0.18em]"
+                style={{ color: plug.online ? 'var(--color-ok)' : 'var(--color-danger)' }}
+              >
+                {plug.online ? 'online' : 'offline'}
+              </span>
+            </div>
+            {plug.ipAddress && (
+              <>
+                <span style={{ color: 'var(--color-text-muted)' }}>·</span>
+                <span className="font-mono text-[11px]" style={{ color: 'var(--color-text-faint)' }}>
+                  {plug.ipAddress}
+                </span>
+              </>
+            )}
+            <span style={{ color: 'var(--color-text-muted)' }}>·</span>
+            <span className="font-mono text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+              {plug.id}
+            </span>
+          </div>
+        </div>
+      </header>
 
-      {/* Charge Banner — plug identity is already rendered in the header above */}
+      {/* Charge banner if active — keeps its own internal styling */}
       <PlugChargeBanner plugId={id} />
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-4">
-          <p className="text-xs text-neutral-500 mb-1">Leistung</p>
-          <p className="text-xl font-semibold text-neutral-100">
-            {currentWatts}
-            {currentWatts !== '--' && (
-              <span className="text-sm text-neutral-500 ml-1">W</span>
-            )}
-          </p>
-        </div>
-        <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-4">
-          <p className="text-xs text-neutral-500 mb-1">Relay</p>
-          <p className="text-xl font-semibold">
-            <span
-              className={
-                relayOn
-                  ? 'text-green-400'
-                  : 'text-neutral-500'
-              }
-            >
-              {relayOn ? 'Ein' : 'Aus'}
-            </span>
-          </p>
-        </div>
-        <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-4">
-          <p className="text-xs text-neutral-500 mb-1">Gesamtenergie</p>
-          <p className="text-xl font-semibold text-neutral-100">{totalEnergy}</p>
-        </div>
+      {/* Stats cluster — three readouts separated by hairline verticals,
+          tabular mono numbers as the focus. */}
+      <div
+        className="grid grid-cols-3 divide-x"
+        style={{
+          background: 'var(--color-ink-2)',
+          border: '1px solid var(--color-line-soft)',
+          borderRadius: 'var(--radius-lg)',
+          // dividers use the same hairline as borders
+        }}
+      >
+        <StatTile label="Leistung" value={currentWatts} unit="W" accent="var(--color-text-strong)" />
+        <StatTile
+          label="Relay"
+          value={relayOn ? 'EIN' : 'AUS'}
+          accent={relayOn ? 'var(--color-ok)' : 'var(--color-text-faint)'}
+          uppercase
+        />
+        <StatTile label="Gesamt" value={totalEnergy} accent="var(--color-text-strong)" />
       </div>
 
-      {/* Session-relative live charge chart with reference overlay.
-          Empty state when no charge is active; full overlay during session. */}
+      {/* Session-relative live charge chart with reference overlay. */}
       <ChargeSessionChart plugId={id} />
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  unit,
+  accent,
+  uppercase = false,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  accent: string;
+  uppercase?: boolean;
+}) {
+  return (
+    <div
+      className="px-5 py-4 first:border-l-0"
+      style={{ borderLeftColor: 'var(--color-line-soft)' }}
+    >
+      <div className="label-eyebrow mb-2">{label}</div>
+      <div className="flex items-baseline gap-1.5">
+        <span
+          className={`font-mono-data text-[26px] sm:text-[30px] font-medium leading-none ${uppercase ? 'tracking-[0.12em]' : ''}`}
+          style={{ color: accent, letterSpacing: uppercase ? '0.12em' : '-0.03em' }}
+        >
+          {value}
+        </span>
+        {unit && (
+          <span
+            className="text-[12px] font-mono uppercase tracking-[0.18em]"
+            style={{ color: 'var(--color-text-faint)' }}
+          >
+            {unit}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

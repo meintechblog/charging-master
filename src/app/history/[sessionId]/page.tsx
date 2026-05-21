@@ -45,31 +45,24 @@ type SessionDetail = {
   referenceCurve: ReferenceCurve | null;
 };
 
-const STATE_COLORS: Record<string, string> = {
-  detecting: 'bg-blue-500/20 text-blue-400',
-  matched: 'bg-blue-500/20 text-blue-400',
-  charging: 'bg-green-500/20 text-green-400',
-  countdown: 'bg-green-500/20 text-green-400',
-  complete: 'bg-emerald-500/20 text-emerald-300',
-  error: 'bg-red-500/20 text-red-400',
-  aborted: 'bg-orange-500/20 text-orange-400',
-  learning: 'bg-yellow-500/20 text-yellow-400',
-  learn_complete: 'bg-yellow-500/20 text-yellow-400',
-  stopping: 'bg-blue-500/20 text-blue-400',
+// CSS-variable state palette so the colours track the global token system.
+// `text` is for state-label foreground, `dot` for the status orb / timeline.
+const STATE_TOKENS: Record<string, { text: string; dot: string; bg: string }> = {
+  detecting: { text: 'var(--color-accent)', dot: 'var(--color-accent)', bg: 'var(--color-accent-soft)' },
+  matched: { text: 'var(--color-accent)', dot: 'var(--color-accent)', bg: 'var(--color-accent-soft)' },
+  charging: { text: 'var(--color-accent)', dot: 'var(--color-accent)', bg: 'var(--color-accent-soft)' },
+  countdown: { text: 'var(--color-warn)', dot: 'var(--color-warn)', bg: 'var(--color-warn-soft)' },
+  complete: { text: 'var(--color-ok)', dot: 'var(--color-ok)', bg: 'var(--color-ok-soft)' },
+  error: { text: 'var(--color-danger)', dot: 'var(--color-danger)', bg: 'var(--color-danger-soft)' },
+  aborted: { text: 'var(--color-danger)', dot: 'var(--color-danger)', bg: 'var(--color-danger-soft)' },
+  learning: { text: 'var(--color-warn)', dot: 'var(--color-warn)', bg: 'var(--color-warn-soft)' },
+  learn_complete: { text: 'var(--color-ok)', dot: 'var(--color-ok)', bg: 'var(--color-ok-soft)' },
+  stopping: { text: 'var(--color-info)', dot: 'var(--color-info)', bg: 'var(--color-info-soft)' },
 };
 
-const STATE_DOT_COLORS: Record<string, string> = {
-  detecting: 'bg-blue-400',
-  matched: 'bg-blue-400',
-  charging: 'bg-green-400',
-  countdown: 'bg-green-400',
-  complete: 'bg-emerald-300',
-  error: 'bg-red-400',
-  aborted: 'bg-orange-400',
-  learning: 'bg-yellow-400',
-  learn_complete: 'bg-yellow-400',
-  stopping: 'bg-blue-400',
-};
+function tokensFor(state: string): { text: string; dot: string; bg: string } {
+  return STATE_TOKENS[state] ?? { text: 'var(--color-text-faint)', dot: 'var(--color-text-muted)', bg: 'var(--color-ink-3)' };
+}
 
 const STATE_LABELS: Record<string, string> = {
   detecting: 'Erkennung',
@@ -120,9 +113,22 @@ function formatTime(ts: number): string {
 
 function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-      <div className="text-xs text-neutral-500 mb-1">{label}</div>
-      <div className={`text-lg font-bold font-mono ${accent ?? 'text-neutral-100'}`}>{value}</div>
+    <div
+      className="px-4 py-3"
+      style={{
+        background: 'var(--color-ink-2)',
+        border: '1px solid var(--color-line-soft)',
+        borderRadius: 'var(--radius-lg)',
+      }}
+    >
+      <div className="label-eyebrow mb-1.5">{label}</div>
+      <div
+        className="font-mono-data text-[16px] font-medium leading-tight truncate"
+        style={{ color: accent ?? 'var(--color-text-strong)', letterSpacing: '-0.02em' }}
+        title={value}
+      >
+        {value}
+      </div>
     </div>
   );
 }
@@ -171,7 +177,12 @@ export default function SessionDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <span className="text-neutral-400 text-sm">Laden...</span>
+        <div className="flex items-center gap-3">
+          <span className="status-orb status-orb-pulse" style={{ color: 'var(--color-accent)' }} />
+          <span className="text-[13px] font-mono uppercase tracking-[0.2em] text-[color:var(--color-text-faint)]">
+            laden…
+          </span>
+        </div>
       </div>
     );
   }
@@ -179,9 +190,14 @@ export default function SessionDetailPage() {
   if (error || !session) {
     return (
       <div className="text-center py-12">
-        <p className="text-neutral-400 mb-4">Session nicht gefunden.</p>
-        <Link href="/history" className="text-blue-400 hover:text-blue-300 text-sm">
-          Zurück zur Übersicht
+        <div className="label-eyebrow mb-3">Session 404</div>
+        <p className="text-[15px] text-[color:var(--color-text-soft)] mb-5">Session nicht gefunden.</p>
+        <Link
+          href="/history"
+          className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors"
+          style={{ color: 'var(--color-accent)' }}
+        >
+          ← Zurück zur Übersicht
         </Link>
       </div>
     );
@@ -203,57 +219,95 @@ export default function SessionDetailPage() {
     ]);
   }
 
-  const stateColor = STATE_COLORS[session.state] ?? 'bg-neutral-700 text-neutral-300';
+  const stateTokens = tokensFor(session.state);
   const stateLabel = STATE_LABELS[session.state] ?? session.state;
+  const isLive = ['detecting', 'matched', 'charging', 'countdown', 'stopping', 'learning'].includes(session.state);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* Breadcrumb */}
-      <div>
-        <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
-          <Link href="/history" className="hover:text-neutral-300 transition-colors">
-            Verlauf
-          </Link>
-          <span>/</span>
-          <span className="text-neutral-400">{formatTimestamp(session.startedAt)}</span>
-        </div>
-        <h1 className="text-2xl font-bold text-neutral-100">Session #{session.id}</h1>
-      </div>
+      <Link
+        href="/history"
+        className="group inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.18em]"
+        style={{ color: 'var(--color-text-faint)' }}
+      >
+        <span className="transition-transform group-hover:-translate-x-0.5">←</span>
+        <span className="group-hover:text-[color:var(--color-text-default)] transition-colors">
+          Verlauf
+        </span>
+      </Link>
 
-      {/* Stats cards */}
+      {/* Header — session id (mono), timestamp, state pill */}
+      <header className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="label-eyebrow">Session</span>
+            <span
+              className="font-mono text-[12px] tabular-nums"
+              style={{ color: 'var(--color-text-faint)' }}
+            >
+              #{session.id.toString().padStart(5, '0')}
+            </span>
+          </div>
+          <h1
+            className="text-[28px] sm:text-[34px] font-semibold leading-none tracking-tight text-[color:var(--color-text-strong)]"
+            style={{ letterSpacing: '-0.02em' }}
+          >
+            {formatTimestamp(session.startedAt)}
+          </h1>
+        </div>
+        <div
+          className="inline-flex items-center gap-2 px-3 py-1.5"
+          style={{
+            background: stateTokens.bg,
+            border: '1px solid color-mix(in srgb, ' + stateTokens.dot + ' 30%, transparent)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          <span
+            className={isLive ? 'status-orb status-orb-pulse' : 'status-orb'}
+            style={{ color: stateTokens.dot }}
+          />
+          <span
+            className="font-mono text-[10px] uppercase tracking-[0.18em] font-medium"
+            style={{ color: stateTokens.text }}
+          >
+            {stateLabel}
+          </span>
+        </div>
+      </header>
+
+      {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Start" value={formatTimestamp(session.startedAt)} />
         <StatCard
           label="Ende"
           value={session.stoppedAt ? formatTimestamp(session.stoppedAt) : 'Aktiv'}
-          accent={session.stoppedAt ? undefined : 'text-green-400'}
+          accent={session.stoppedAt ? undefined : 'var(--color-ok)'}
         />
-        <StatCard label="Dauer" value={formatDurationMs(session.durationMs)} accent="text-blue-400" />
-        <StatCard label="Energie" value={formatEnergy(session.energyWh)} accent="text-green-400" />
-        <StatCard label="SOC" value={session.estimatedSoc != null ? `${session.estimatedSoc}%` : '-'} />
-        <StatCard label="Profil" value={session.profileName ?? '-'} />
+        <StatCard label="Dauer" value={formatDurationMs(session.durationMs)} accent="var(--color-accent)" />
+        <StatCard label="Energie" value={formatEnergy(session.energyWh)} accent="var(--color-ok)" />
+        <StatCard label="SoC" value={session.estimatedSoc != null ? `${session.estimatedSoc}%` : '—'} />
+        <StatCard label="Profil" value={session.profileName ?? '—'} />
         <StatCard label="Plug" value={session.plugName ?? session.plugId} />
-        <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-          <div className="text-xs text-neutral-500 mb-1">Status</div>
-          <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${stateColor}`}>
-            {stateLabel}
-          </span>
-        </div>
+        <StatCard label="Plug-ID" value={session.plugId} accent="var(--color-text-faint)" />
       </div>
 
-      {/* Power curve chart */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <h2 className="text-sm font-medium text-neutral-400">Ladekurve</h2>
-          {(session.state === 'learning' || session.state === 'charging' || session.state === 'countdown' || session.state === 'detecting' || session.state === 'matched' || session.state === 'stopping') && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-green-400">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+      {/* Power curve */}
+      <section>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] font-medium text-[color:var(--color-text-faint)]">
+            Ladekurve
+          </span>
+          {isLive && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="status-orb status-orb-pulse" style={{ color: 'var(--color-ok)' }} />
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--color-ok)]">
+                Live · 5 s
               </span>
-              Live (5s)
             </span>
           )}
+          <span className="flex-1 h-px" style={{ background: 'var(--color-line-faint)' }} />
         </div>
         {sessionChartData.length > 0 ? (
           <PowerChart
@@ -265,54 +319,98 @@ export default function SessionDetailPage() {
             static
           />
         ) : (
-          <div className="bg-neutral-900 rounded-lg p-8 border border-neutral-800 text-center">
-            <p className="text-sm text-neutral-500">Keine Messdaten für diese Session vorhanden.</p>
+          <div
+            className="p-8 text-center"
+            style={{
+              background: 'var(--color-ink-2)',
+              border: '1px solid var(--color-line-soft)',
+              borderRadius: 'var(--radius-lg)',
+            }}
+          >
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-text-muted)]">
+              keine messdaten
+            </span>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Ereignis-Log (event timeline) */}
-      <div>
-        <h2 className="text-sm font-medium text-neutral-400 mb-3">Ereignis-Log</h2>
+      {/* Event timeline — minimal, mono timestamps, hairline rail */}
+      <section>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] font-medium text-[color:var(--color-text-faint)]">
+            Ereignis-Log
+          </span>
+          <span
+            className="font-mono text-[10px] tabular-nums"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            {session.events.length.toString().padStart(2, '0')}
+          </span>
+          <span className="flex-1 h-px" style={{ background: 'var(--color-line-faint)' }} />
+        </div>
         {session.events.length > 0 ? (
-          <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-            <div className="relative">
+          <div
+            className="p-5"
+            style={{
+              background: 'var(--color-ink-2)',
+              border: '1px solid var(--color-line-soft)',
+              borderRadius: 'var(--radius-lg)',
+            }}
+          >
+            <ol className="relative">
               {session.events.map((event, idx) => {
-                const dotColor = STATE_DOT_COLORS[event.state] ?? 'bg-neutral-500';
-                const badgeColor = STATE_COLORS[event.state] ?? 'bg-neutral-700 text-neutral-300';
+                const ev = tokensFor(event.state);
                 const label = STATE_LABELS[event.state] ?? event.state;
                 const isLast = idx === session.events.length - 1;
 
                 return (
-                  <div key={idx} className="flex gap-4">
-                    {/* Timeline column */}
-                    <div className="flex flex-col items-center">
-                      <div className={`w-3 h-3 rounded-full ${dotColor} mt-1 shrink-0`} />
-                      {!isLast && <div className="w-0.5 flex-1 bg-neutral-700 my-1" />}
+                  <li key={idx} className="flex gap-4 pb-3 last:pb-0">
+                    <div className="flex flex-col items-center w-3">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full mt-[5px] shrink-0"
+                        style={{
+                          background: ev.dot,
+                          boxShadow: `0 0 8px 0 ${ev.dot}`,
+                        }}
+                      />
+                      {!isLast && (
+                        <span
+                          className="w-px flex-1 my-1"
+                          style={{ background: 'var(--color-line-soft)' }}
+                        />
+                      )}
                     </div>
-
-                    {/* Content */}
-                    <div className={`pb-4 ${isLast ? '' : ''}`}>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono text-neutral-500">
-                          {formatTime(event.timestamp)}
-                        </span>
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${badgeColor}`}>
-                          {label}
-                        </span>
-                      </div>
+                    <div className="flex items-center gap-3 flex-wrap pt-px">
+                      <span className="font-mono text-[11px] tabular-nums text-[color:var(--color-text-faint)]">
+                        {formatTime(event.timestamp)}
+                      </span>
+                      <span
+                        className="font-mono text-[10px] uppercase tracking-[0.18em] font-medium"
+                        style={{ color: ev.text }}
+                      >
+                        {label}
+                      </span>
                     </div>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ol>
           </div>
         ) : (
-          <div className="bg-neutral-900 rounded-lg p-8 border border-neutral-800 text-center">
-            <p className="text-sm text-neutral-500">Keine Ereignisse aufgezeichnet.</p>
+          <div
+            className="p-6 text-center"
+            style={{
+              background: 'var(--color-ink-2)',
+              border: '1px solid var(--color-line-soft)',
+              borderRadius: 'var(--radius-lg)',
+            }}
+          >
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-text-muted)]">
+              keine ereignisse
+            </span>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

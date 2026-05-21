@@ -12,6 +12,7 @@ import { UpdateHistory } from './update-history';
 import { UpdateStateStore } from '@/modules/self-update/update-state-store';
 import type { UpdateInfoView } from '@/modules/self-update/types';
 import { CURRENT_SHA, CURRENT_SHA_SHORT } from '@/lib/version';
+import { PageHeader } from '@/components/layout/page-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,11 +44,12 @@ export default async function SettingsPage() {
   const initialUpdateInfo = getInitialUpdateInfo();
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-100">Einstellungen</h1>
-        <VersionBadge />
-      </div>
+    <div className="max-w-2xl mx-auto space-y-6">
+      <PageHeader
+        eyebrow="Konfiguration · 07"
+        title="Einstellungen"
+        action={<VersionBadge />}
+      />
 
       <UpdateBanner initialInfo={initialUpdateInfo} />
 

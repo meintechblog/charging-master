@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { PageHeader, StatusBadge } from '@/components/layout/page-header';
 
 interface Session {
   id: number;
@@ -45,24 +46,20 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'learning', label: 'Lernen' },
 ];
 
-function statusBadgeClass(state: string): string {
+function statusColor(state: string): string {
   switch (state) {
-    case 'complete':
-      return 'bg-green-500/20 text-green-400';
-    case 'error':
-      return 'bg-red-500/20 text-red-400';
-    case 'aborted':
-      return 'bg-orange-500/20 text-orange-400';
+    case 'complete': return 'var(--color-ok)';
+    case 'error': return 'var(--color-danger)';
+    case 'aborted': return 'var(--color-danger)';
     case 'charging':
     case 'countdown':
     case 'detecting':
     case 'matched':
-      return 'bg-blue-500/20 text-blue-400';
+      return 'var(--color-accent)';
     case 'learning':
     case 'learn_complete':
-      return 'bg-yellow-500/20 text-yellow-400';
-    default:
-      return 'bg-neutral-500/20 text-neutral-400';
+      return 'var(--color-warn)';
+    default: return 'var(--color-text-faint)';
   }
 }
 
@@ -152,17 +149,27 @@ export default function HistoryPage() {
     fetchSessions();
   }, [fetchSessions]);
 
+  const selectClass = 'text-sm rounded-md px-3 py-2 focus:outline-none transition-colors';
+  const selectStyle: React.CSSProperties = {
+    background: 'var(--color-ink-2)',
+    border: '1px solid var(--color-line-soft)',
+    color: 'var(--color-text-default)',
+  };
+
   return (
-    <div className="max-w-7xl mx-auto">
-      {/* Header */}
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Verlauf</h1>
+    <div>
+      <PageHeader
+        eyebrow={`Archiv · 06 · ${total.toString().padStart(3, '0')} Ladevorgänge`}
+        title="Verlauf"
+      />
 
       {/* Filter bar */}
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <select
           value={selectedPlugId}
           onChange={(e) => setSelectedPlugId(e.target.value)}
-          className="bg-neutral-800 border border-neutral-700 text-neutral-200 text-sm rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className={selectClass}
+          style={selectStyle}
         >
           <option value="">Alle Geräte</option>
           {plugs.map((p) => (
@@ -173,107 +180,128 @@ export default function HistoryPage() {
         <select
           value={selectedStatus}
           onChange={(e) => setSelectedStatus(e.target.value)}
-          className="bg-neutral-800 border border-neutral-700 text-neutral-200 text-sm rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className={selectClass}
+          style={selectStyle}
         >
           <option value="">Alle Status</option>
           {STATUS_FILTER_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
-
-        {total > 0 && (
-          <span className="text-sm text-neutral-500 self-center ml-auto">
-            {total} Ladevorgang{total !== 1 ? 'e' : ''}
-          </span>
-        )}
       </div>
 
-      {/* Table */}
       {loading ? (
-        <div className="text-neutral-500 text-sm py-8 text-center">Laden...</div>
+        <div className="py-12 text-center">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-text-muted)]">
+            laden…
+          </span>
+        </div>
       ) : sessions.length === 0 ? (
-        <div className="text-neutral-500 text-sm py-8 text-center">
-          Noch keine Ladevorgaenge aufgezeichnet.
+        <div
+          className="py-12 text-center"
+          style={{
+            background: 'var(--color-ink-2)',
+            border: '1px solid var(--color-line-soft)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div className="label-eyebrow mb-2">Archiv leer</div>
+          <p className="text-[14px] text-[color:var(--color-text-soft)]">
+            Noch keine Ladevorgänge aufgezeichnet.
+          </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-neutral-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-neutral-900 border-b border-neutral-800">
-                <th className="text-left px-4 py-3 text-neutral-400 font-medium">Datum</th>
-                <th className="text-left px-4 py-3 text-neutral-400 font-medium">Geraet</th>
-                <th className="text-left px-4 py-3 text-neutral-400 font-medium">Profil</th>
-                <th className="text-left px-4 py-3 text-neutral-400 font-medium">Status</th>
-                <th className="text-right px-4 py-3 text-neutral-400 font-medium">Dauer</th>
-                <th className="text-right px-4 py-3 text-neutral-400 font-medium">Energie</th>
-                <th className="text-right px-4 py-3 text-neutral-400 font-medium">SOC</th>
-                <th className="text-right px-4 py-3 text-neutral-400 font-medium w-20"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => (
-                <tr
-                  key={s.id}
-                  onClick={() => router.push(`/history/${s.id}`)}
-                  className="border-b border-neutral-800 bg-neutral-900 hover:bg-neutral-800/70 cursor-pointer transition-colors"
-                >
-                  <td className="px-4 py-3 text-neutral-100 whitespace-nowrap">
-                    {formatDate(s.startedAt)}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-100">
-                    {s.plugName || s.plugId}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-400">
-                    {s.profileName || '-'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadgeClass(s.state)}`}>
-                      {STATUS_LABELS[s.state] || s.state}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-neutral-300 text-right whitespace-nowrap">
-                    {formatDuration(s.startedAt, s.stoppedAt)}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-300 text-right whitespace-nowrap">
-                    {formatEnergy(s.energyWh)}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-300 text-right">
-                    {s.estimatedSoc != null ? `${s.estimatedSoc}%` : '-'}
-                  </td>
-                  <td
-                    className="px-4 py-3 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {confirmDeleteId === s.id ? (
-                      <div className="flex justify-end gap-1">
-                        <button
-                          onClick={() => handleDelete(s.id)}
-                          disabled={deletingId === s.id}
-                          className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
-                        >
-                          {deletingId === s.id ? '...' : 'OK'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="text-xs text-neutral-500 hover:text-neutral-300"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDeleteId(s.id)}
-                        className="text-xs text-neutral-500 hover:text-red-400 transition-colors"
-                        title="Löschen"
-                      >
-                        Löschen
-                      </button>
-                    )}
-                  </td>
+        <div
+          className="overflow-hidden"
+          style={{
+            background: 'var(--color-ink-2)',
+            border: '1px solid var(--color-line-soft)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
+                  <th className="text-left label-eyebrow px-4 py-3">Datum</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Gerät</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Profil</th>
+                  <th className="text-left label-eyebrow px-4 py-3">Status</th>
+                  <th className="text-right label-eyebrow px-4 py-3">Dauer</th>
+                  <th className="text-right label-eyebrow px-4 py-3">Energie</th>
+                  <th className="text-right label-eyebrow px-4 py-3">SoC</th>
+                  <th className="text-right label-eyebrow px-4 py-3 w-20" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sessions.map((s, idx) => (
+                  <tr
+                    key={s.id}
+                    onClick={() => router.push(`/history/${s.id}`)}
+                    className="cursor-pointer transition-colors hover:bg-[color:var(--color-ink-3)]"
+                    style={{
+                      borderTop: idx === 0 ? 'none' : '1px solid var(--color-line-faint)',
+                    }}
+                  >
+                    <td className="px-4 py-3 text-[13px] font-mono tabular-nums whitespace-nowrap text-[color:var(--color-text-default)]">
+                      {formatDate(s.startedAt)}
+                    </td>
+                    <td className="px-4 py-3 text-[14px] text-[color:var(--color-text-strong)]">
+                      {s.plugName || s.plugId}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] text-[color:var(--color-text-soft)]">
+                      {s.profileName || '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge
+                        label={STATUS_LABELS[s.state] || s.state}
+                        color={statusColor(s.state)}
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-[13px] font-mono tabular-nums text-right whitespace-nowrap text-[color:var(--color-text-default)]">
+                      {formatDuration(s.startedAt, s.stoppedAt)}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] font-mono tabular-nums text-right whitespace-nowrap text-[color:var(--color-text-default)]">
+                      {formatEnergy(s.energyWh)}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] font-mono tabular-nums text-right text-[color:var(--color-text-default)]">
+                      {s.estimatedSoc != null ? `${s.estimatedSoc}%` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      {confirmDeleteId === s.id ? (
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handleDelete(s.id)}
+                            disabled={deletingId === s.id}
+                            className="text-[11px] font-mono uppercase tracking-wider disabled:opacity-50"
+                            style={{ color: 'var(--color-danger)' }}
+                          >
+                            {deletingId === s.id ? '…' : 'OK'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="text-[11px] font-mono"
+                            style={{ color: 'var(--color-text-muted)' }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(s.id)}
+                          className="text-[10px] font-mono uppercase tracking-[0.16em] transition-colors hover:text-[color:var(--color-danger)]"
+                          style={{ color: 'var(--color-text-muted)' }}
+                          title="Löschen"
+                        >
+                          Löschen
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

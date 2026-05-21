@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { PageHeader, PrimaryButton } from '@/components/layout/page-header';
 
 type ChargerRow = {
   id: number;
@@ -98,16 +99,19 @@ export default function ChargersPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-neutral-100">Ladegeräte</h1>
-        <button
-          onClick={() => { setShowForm((v) => !v); if (!showForm) resetForm(); }}
-          className="px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded hover:bg-blue-600 transition-colors"
-        >
-          {showForm ? 'Abbrechen' : '+ Neues Ladegerät'}
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        eyebrow={`Hardware · 04 · ${chargers.length.toString().padStart(2, '0')} Ladegeräte`}
+        title="Ladegeräte"
+        action={
+          <PrimaryButton
+            onClick={() => { setShowForm((v) => !v); if (!showForm) resetForm(); }}
+            variant={showForm ? 'secondary' : 'primary'}
+          >
+            {showForm ? 'Abbrechen' : '+ Neues Ladegerät'}
+          </PrimaryButton>
+        }
+      />
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-neutral-900 rounded-lg p-4 md:p-6 mb-6 space-y-4">
