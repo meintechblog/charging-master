@@ -1,10 +1,16 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
+import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
+import { ChartSkeleton } from './chart-skeleton';
 import { usePowerStream } from '@/hooks/use-power-stream';
 import { useSlidingWindow, type WindowKey } from '@/hooks/use-sliding-window';
+
+const ReactECharts = dynamic(() => import('echarts-for-react'), {
+  ssr: false,
+  loading: () => <ChartSkeleton height={300} />,
+});
 
 type PowerChartProps = {
   plugId: string;

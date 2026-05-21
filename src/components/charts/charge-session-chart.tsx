@@ -33,11 +33,17 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
+import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
+import { ChartSkeleton } from './chart-skeleton';
 import { usePowerStream } from '@/hooks/use-power-stream';
 import { useChargeStream } from '@/hooks/use-charge-stream';
 import type { ChargeStateEvent } from '@/modules/charging/types';
+
+const ReactECharts = dynamic(() => import('echarts-for-react'), {
+  ssr: false,
+  loading: () => <ChartSkeleton height={420} />,
+});
 
 type ReferencePoint = {
   offsetSeconds: number;

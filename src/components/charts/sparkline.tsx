@@ -1,8 +1,13 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
-import ReactECharts from 'echarts-for-react';
+import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
+import { ChartSkeleton } from './chart-skeleton';
+
+const ReactECharts = dynamic(() => import('echarts-for-react'), {
+  ssr: false,
+  loading: () => <ChartSkeleton height={40} width={120} />,
+});
 
 type SparklineProps = {
   data: Array<[number, number]>;
