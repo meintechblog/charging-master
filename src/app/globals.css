@@ -1,2 +1,243 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------
+ * Design tokens — "Industrial Instrument Cluster" aesthetic
+ *
+ * One primary accent (cyan), layered black surfaces, hairline borders,
+ * IBM Plex Sans/Mono throughout. Numbers default to tabular figures so
+ * the SoC % column never jiggles as digits change.
+ * ------------------------------------------------------------------ */
+@theme {
+  /* Typography — loaded via next/font in layout.tsx */
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  --font-display: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* Surface palette — layered blacks. Surface-0 is the page floor, every
+     elevated element steps up one layer. Never use raw #000 — it crushes
+     against OLED black and looks like a tear in the screen. */
+  --color-ink-0: #050507;
+  --color-ink-1: #0a0a0c;
+  --color-ink-2: #111114;
+  --color-ink-3: #18181c;
+  --color-ink-4: #232328;
+  --color-ink-5: #2e2e34;
+
+  /* Border / divider hierarchy — go from invisible to insistent. */
+  --color-line-faint: rgba(255, 255, 255, 0.04);
+  --color-line-soft: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.14);
+
+  /* Text — five steps. "Strong" is for hero numbers, "muted" disappears. */
+  --color-text-strong: #fafafa;
+  --color-text-default: #e5e5e5;
+  --color-text-soft: #a3a3a3;
+  --color-text-faint: #737373;
+  --color-text-muted: #4b4b52;
+
+  /* Accents — semantic, one primary. The cyan is the brand's "live charge
+     pulse"; every other state borrows it sparingly. Mint = healthy/complete,
+     amber = countdown/warning, coral = offline/error, indigo = info. */
+  --color-accent: #22d3ee;
+  --color-accent-strong: #67e8f9;
+  --color-accent-soft: rgba(34, 211, 238, 0.14);
+  --color-accent-glow: rgba(34, 211, 238, 0.32);
+
+  --color-ok: #34d399;
+  --color-ok-soft: rgba(52, 211, 153, 0.14);
+
+  --color-warn: #fbbf24;
+  --color-warn-soft: rgba(251, 191, 36, 0.14);
+
+  --color-danger: #f87171;
+  --color-danger-soft: rgba(248, 113, 113, 0.14);
+
+  --color-info: #818cf8;
+  --color-info-soft: rgba(129, 140, 248, 0.14);
+
+  /* Radii — sharp, not blob. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+/* ------------------------------------------------------------------
+ * Base layer
+ * ------------------------------------------------------------------ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv11";
+  }
+
+  body {
+    background-color: var(--color-ink-0);
+    color: var(--color-text-default);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "ss02", "cv01", "cv11";
+    /* Tabular figures by default — every number in the UI is data, never
+       prose, and proportional digits make SoC bars jitter. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Atmospheric backdrop — two pinned radial gradients tinted with the
+     primary accent and an info-violet. Faint enough to read as "depth",
+     never as a decoration. Pinned to the viewport so it doesn't scroll. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 1100px 700px at 8% -10%, rgba(34, 211, 238, 0.05), transparent 55%),
+      radial-gradient(ellipse 900px 600px at 105% 110%, rgba(129, 140, 248, 0.04), transparent 55%);
+  }
+  /* Ensure all real content sits above the atmosphere. */
+  body > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Custom scrollbar — narrower, accent-tinted thumb, recedes when idle. */
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-line-soft);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--color-line-strong);
+    background-clip: padding-box;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-soft) transparent;
+  }
+
+  /* Selection styled with the brand cyan. */
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-strong);
+  }
+
+  /* Focus rings — accessible but matching the aesthetic. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * Utilities — reusable primitives this aesthetic leans on heavily
+ * ------------------------------------------------------------------ */
+@layer utilities {
+  /* Mono numeric variant: for SoC, watts, energy — anywhere the digits
+     are data. Pairs with `tabular-nums` from body default. */
+  .font-mono-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "ss01", "ss02";
+    letter-spacing: -0.01em;
+  }
+
+  /* Tracking-wide uppercase eyebrow labels — used above hero numbers,
+     section headers, status indicators. */
+  .label-eyebrow {
+    font-size: 10px;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 500;
+    color: var(--color-text-faint);
+  }
+
+  /* Status orb — small pulsing dot. Variants set their own color. */
+  .status-orb {
+    position: relative;
+    display: inline-flex;
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+  }
+  .status-orb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 12px -2px currentColor;
+  }
+  .status-orb-pulse::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.5;
+    animation: status-orb-pulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  @keyframes status-orb-pulse {
+    0% { transform: scale(1); opacity: 0.5; }
+    100% { transform: scale(2.8); opacity: 0; }
+  }
+
+  /* Hairline divider — horizontal rule that doesn't shout. */
+  .hairline {
+    height: 1px;
+    background: var(--color-line-soft);
+    width: 100%;
+  }
+
+  /* Glass panel — for cards that should feel slightly elevated without
+     a hard border. Used sparingly on the main hero. */
+  .panel {
+    background: var(--color-ink-2);
+    border: 1px solid var(--color-line-soft);
+    border-radius: var(--radius-lg);
+  }
+  .panel-flat {
+    background: var(--color-ink-1);
+    border: 1px solid var(--color-line-faint);
+    border-radius: var(--radius-md);
+  }
+
+  /* Subtle inset highlight on the top edge — gives flat panels a tiny
+     "lit from above" feel. Use on hero panels only. */
+  .panel-lit {
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
+      0 1px 0 0 rgba(0, 0, 0, 0.5);
+  }
+
+  /* Animated marquee for "live" hero numbers — the digit changes get a
+     vertical scroll on update. Used on big SoC counters. */
+  @keyframes number-tick {
+    0% { transform: translateY(-100%); opacity: 0; }
+    50% { transform: translateY(0); opacity: 1; }
+  }
+  .number-tick {
+    animation: number-tick 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Subtle hover lift for interactive cards. */
+  .lift-hover {
+    transition: transform 0.16s ease-out, border-color 0.16s ease-out;
+  }
+  .lift-hover:hover {
+    border-color: var(--color-line-strong);
+  }
+}

@@ -514,7 +514,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
   // Active states: matched, charging, countdown
   const isCountdown = session.state === 'countdown';
   const accent = isCountdown ? 'border-amber-500' : 'border-blue-500';
-  const fill = isCountdown ? 'bg-amber-400' : 'bg-blue-500';
+  const fill = isCountdown ? 'var(--color-warn)' : 'var(--color-accent)';
   const progressPct = session.estimatedSoc != null && session.targetSoc != null
     ? Math.min(100, (session.estimatedSoc / session.targetSoc) * 100)
     : 0;
@@ -590,7 +590,7 @@ export function ChargeBanner({ plugId, plugName, plugIp }: ChargeBannerProps) {
             socMin={session.socMin ?? session.estimatedSoc ?? 0}
             socMax={session.socMax ?? session.estimatedSoc ?? 0}
             targetSoc={session.targetSoc ?? 80}
-            fillClass={fill}
+            fillColor={fill}
             bandConfidence={session.socBandConfidence}
           />
         </div>

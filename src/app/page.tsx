@@ -136,19 +136,65 @@ export default async function HomePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Dashboard</h1>
+      {/* Page header — editorial title with a mono "ID" eyebrow */}
+      <header className="mb-8 flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <div className="label-eyebrow mb-2">Cockpit · 01</div>
+          <h1
+            className="text-[34px] sm:text-[40px] font-semibold leading-none tracking-tight text-[color:var(--color-text-strong)]"
+            style={{ letterSpacing: '-0.02em' }}
+          >
+            Dashboard
+          </h1>
+        </div>
+        <div className="flex items-center gap-2 pb-1">
+          <span className="status-orb status-orb-pulse" style={{ color: 'var(--color-accent)' }} />
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-text-faint)]">
+            Live · {plugsWithOutput.length} {plugsWithOutput.length === 1 ? 'Gerät' : 'Geräte'}
+          </span>
+        </div>
+      </header>
 
       {flaggedCount > 0 && <FlaggedSessionsBanner count={flaggedCount} />}
 
       {plugsWithOutput.length === 0 ? (
-        <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-8 text-center">
-          <p className="text-neutral-400 mb-4">Keine Geräte hinzugefügt</p>
-          <Link
-            href="/devices"
-            className="text-blue-400 hover:text-blue-300 underline text-sm"
-          >
-            Gerät hinzufügen
-          </Link>
+        <div
+          className="relative overflow-hidden p-10 text-center"
+          style={{
+            background: 'var(--color-ink-2)',
+            border: '1px solid var(--color-line-soft)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              background:
+                'radial-gradient(ellipse 400px 200px at 50% 0%, var(--color-accent-soft), transparent 60%)',
+            }}
+          />
+          <div className="relative">
+            <div className="label-eyebrow mb-3">Erste Inbetriebnahme</div>
+            <h2 className="text-[20px] font-semibold mb-2 text-[color:var(--color-text-strong)]">
+              Keine Geräte registriert
+            </h2>
+            <p className="text-[13px] text-[color:var(--color-text-faint)] mb-5 max-w-md mx-auto">
+              Charging Master findet Shelly-Plugs im lokalen Netz und lernt dann automatisch
+              deren Lade-Charakteristik.
+            </p>
+            <Link
+              href="/devices"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-mono uppercase tracking-[0.16em] transition-colors"
+              style={{
+                background: 'var(--color-accent-soft)',
+                border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)',
+                color: 'var(--color-accent)',
+              }}
+            >
+              Geräte scannen
+              <span style={{ fontFamily: 'monospace' }}>→</span>
+            </Link>
+          </div>
         </div>
       ) : (
         <DashboardChargeBanners

@@ -10,12 +10,10 @@
  * Layered over the fill:
  *   - Vertical amber line at targetSoc with a "Ziel" label — matches the
  *     amber Ziel-line on the ChargeSessionChart below for visual parity.
- *   - Scale labels at 0 / 50 / 100 underneath.
+ *   - Confidence chip (top-right) when the band is < 100 %.
  *
- * Pure presentational — caller passes resolved {socMin, socMax, socBest,
- * targetSoc}. socBest is currently unused for rendering (kept in props
- * because semantically it's the point estimate; future versions may surface
- * it as a tick mark inside the band).
+ * V2 styling (industrial instrument): CSS-variable driven, hairline tick
+ * marks at 0/25/50/75/100 for scale, tight inset shadow on the track.
  */
 
 type SocConfidenceBarProps = {
@@ -23,13 +21,14 @@ type SocConfidenceBarProps = {
   socMin: number;
   socMax: number;
   targetSoc: number;
-  /** Tailwind bg-* class for the solid fill (e.g. "bg-blue-500" during
-      charging, "bg-amber-400" during countdown). */
-  fillClass: string;
-  /** 0..1 — the matcher's overall confidence. Distinct from band width
-      (which is the spread of plausible SoC values). Override sets it to
-      exactly 1; normal DTW matches range ~0.5–0.95. */
+  /** CSS color (var or hex) for the solid fill. Defaults to brand accent. */
+  fillColor?: string;
+  /** 0..1 — the matcher's overall confidence. */
   bandConfidence?: number;
+  /** When true, suppress the small "Ziel xy %" caption under the bar — the
+      caller already shows the target in a larger badge nearby and the
+      duplicate caption becomes visual noise. */
+  hideTargetCaption?: boolean;
 };
 
 function clamp01(v: number): number {
@@ -41,8 +40,9 @@ export function SocConfidenceBar({
   socMin,
   socMax,
   targetSoc,
-  fillClass,
+  fillColor = 'var(--color-accent)',
   bandConfidence,
+  hideTargetCaption = false,
 }: SocConfidenceBarProps) {
   const lo = clamp01(Math.min(socMin, socMax));
   const hi = clamp01(Math.max(socMin, socMax));
@@ -50,69 +50,98 @@ export function SocConfidenceBar({
   const bandWidth = Math.max(0, hi - lo);
   const hasBand = bandWidth > 1;
 
-  // Confidence is meaningful when present + < 1. Override sets it to exactly
-  // 1 (ground truth), and the user doesn't need a "100 % confidence" badge.
   const confidencePct =
     bandConfidence != null && Number.isFinite(bandConfidence) && bandConfidence < 0.999
       ? Math.round(bandConfidence * 100)
       : null;
-  // Pick a tint for the confidence indicator. ≥80 % green-ish, 50-79 %
-  // neutral/amber, <50 % red — mirrors the Pushover anomaly-band convention.
-  let confColor = 'text-emerald-400';
+  let confColor = 'var(--color-ok)';
   if (confidencePct != null) {
-    if (confidencePct < 50) confColor = 'text-red-400';
-    else if (confidencePct < 80) confColor = 'text-amber-400';
+    if (confidencePct < 50) confColor = 'var(--color-danger)';
+    else if (confidencePct < 80) confColor = 'var(--color-warn)';
   }
 
   return (
     <div className="relative">
-      {/* Battery-style track — tall + fully rounded so it reads as a
-          chunky battery indicator, not a thin slider. */}
-      <div className="relative h-10 bg-neutral-800 rounded-full overflow-hidden">
-        {/* Solid "definitely at least" fill — extends to socMin */}
+      {/* Battery-style track. Generous height (h-10) preserved from prior
+          UAT-approved version — the chunky bar reads instantly as "this is
+          a battery fill", not "this is a generic progress slider". */}
+      <div
+        className="relative h-10 rounded-full overflow-hidden"
+        style={{
+          background: 'var(--color-ink-3)',
+          boxShadow: 'inset 0 1px 0 0 rgba(0,0,0,0.4)',
+        }}
+      >
+        {/* Tick marks at 25 / 50 / 75 — hairlines, not numbers. Anchors
+            the eye without adding scale labels. */}
+        {[25, 50, 75].map((pct) => (
+          <div
+            key={pct}
+            className="absolute top-1.5 bottom-1.5 w-px pointer-events-none"
+            style={{
+              left: `${pct}%`,
+              background: 'var(--color-line-faint)',
+            }}
+          />
+        ))}
+
+        {/* Solid "definitely at least" fill. */}
         <div
-          className={`absolute inset-y-0 left-0 ${fillClass} transition-[width] duration-1000 ease-linear`}
-          style={{ width: `${lo}%` }}
+          className="absolute inset-y-0 left-0 transition-[width] duration-1000 ease-linear"
+          style={{
+            width: `${lo}%`,
+            background: `linear-gradient(180deg, ${fillColor} 0%, color-mix(in srgb, ${fillColor} 85%, black) 100%)`,
+            boxShadow: `0 0 16px -4px ${fillColor}`,
+          }}
         />
         {/* Translucent "could be up to" fill — only when band > 1 pp */}
         {hasBand && (
           <div
-            className={`absolute inset-y-0 ${fillClass} opacity-35 transition-[left,width] duration-1000 ease-linear`}
+            className="absolute inset-y-0 transition-[left,width] duration-1000 ease-linear opacity-35"
             style={{
               left: `${lo}%`,
               width: `${bandWidth}%`,
+              background: fillColor,
             }}
             title={`Wahrscheinlich ${Math.round(lo)} – ${Math.round(hi)} %`}
           />
         )}
-        {/* Vertical target line — clear amber divider at the stop-point */}
+        {/* Vertical target line — amber, with a soft glow so it pops over
+            the cyan fill without competing on saturation. */}
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-amber-400 pointer-events-none"
-          style={{ left: `${target}%` }}
+          className="absolute top-0 bottom-0 w-[2px] pointer-events-none"
+          style={{
+            left: `${target}%`,
+            background: 'var(--color-warn)',
+            boxShadow: '0 0 8px 0 var(--color-warn-soft)',
+          }}
           title={`Ziel ${Math.round(target)} %`}
         />
       </div>
 
-      {/* Bottom row: target label (left), confidence chip (right). The
-          target label centers under the amber vertical line via transform;
-          the confidence chip floats right and is hidden when the matcher
-          is at full ground-truth (override) confidence. */}
-      <div className="relative mt-1.5 h-4 text-[10px] tabular-nums">
-        <span
-          className="absolute -translate-x-1/2 text-amber-400 font-medium whitespace-nowrap"
-          style={{ left: `${target}%` }}
-        >
-          Ziel {Math.round(target)} %
-        </span>
-        {confidencePct != null && (
-          <span
-            className={`absolute right-0 ${confColor} font-medium`}
-            title="Konfidenz des Matchers in der aktuellen SoC-Schätzung"
-          >
-            {confidencePct} % Konfidenz
-          </span>
-        )}
-      </div>
+      {/* Bottom annotation row. Hidden caption when the caller already
+          shows a target badge above (no point repeating the number). */}
+      {(!hideTargetCaption || confidencePct != null) && (
+        <div className="relative mt-1.5 h-3.5 text-[10px] tabular-nums">
+          {!hideTargetCaption && (
+            <span
+              className="absolute -translate-x-1/2 font-medium whitespace-nowrap font-mono"
+              style={{ left: `${target}%`, color: 'var(--color-warn)' }}
+            >
+              Ziel {Math.round(target)} %
+            </span>
+          )}
+          {confidencePct != null && (
+            <span
+              className="absolute right-0 font-mono font-medium uppercase tracking-wider"
+              style={{ color: confColor }}
+              title="Konfidenz des Matchers in der aktuellen SoC-Schätzung"
+            >
+              {confidencePct}% Konfidenz
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

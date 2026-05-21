@@ -1,23 +1,25 @@
 'use client';
 
 /**
- * Prominent full-width card for an active charge session on the dashboard.
+ * Active charge card — the dashboard's instrument cluster.
  *
- * Rationale: the earlier dashboard rendered active charges in the same
- * compact grid cell as idle plugs — users had to squint at a small
- * sparkline + 8-pt blue dot to know "something is happening here." This
- * card surfaces what matters at a glance:
+ * Visual hierarchy (industrial instrument cluster aesthetic):
  *
- *   ┌────────────────────────────────────────────────────────────────┐
- *   │ [photo]  Bosch PowerTube 625               73 % → Ziel 80 %    │
- *   │          Schuppen · 192.168.3.167  ⬤        ███████████░  Live │
- *   │                                              334 Wh · 173 W    │
- *   │                                              seit 1:42 · noch 5 min  │
- *   └────────────────────────────────────────────────────────────────┘
+ *  ┌─┬──────────────────────────────────────────────────────────────────┐
+ *  │█│ [photo]  PROFIL                                            CHARGING│
+ *  │ │          Bosch PowerTube 625 · Schuppen                            │
+ *  │ │                                                                    │
+ *  │ │     73%       ZIEL 80%  ·  173 W                                  │
+ *  │ │   ─────       SEIT  1:42  ·  NOCH ~5 min                          │
+ *  │ │     SoC                                                            │
+ *  │ │   ═══════════ Confidence Bar ═════════════                         │
+ *  │ │   GELADEN 334 Wh        FEHLEN 124 Wh                              │
+ *  └─┴──────────────────────────────────────────────────────────────────┘
  *
- * Receives its initial state from the server (so first paint already shows
- * the active charge) and updates live via the existing charge + power SSE
- * streams. Links into the plug detail page on click.
+ *   ▌ left rail = state colour (cyan charging, amber countdown)
+ *   ▌ huge mono SoC % is the hero
+ *   ▌ all numbers are tabular mono so width never jiggles when digits tick
+ *   ▌ labels are eyebrow-style uppercase tracking-wide; data is loud
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -51,19 +53,22 @@ type ActiveChargeCardProps = {
   initial: ActiveChargeInitial;
 };
 
-const ACTIVE_STATES = new Set<ChargeStateEvent['state']>([
-  'detecting',
-  'matched',
-  'charging',
-  'countdown',
-]);
-
 function formatElapsed(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
-  if (h > 0) return `${h}h ${m}min`;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
   return `${m} min`;
+}
+
+function stateBadgeLabel(state: string): string {
+  switch (state) {
+    case 'detecting': return 'Erkenne';
+    case 'matched':   return 'Erkannt';
+    case 'charging':  return 'Lädt';
+    case 'countdown': return 'Stoppt gleich';
+    default:          return state;
+  }
 }
 
 export function ActiveChargeCard({
@@ -87,8 +92,7 @@ export function ActiveChargeCard({
   const [watts, setWatts] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState<number>(Date.now() - initial.startedAt);
 
-  // Wall-clock elapsed tick every 10 s — startedAt is fixed, no need for SSE
-  // to drive this. Cleared in the cleanup.
+  // Wall-clock elapsed tick every 10 s.
   useEffect(() => {
     const handle = window.setInterval(() => {
       setElapsed(Date.now() - initial.startedAt);
@@ -96,7 +100,7 @@ export function ActiveChargeCard({
     return () => window.clearInterval(handle);
   }, [initial.startedAt]);
 
-  // Fetch photo lazily if the profileId changes during the session and the
+  // Lazy photo fetch if the profileId changes during the session and the
   // initial server-side hint missed (e.g. the profile got committed AFTER
   // the page load).
   const fetchedPhotoForProfileRef = useRef<number | null>(initial.profileId);
@@ -117,9 +121,7 @@ export function ActiveChargeCard({
         setPhotoUrl(`/api/profiles/${pid}/photos/${primary.id}/file`);
       })
       .catch(() => {});
-    return () => {
-      aborted = true;
-    };
+    return () => { aborted = true; };
   }, [photoUrl, initial.profileId]);
 
   const onChargeEvent = useCallback((event: ChargeStateEvent) => {
@@ -134,7 +136,6 @@ export function ActiveChargeCard({
     if (event.etaSeconds != null) setEtaSeconds(event.etaSeconds);
     if (event.socBandConfidence != null) setBandConfidence(event.socBandConfidence);
   }, []);
-
   useChargeStream(plugId, onChargeEvent);
 
   const onReading = useCallback(
@@ -144,121 +145,198 @@ export function ActiveChargeCard({
     },
     [plugId]
   );
-
   usePowerStream(plugId, onReading);
 
   const isCountdown = state === 'countdown';
-  const accentText = isCountdown ? 'text-amber-300' : 'text-blue-300';
-  const accentRing = isCountdown ? 'ring-amber-500/60' : 'ring-blue-500/60';
-  const accentDot = isCountdown ? 'bg-amber-400' : 'bg-blue-500';
-  const fillClass = isCountdown ? 'bg-amber-400' : 'bg-blue-500';
   const isDetecting = state === 'detecting';
+  const stateColor = isCountdown ? 'var(--color-warn)' : 'var(--color-accent)';
+  const stateColorSoft = isCountdown ? 'var(--color-warn-soft)' : 'var(--color-accent-soft)';
 
   return (
     <Link
       href={`/devices/${plugId}`}
-      className={`block bg-neutral-900 rounded-lg ring-1 ${accentRing} p-4 hover:ring-2 transition-shadow`}
+      className="group relative block overflow-hidden lift-hover"
+      style={{
+        background: 'var(--color-ink-2)',
+        border: '1px solid var(--color-line-soft)',
+        borderRadius: 'var(--radius-lg)',
+      }}
     >
-      <div className="flex items-start gap-4">
-        {/* Photo (or placeholder) */}
-        <div className="shrink-0">
-          {photoUrl != null ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={photoUrl}
-              alt={profileName ?? 'Profilfoto'}
-              className="w-28 h-14 object-contain rounded-md bg-neutral-800/60 ring-1 ring-neutral-800"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-28 h-14 rounded-md bg-neutral-800/60 ring-1 ring-neutral-800 flex items-center justify-center text-[10px] text-neutral-600">
-              {isDetecting ? 'Erkenne…' : 'Kein Foto'}
+      {/* Status rail on the left edge — bleeds the full height of the card. */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{
+          background: stateColor,
+          boxShadow: `0 0 14px 0 ${stateColorSoft}`,
+        }}
+      />
+
+      {/* Subtle accent wash bottom-right — softens the hard rectangle. */}
+      <div
+        className="pointer-events-none absolute -bottom-20 -right-20 w-60 h-60 rounded-full opacity-50"
+        style={{
+          background: `radial-gradient(circle, ${stateColorSoft} 0%, transparent 60%)`,
+        }}
+      />
+
+      <div className="relative grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-5 lg:gap-7 px-6 py-5 pl-7">
+        {/* ─────────────── Identity column ─────────────── */}
+        <div className="flex items-start gap-4 lg:max-w-[280px]">
+          {/* Photo — frame with hairline border, NOT a fluffy card */}
+          <div className="shrink-0">
+            {photoUrl != null ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photoUrl}
+                alt={profileName ?? 'Profilfoto'}
+                className="w-24 h-16 object-contain"
+                style={{
+                  background: 'var(--color-ink-1)',
+                  border: '1px solid var(--color-line-soft)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+                loading="lazy"
+              />
+            ) : (
+              <div
+                className="w-24 h-16 flex items-center justify-center text-[10px] font-mono uppercase tracking-wider"
+                style={{
+                  background: 'var(--color-ink-1)',
+                  border: '1px dashed var(--color-line-soft)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                {isDetecting ? 'Scan…' : 'No Photo'}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col min-w-0 flex-1">
+            {/* Eyebrow — current state in mono caps */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="status-orb status-orb-pulse" style={{ color: stateColor }} />
+              <span
+                className="font-mono text-[10px] uppercase tracking-[0.18em] font-medium"
+                style={{ color: stateColor }}
+              >
+                {stateBadgeLabel(state)}
+              </span>
             </div>
-          )}
+            {/* Headline — profile name */}
+            <div className="text-[17px] font-semibold leading-tight text-[color:var(--color-text-strong)] truncate">
+              {profileName ?? (isDetecting ? 'Gerät wird erkannt…' : 'Unbekannt')}
+            </div>
+            {/* Sub-label — plug + IP, mono with subtle separators */}
+            <div className="mt-1 flex items-center gap-2 text-[11px] flex-wrap text-[color:var(--color-text-faint)]">
+              <span>{plugName}</span>
+              {plugIp && (
+                <>
+                  <span style={{ color: 'var(--color-text-muted)' }}>·</span>
+                  <span className="font-mono">{plugIp}</span>
+                </>
+              )}
+              {!online && (
+                <>
+                  <span style={{ color: 'var(--color-text-muted)' }}>·</span>
+                  <span className="font-mono uppercase tracking-wider" style={{ color: 'var(--color-danger)' }}>offline</span>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Main column */}
-        <div className="flex-1 min-w-0">
-          {/* Profile name + plug identity */}
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-base font-semibold text-neutral-100 truncate">
-              {profileName ?? (isDetecting ? 'Gerät wird erkannt…' : 'Unbekannt')}
-            </span>
-            <span className={`relative flex h-2 w-2 shrink-0`}>
-              <span
-                className={`absolute inline-flex h-full w-full rounded-full ${accentDot} opacity-60 animate-ping`}
-              />
-              <span
-                className={`relative inline-flex h-2 w-2 rounded-full ${accentDot}`}
-              />
-            </span>
-          </div>
-          <div className="text-[11px] text-neutral-500 mb-3 flex items-center gap-2 truncate">
-            <span>{plugName}</span>
-            {plugIp && <span className="font-mono">· {plugIp}</span>}
-            {!online && <span className="text-red-400">· offline</span>}
-          </div>
-
-          {/* SoC headline + bar */}
+        {/* ─────────────── SoC hero + bar column ─────────────── */}
+        <div className="flex flex-col justify-center lg:border-x lg:px-7 lg:border-[color:var(--color-line-faint)]">
           {estSoc != null ? (
-            <div className="mb-2">
-              <div className="flex items-baseline gap-2 mb-1.5 tabular-nums">
-                <span className="text-3xl font-bold text-neutral-100">{estSoc}</span>
-                <span className="text-sm text-neutral-500">%</span>
+            <>
+              <div className="flex items-baseline gap-3 mb-3">
+                <span className="label-eyebrow shrink-0">SoC</span>
+                <span
+                  className="font-mono-data leading-none font-medium text-[44px] sm:text-[52px] text-[color:var(--color-text-strong)]"
+                  style={{ letterSpacing: '-0.04em' }}
+                >
+                  {estSoc}
+                  <span className="text-[24px] sm:text-[28px] ml-0.5" style={{ color: 'var(--color-text-faint)' }}>%</span>
+                </span>
                 {socMin != null && socMax != null && socMax - socMin > 1 && (
-                  <span className="text-[11px] text-neutral-500 ml-0.5">
-                    ({socMin}–{socMax} %)
+                  <span
+                    className="font-mono text-[11px] tabular-nums"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    ±{Math.round((socMax - socMin) / 2)}
                   </span>
                 )}
-                <span className={`ml-auto text-xs ${accentText}`}>
-                  Ziel {targetSoc} %
-                </span>
               </div>
               <SocConfidenceBar
                 socBest={estSoc}
                 socMin={socMin ?? estSoc}
                 socMax={socMax ?? estSoc}
                 targetSoc={targetSoc}
-                fillClass={fillClass}
+                fillColor={stateColor}
                 bandConfidence={bandConfidence ?? undefined}
+                hideTargetCaption
               />
-            </div>
+            </>
           ) : (
-            <div className="text-sm text-neutral-500 mb-2">
-              Gerät wird erkannt …
+            <div className="flex items-center gap-3">
+              <span className="status-orb status-orb-pulse" style={{ color: 'var(--color-accent)' }} />
+              <span className="text-[14px] text-[color:var(--color-text-soft)]">
+                Lade-Charakteristik wird abgeglichen…
+              </span>
             </div>
           )}
+        </div>
 
-          {/* Stats row */}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-400 tabular-nums mt-2">
-            <span>
-              <span className="text-neutral-200 font-medium">{formatEnergy(energyWh)}</span>
-              <span className="text-neutral-500 ml-1">geladen</span>
-            </span>
-            {energyRemainingWh != null && energyRemainingWh > 0 && (
-              <span>
-                <span className="text-neutral-200 font-medium">{formatEnergy(energyRemainingWh)}</span>
-                <span className="text-neutral-500 ml-1">fehlen</span>
-              </span>
-            )}
-            <span>
-              <span className="text-neutral-500">seit</span>{' '}
-              <span className="text-neutral-200 font-medium">{formatElapsed(elapsed)}</span>
-            </span>
-            {etaSeconds != null && etaSeconds > 0 && (
-              <span>
-                <span className="text-neutral-500">noch</span>{' '}
-                <span className="text-neutral-200 font-medium">{formatDurationMinutes(etaSeconds)}</span>
-              </span>
-            )}
-            {watts != null && (
-              <span className="ml-auto">
-                <span className="text-neutral-200 font-medium">{watts.toFixed(1)} W</span>
-              </span>
-            )}
-          </div>
+        {/* ─────────────── Stats column ─────────────── */}
+        <div className="grid grid-cols-2 lg:grid-cols-1 lg:auto-rows-min gap-x-6 gap-y-3 lg:gap-y-2.5 lg:min-w-[150px]">
+          <StatLine label="Ziel" value={`${targetSoc}%`} accent="var(--color-warn)" mono />
+          {watts != null && (
+            <StatLine
+              label="Live"
+              value={`${watts.toFixed(0)} W`}
+              accent="var(--color-text-strong)"
+              mono
+            />
+          )}
+          <StatLine label="Seit" value={formatElapsed(elapsed)} />
+          {etaSeconds != null && etaSeconds > 0 && (
+            <StatLine
+              label="ETA"
+              value={`~${formatDurationMinutes(etaSeconds)}`}
+              accent={isCountdown ? 'var(--color-warn)' : 'var(--color-text-default)'}
+            />
+          )}
+          <StatLine label="Geladen" value={formatEnergy(energyWh)} />
+          {energyRemainingWh != null && energyRemainingWh > 0 && (
+            <StatLine label="Fehlen" value={formatEnergy(energyRemainingWh)} />
+          )}
         </div>
       </div>
     </Link>
+  );
+}
+
+function StatLine({
+  label,
+  value,
+  accent = 'var(--color-text-default)',
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span className="label-eyebrow">{label}</span>
+      <span
+        className={`text-[15px] leading-none truncate ${mono ? 'font-mono-data font-medium' : 'font-medium'}`}
+        style={{ color: accent }}
+      >
+        {value}
+      </span>
+    </div>
   );
 }

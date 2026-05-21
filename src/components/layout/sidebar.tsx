@@ -5,13 +5,27 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { UpdateInfoView } from '@/modules/self-update/types';
 
-const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard' },
-  { href: '/devices', label: 'Geräte' },
-  { href: '/profiles', label: 'Profile' },
-  { href: '/chargers', label: 'Ladegeräte' },
-  { href: '/settings', label: 'Einstellungen' },
-  { href: '/history', label: 'Verlauf' },
+/**
+ * Sidebar — "instrument rail" treatment.
+ *
+ * Brand mark sits at the top: a mono call-sign + name, both with the cyan
+ * accent reduced to a hairline underline that re-establishes the brand
+ * without shouting. Section divider hairlines separate primary nav from
+ * "live status" indicators (active learning sessions). Active-state on
+ * a nav row is a 2 px cyan rail on the LEFT — a borrowed pattern from
+ * pro DAW / Linear sidebars that's far more legible than a fill.
+ */
+
+type NavItem = { href: string; label: string; abbr: string };
+
+const NAV_ITEMS: NavItem[] = [
+  { href: '/', label: 'Dashboard', abbr: '01' },
+  { href: '/devices', label: 'Geräte', abbr: '02' },
+  { href: '/profiles', label: 'Profile', abbr: '03' },
+  { href: '/chargers', label: 'Ladegeräte', abbr: '04' },
+  { href: '/catalog', label: 'Katalog', abbr: '05' },
+  { href: '/history', label: 'Verlauf', abbr: '06' },
+  { href: '/settings', label: 'Einstellungen', abbr: '07' },
 ];
 
 function useActiveLearnCount() {
@@ -30,7 +44,7 @@ function useActiveLearnCount() {
           setCount(Array.isArray(sessions) ? sessions.filter((s: { state: string }) => s.state === 'learning').length : 0);
         }
       } catch {
-        // ignore (includes AbortError on unmount)
+        /* ignore (includes AbortError on unmount) */
       }
     }
 
@@ -46,15 +60,6 @@ function useActiveLearnCount() {
   return count;
 }
 
-/**
- * Polls GET /api/update/status every 60s to reflect the update-available state
- * in the nav without requiring a page reload.
- *
- * Rationale for 60s cadence: the background checker runs every 6h so the
- * nav badge only needs to catch up every so often. A faster cadence would
- * just hit the local /api/update/status endpoint unnecessarily (though that
- * is <50ms so the cost is negligible). 60s is a safe middle ground.
- */
 function useUpdateAvailable(): boolean {
   const [available, setAvailable] = useState(false);
 
@@ -74,12 +79,12 @@ function useUpdateAvailable(): boolean {
           setAvailable(Boolean(info.updateAvailable));
         }
       } catch {
-        // ignore (includes AbortError on unmount)
+        /* ignore */
       }
     }
 
     check();
-    const interval = setInterval(check, 60000); // 60 seconds
+    const interval = setInterval(check, 60000);
     return () => {
       cancelled = true;
       ctrl.abort();
@@ -101,51 +106,140 @@ export function Sidebar() {
   }
 
   return (
-    <nav className="w-64 h-screen bg-neutral-900 border-r border-neutral-800 flex flex-col p-4 shrink-0">
-      <div className="text-lg font-bold text-neutral-100 mb-8">
-        Charging Master
-      </div>
+    <nav
+      className="w-64 h-screen flex flex-col shrink-0"
+      style={{
+        background: 'var(--color-ink-1)',
+        borderRight: '1px solid var(--color-line-soft)',
+      }}
+    >
+      {/* Brand mark — mono call-sign with a thin cyan underbar. */}
+      <Link
+        href="/"
+        className="block px-5 pt-6 pb-5 group"
+      >
+        <div className="flex items-baseline gap-2.5">
+          <span
+            className="font-mono text-[11px] tracking-[0.22em] uppercase"
+            style={{ color: 'var(--color-accent)' }}
+          >
+            CM
+          </span>
+          <span className="text-[15px] font-medium tracking-tight text-[color:var(--color-text-strong)]">
+            Charging Master
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <span
+            className="block h-px w-6 transition-all duration-200 group-hover:w-10"
+            style={{ background: 'var(--color-accent)' }}
+          />
+          <span className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--color-text-muted)]">
+            v1.8
+          </span>
+        </div>
+      </Link>
 
-      <div className="flex flex-col gap-1 flex-1">
+      <div className="hairline mx-5" />
+
+      {/* Primary navigation. The active item gets a 2 px cyan rail on the
+          left edge of the row + a slightly elevated surface, instead of a
+          full background fill — far more legible at a glance. */}
+      <ul className="flex flex-col gap-px py-3 px-3">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
           const showUpdateDot = item.href === '/settings' && updateAvailable;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`relative flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-neutral-800 text-neutral-100'
-                  : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50'
-              }`}
-            >
-              {item.label}
-              {showUpdateDot && (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                className="relative flex items-center gap-3 pl-4 pr-3 py-[7px] rounded-[6px] text-[13px] font-medium transition-colors group"
+                style={{
+                  color: active
+                    ? 'var(--color-text-strong)'
+                    : 'var(--color-text-soft)',
+                  background: active ? 'var(--color-ink-3)' : 'transparent',
+                }}
+              >
+                {/* Cyan rail — only visible on active. Fades on hover for
+                    inactive rows so the user gets a hint of where the row
+                    would land. */}
                 <span
-                  className="ml-auto inline-flex h-2 w-2 rounded-full bg-red-500"
-                  aria-label="Update verfügbar"
-                  title="Update verfügbar"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r-full transition-all duration-150"
+                  style={{
+                    background: active
+                      ? 'var(--color-accent)'
+                      : 'transparent',
+                    boxShadow: active
+                      ? '0 0 8px 0 var(--color-accent-glow)'
+                      : 'none',
+                  }}
                 />
-              )}
-            </Link>
+
+                {/* Mono index — "01 Dashboard" — makes the rail feel
+                    deliberately serialised, like an instrument panel. */}
+                <span
+                  className="font-mono text-[10px] tabular-nums"
+                  style={{
+                    color: active
+                      ? 'var(--color-accent)'
+                      : 'var(--color-text-muted)',
+                  }}
+                >
+                  {item.abbr}
+                </span>
+                <span className="flex-1">{item.label}</span>
+                {showUpdateDot && (
+                  <span
+                    aria-label="Update verfügbar"
+                    title="Update verfügbar"
+                    className="status-orb"
+                    style={{ color: 'var(--color-warn)' }}
+                  />
+                )}
+              </Link>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
-      {/* Active learning sessions indicator */}
+      <div className="flex-1" />
+
+      {/* Live-status footer — active learn sessions get their own pulsing
+          channel here so the user always knows a learn is running, no
+          matter what page they're on. */}
       {activeLearnCount > 0 && (
-        <Link
-          href="/profiles/learn"
-          className="flex items-center gap-2 px-3 py-2 mb-2 rounded-md bg-green-500/10 border border-green-500/20 text-xs text-green-300 hover:bg-green-500/20 transition-colors"
-        >
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-          </span>
-          {activeLearnCount} Lernvorgang{activeLearnCount !== 1 ? 'e' : ''} aktiv
-        </Link>
+        <>
+          <div className="hairline mx-5" />
+          <Link
+            href="/profiles/learn"
+            className="mx-3 my-3 flex items-center gap-3 px-3 py-2.5 rounded-md lift-hover group"
+            style={{
+              background: 'var(--color-ok-soft)',
+              border: '1px solid color-mix(in srgb, var(--color-ok) 30%, transparent)',
+            }}
+          >
+            <span className="status-orb status-orb-pulse" style={{ color: 'var(--color-ok)' }} />
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.16em] font-medium" style={{ color: 'var(--color-ok)' }}>
+                Live
+              </div>
+              <div className="text-[12px] text-[color:var(--color-text-default)] truncate">
+                {activeLearnCount} Lernvorgang{activeLearnCount !== 1 ? 'e' : ''} aktiv
+              </div>
+            </div>
+          </Link>
+        </>
       )}
+
+      {/* Bottom-of-rail metadata — distinct from nav, looks "stamped". */}
+      <div
+        className="px-5 py-4 flex items-center justify-between"
+        style={{ borderTop: '1px solid var(--color-line-faint)' }}
+      >
+        <span className="label-eyebrow">LAN · single-user</span>
+        <span className="status-orb" style={{ color: 'var(--color-ok)' }} />
+      </div>
     </nav>
   );
 }

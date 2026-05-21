@@ -34,27 +34,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen md:h-screen md:overflow-hidden">
-      {/* Mobile top bar (hidden on md+) */}
-      <header className="md:hidden fixed top-0 inset-x-0 z-30 h-12 bg-neutral-900/95 backdrop-blur border-b border-neutral-800 flex items-center justify-between px-3">
+      {/* Mobile top bar — translucent, hairline border, mono brand mark. */}
+      <header
+        className="md:hidden fixed top-0 inset-x-0 z-30 h-12 flex items-center justify-between px-3 backdrop-blur-xl"
+        style={{
+          background: 'color-mix(in srgb, var(--color-ink-1) 85%, transparent)',
+          borderBottom: '1px solid var(--color-line-soft)',
+        }}
+      >
         <button
           type="button"
           aria-label="Menü öffnen"
           aria-expanded={drawerOpen}
           onClick={() => setDrawerOpen((v) => !v)}
-          className="p-2 -ml-2 rounded text-neutral-300 hover:bg-neutral-800 active:bg-neutral-700 transition-colors"
+          className="p-2 -ml-2 rounded text-[color:var(--color-text-soft)] hover:text-[color:var(--color-text-strong)] hover:bg-[color:var(--color-ink-3)] active:bg-[color:var(--color-ink-4)] transition-colors"
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
             <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
           </svg>
         </button>
-        <div className="text-sm font-semibold text-neutral-100">Charging Master</div>
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[11px] tracking-[0.18em] uppercase text-[color:var(--color-accent)]">
+            CM
+          </span>
+          <span className="text-sm font-medium text-[color:var(--color-text-strong)]">
+            Charging Master
+          </span>
+        </div>
         <div className="w-9" aria-hidden />
       </header>
 
       {/* Backdrop (mobile only, when drawer open) */}
       {drawerOpen && (
         <div
-          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          className="md:hidden fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
           onClick={() => setDrawerOpen(false)}
           aria-hidden
         />
@@ -69,8 +82,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar />
       </aside>
 
-      <main className="flex-1 overflow-y-auto bg-neutral-950 p-4 md:p-6 pt-16 md:pt-6">
-        {children}
+      <main
+        className="flex-1 overflow-y-auto p-4 md:p-8 pt-16 md:pt-8"
+        style={{ background: 'transparent' }}
+      >
+        <div className="mx-auto max-w-7xl">
+          {children}
+        </div>
       </main>
     </div>
   );

@@ -104,12 +104,14 @@ export function DashboardChargeBanners({
   const idlePlugs = plugs.filter((p) => !(p.id in activeByPlug));
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       {activePlugs.length > 0 && (
         <section>
-          <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">
-            Aktive Ladevorgänge
-          </div>
+          <SectionHeader
+            label="Aktiv"
+            count={activePlugs.length}
+            accent="var(--color-accent)"
+          />
           <div className="flex flex-col gap-3">
             {activePlugs.map((plug) => (
               <ActiveChargeCard
@@ -127,11 +129,10 @@ export function DashboardChargeBanners({
 
       {idlePlugs.length > 0 && (
         <section>
-          {activePlugs.length > 0 && (
-            <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">
-              Andere Steckdosen
-            </div>
-          )}
+          <SectionHeader
+            label={activePlugs.length > 0 ? 'Bereit' : 'Geräte'}
+            count={idlePlugs.length}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {idlePlugs.map((plug) => (
               <PlugCard key={plug.id} plug={plug} />
@@ -139,6 +140,34 @@ export function DashboardChargeBanners({
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+function SectionHeader({
+  label,
+  count,
+  accent = 'var(--color-text-faint)',
+}: {
+  label: string;
+  count: number;
+  accent?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <span
+        className="font-mono text-[10px] uppercase tracking-[0.2em] font-medium"
+        style={{ color: accent }}
+      >
+        {label}
+      </span>
+      <span
+        className="font-mono text-[10px] tabular-nums"
+        style={{ color: 'var(--color-text-muted)' }}
+      >
+        {count.toString().padStart(2, '0')}
+      </span>
+      <span className="flex-1 h-px" style={{ background: 'var(--color-line-faint)' }} />
     </div>
   );
 }
