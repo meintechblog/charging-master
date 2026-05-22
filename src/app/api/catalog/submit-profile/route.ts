@@ -16,9 +16,9 @@ export const runtime = 'nodejs';
  * Body: { profileId: number, mode?: 'auto' | 'manual', commitMessage?: string }
  *
  * Validates the local profile against catalog quality gates and either
- * commits the new entries to GitHub directly (mode=auto, requires
- * config.github.contentsToken to be set) or returns the artifacts for the
- * caller to download + commit manually.
+ * opens a PR with the new entries via the GitHub App (mode=auto, requires
+ * the GITHUB_APP_* env vars per docs/CATALOG_AUTOSYNC.md) or returns the
+ * artifacts for the caller to download + submit manually.
  *
  * Always returns the issue list — submit goes through only when there are
  * no severity=error issues.
