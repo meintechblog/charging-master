@@ -9,12 +9,15 @@ type SyncStatus = {
   autoSyncEnabled: boolean;
   tokenConfigured: boolean;
   canAutoSync: boolean;
+  disabledReason: string | null;
+  lastPr: { number: number; url: string; branch: string | null } | null;
   lastSuccess: {
     profileId: number | null;
     profileName: string | null;
     catalogProfileId: string | null;
     reason: string;
     commitSha: string | null;
+    prUrl: string | null;
     createdAt: number;
   } | null;
   recentSyncErrors: Array<{
@@ -65,33 +68,29 @@ function useAutoSave(key: string, value: string, initialValue: string) {
   return saveStatus;
 }
 
-const inputClasses = 'bg-neutral-800 border border-neutral-700 text-neutral-100 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none';
-
 export function CatalogSettings({ initialSettings }: Props) {
   const initialEnabled = initialSettings['catalog.enabled'] === 'true' ? 'true' : 'false';
-  const initialToken = initialSettings['github.contentsToken'] ?? '';
-  const initialRepo = initialSettings['github.repo'] ?? '';
-  // catalog.autoSync defaults to "false" when absent — matches server-side
-  // isAutoSyncEnabled() while the feature is parked (see auto-sync.ts).
-  const initialAutoSync = initialSettings['catalog.autoSync'] === 'true' ? 'true' : 'false';
+  // Default 'true' wenn die config-row nicht existiert; matched server-side
+  // isAutoSyncEnabled() default (auto-sync.ts). Explizites 'false' deaktiviert.
+  const initialAutoSync = initialSettings['catalog.autoSync'] === 'false' ? 'false' : 'true';
 
   const [enabled, setEnabled] = useState(initialEnabled);
-  const [token, setToken] = useState(initialToken);
-  const [repo, setRepo] = useState(initialRepo);
   const [autoSync, setAutoSync] = useState(initialAutoSync);
 
   const saveStatus = useAutoSave('catalog.enabled', enabled, initialEnabled);
-  const tokenStatus = useAutoSave('github.contentsToken', token, initialToken);
-  const repoStatus = useAutoSave('github.repo', repo, initialRepo);
   const autoSyncStatus = useAutoSave('catalog.autoSync', autoSync, initialAutoSync);
 
   const isOn = enabled === 'true';
-  const hasToken = token.trim().length > 0;
   const isAutoSyncOn = autoSync === 'true';
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [backfillState, setBackfillState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [backfillResult, setBackfillResult] = useState<{ requested: number; synced: number; firstError?: string } | null>(null);
+
+  // hasToken comes from the server (env-based GitHub-App-Konfiguration),
+  // nicht aus einem UI-Input. Wenn das Backend env-vars nicht parst,
+  // ist hasToken false und das Widget zeigt den disabledReason.
+  const hasToken = syncStatus?.tokenConfigured ?? false;
 
   const reloadStatus = useCallback(async () => {
     try {
@@ -171,96 +170,106 @@ export function CatalogSettings({ initialSettings }: Props) {
         </div>
       )}
 
-      {isOn && (
-        <div className="border-t border-neutral-800 pt-3 space-y-2">
-          <div className="text-xs font-medium text-neutral-300">Eigene Profile in den Katalog publishen (optional)</div>
-          <p className="text-[11px] text-neutral-500 leading-relaxed">
-            Wenn ein GitHub Personal Access Token mit{' '}
-            <code className="text-neutral-400">contents:write</code> Scope hinterlegt ist, kann die App
-            geprüfte Profile mit einem Klick direkt ins Repo commiten. Sonst kannst du die Artefakte
-            herunterladen und manuell per PR einreichen.
+      {isOn && !hasToken && (
+        <div className="border-t border-neutral-800 pt-3 space-y-1">
+          <p className="text-[11px] text-amber-300 leading-relaxed">
+            GitHub-App ist nicht vollständig konfiguriert. Auto-Sync ist deaktiviert.
           </p>
-          <label className="block">
-            <span className="block text-[11px] text-neutral-400 mb-1">GitHub Personal Access Token</span>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="github_pat_…"
-              className={inputClasses + ' w-full font-mono text-xs'}
-              autoComplete="off"
-            />
-          </label>
-          <label className="block">
-            <span className="block text-[11px] text-neutral-400 mb-1">
-              GitHub Repository (Default: <code className="text-neutral-500">meintechblog/charging-master</code>)
-            </span>
-            <input
-              type="text"
-              value={repo}
-              onChange={(e) => setRepo(e.target.value)}
-              placeholder="owner/repo"
-              className={inputClasses + ' w-full text-xs'}
-              autoComplete="off"
-            />
-          </label>
-          <p className="text-[11px] text-neutral-500">
-            Status:{' '}
-            {hasToken ? (
-              <span className="text-green-400">Auto-Publish aktiv</span>
-            ) : (
-              <span className="text-neutral-400">Manuell — Artefakte werden zum Download angeboten</span>
-            )}
+          {syncStatus?.disabledReason && (
+            <p className="text-[11px] text-neutral-500 font-mono break-all">
+              {syncStatus.disabledReason}
+            </p>
+          )}
+          <p className="text-[11px] text-neutral-500 leading-relaxed">
+            Siehe{' '}
+            <a
+              href="https://github.com/meintechblog/charging-master/blob/main/docs/CATALOG_AUTOSYNC.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              docs/CATALOG_AUTOSYNC.md
+            </a>{' '}
+            für die Einrichtung.
           </p>
         </div>
       )}
 
       {isOn && hasToken && (
-        <div className="border-t border-neutral-800 pt-3 space-y-3 relative">
-          <div className="flex items-center justify-between gap-2">
-            <label className="flex items-center gap-3 select-none cursor-not-allowed opacity-40">
-              <input
-                type="checkbox"
-                checked={false}
-                disabled
-                className="w-4 h-4 accent-blue-500"
-              />
-              <span className="text-sm text-neutral-200">
-                Auto-Sync der Profile
-              </span>
-            </label>
-            <span className="px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/60 text-amber-300 text-[10px] font-medium uppercase tracking-wide">
-              Noch in Arbeit
-            </span>
-          </div>
-          <p className="text-[11px] text-neutral-500 leading-relaxed -mt-1 opacity-60">
-            Wenn aktiv, werden Änderungen an einem Profil (neues Foto, Curve-Save, Metadaten-Edit, Ladegerät-Edit)
-            automatisch ~15s später in den Katalog auf GitHub gepushed.
-          </p>
-          <p className="text-[11px] text-amber-300/70 leading-relaxed">
-            Der Auto-Sync wird zurückgestellt, bis das Auth-Modell (GitHub PAT vs. GitHub App vs. PR-basiert) entschieden ist.
-            Du kannst Profile bis dahin weiterhin manuell über die Profil-Detailseite einreichen.
+        <div className="border-t border-neutral-800 pt-3 space-y-3">
+          <p className="text-[11px] text-neutral-500 leading-relaxed">
+            GitHub-App ist via Environment konfiguriert. Auto-Sync öffnet Pull Requests im Catalog-Repo.
           </p>
 
-          <div className="flex items-center justify-between gap-3 pt-1 opacity-40">
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isAutoSyncOn}
+                onChange={(e) => setAutoSync(e.target.checked ? 'true' : 'false')}
+                className="w-4 h-4 accent-blue-500"
+              />
+              <span className="text-sm text-neutral-200">Auto-Sync der Profile</span>
+            </label>
+          </div>
+          <p className="text-[11px] text-neutral-500 leading-relaxed -mt-1">
+            Wenn aktiv, werden Änderungen an einem Profil (neues Foto, Curve-Save, Metadaten-Edit, Ladegerät-Edit)
+            automatisch ~15s später als Pull Request im Catalog-Repo geöffnet.
+          </p>
+
+          {syncStatus?.lastPr && (
+            <p className="text-[11px] text-neutral-400">
+              Letzter PR:{' '}
+              <a
+                href={syncStatus.lastPr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                #{syncStatus.lastPr.number}
+              </a>
+              {syncStatus.lastSuccess && (
+                <span className="text-neutral-500"> · {formatRelative(syncStatus.lastSuccess.createdAt)}</span>
+              )}
+            </p>
+          )}
+
+          <div className="flex items-center justify-between gap-3 pt-1">
             <p className="text-[11px] text-neutral-500 leading-snug">
-              Backfill: Alle lokalen Profile mit Referenzkurve neu publishen — z. B. nach erstmaliger Token-Eingabe.
+              Backfill: Alle lokalen Profile mit Referenzkurve als PRs öffnen.
             </p>
             <button
               type="button"
-              disabled
-              className="px-3 py-1.5 rounded-md bg-neutral-700 text-neutral-500 text-xs font-medium whitespace-nowrap cursor-not-allowed"
+              onClick={triggerBackfill}
+              disabled={backfillState === 'running'}
+              className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-medium whitespace-nowrap transition-colors"
             >
-              Jetzt synchronisieren
+              {backfillState === 'running' ? 'Synchronisiere…' : 'Jetzt synchronisieren'}
             </button>
           </div>
+
+          {backfillResult && (
+            <div className={`text-[11px] ${backfillState === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>
+              {backfillState === 'done' && (
+                <>
+                  Backfill: {backfillResult.synced} von {backfillResult.requested} Profilen synchronisiert.
+                  {backfillResult.firstError && (
+                    <span className="block text-amber-400 mt-1">Erster Fehler: {backfillResult.firstError}</span>
+                  )}
+                </>
+              )}
+              {backfillState === 'error' && (
+                <>Fehler: {backfillResult.firstError ?? 'Unbekannt'}</>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       <div className="text-xs text-neutral-500 h-4">
-        {(saveStatus === 'saving' || tokenStatus === 'saving' || repoStatus === 'saving' || autoSyncStatus === 'saving') && <span>Speichere…</span>}
-        {(saveStatus === 'saved' || tokenStatus === 'saved' || repoStatus === 'saved' || autoSyncStatus === 'saved') &&
-          !(saveStatus === 'saving' || tokenStatus === 'saving' || repoStatus === 'saving' || autoSyncStatus === 'saving') && (
+        {(saveStatus === 'saving' || autoSyncStatus === 'saving') && <span>Speichere…</span>}
+        {(saveStatus === 'saved' || autoSyncStatus === 'saved') &&
+          !(saveStatus === 'saving' || autoSyncStatus === 'saving') && (
             <span className="text-green-400">Gespeichert ✓</span>
           )}
       </div>
