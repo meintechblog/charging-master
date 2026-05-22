@@ -31,14 +31,16 @@ const debounceTimers = new Map<number, NodeJS.Timeout>();
 const pendingReason = new Map<number, string>();
 
 export function isAutoSyncEnabled(): boolean {
-  // PARKED 2026-05-20: feature deferred until we decide on the GitHub auth
-  // model (PAT vs GitHub App vs PR-based). Backend wiring kept in place so
-  // we can re-enable by changing the default below. UI is greyed out in
-  // catalog-settings.tsx.
+  // Default true (Phase 14: GitHub App auth landed, no longer parked).
+  // Operator can disable via the catalog-settings.tsx toggle, which writes
+  // 'false' to the config row. Missing row = default-on. Explicit 'false'
+  // disables; any other value (incl. empty string, 'true') = on.
+  // DB-error → false (defensive: never accidentally sync without a
+  // working DB).
   try {
     const row = db.select().from(config).where(eq(config.key, AUTO_SYNC_KEY)).get();
-    if (!row) return false;
-    return row.value === 'true';
+    if (!row) return true;
+    return row.value !== 'false';
   } catch {
     return false;
   }
