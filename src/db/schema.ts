@@ -288,6 +288,10 @@ export const catalogSyncLog = sqliteTable('catalog_sync_log', {
     enum: ['success', 'error', 'skipped'] as const,
   }).notNull(),
   commitSha: text('commit_sha'),
+  // Phase 14 (v2 PR-flow): URL of the PR opened for this sync attempt.
+  // NULL for legacy rows (pre-v2 PAT direct-push wrote commit_sha directly
+  // to main) and for skipped/error rows where no PR was opened.
+  prUrl: text('pr_url'),
   filesCommitted: integer('files_committed'),
   errorMessage: text('error_message'),
   createdAt: integer('created_at').notNull(),
