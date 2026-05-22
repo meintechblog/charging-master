@@ -1,0 +1,71 @@
+# Validates auto-sync PRs opened on submissions/** branches.
+# Copy this file into your catalog repo at .github/workflows/validate-catalog-submission.yml
+# together with the companion .github/scripts/validate-catalog.mjs.
+
+name: Validate catalog submission
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate:
+    # Only run for auto-sync branches — manual edits on other branches skip this.
+    if: startsWith(github.head_ref, 'submissions/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect changed files
+        id: diff
+        run: |
+          git diff --name-only "origin/${{ github.base_ref }}...HEAD" > changed.txt
+          echo "Changed files:"
+          cat changed.txt
+
+      - name: Path allowlist
+        run: |
+          while read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              catalog/profiles/*|catalog/chargers/*|catalog/INDEX.json) ;;
+              *)
+                echo "::error file=$f::Path not in allowlist (only catalog/profiles/**, catalog/chargers/**, and catalog/INDEX.json)"
+                exit 1
+                ;;
+            esac
+          done < changed.txt
+
+      - name: Image size limit (2 MB)
+        run: |
+          while read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              *.jpg|*.jpeg|*.png)
+                if [ -f "$f" ]; then
+                  size=$(stat -c%s "$f")
+                  if [ "$size" -gt 2097152 ]; then
+                    echo "::error file=$f::Image exceeds 2 MB ($size bytes)"
+                    exit 1
+                  fi
+                fi
+                ;;
+            esac
+          done < changed.txt
+
+      - name: JSON parse + schema validation
+        run: node .github/scripts/validate-catalog.mjs changed.txt
+
+      - name: Commit message format
+        run: |
+          if ! git log --format=%s "origin/${{ github.base_ref }}..HEAD" | grep -q '^catalog: auto-sync '; then
+            echo "::error::At least one commit message must start with 'catalog: auto-sync '"
+            exit 1
+          fi
