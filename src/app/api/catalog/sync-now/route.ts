@@ -12,8 +12,7 @@ export const runtime = 'nodejs';
 /**
  * POST /api/catalog/sync-now
  * Body: { profileId?: number } — if absent, syncs every profile that has a
- * reference curve (used as a backfill after the user pastes a GitHub token
- * for the first time).
+ * reference curve (used as a backfill after first-time GitHub App env wiring).
  *
  * Bypasses the debounce. Sequential to avoid hammering the GitHub Data API
  * during a backfill of dozens of profiles.
@@ -23,7 +22,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'catalog_disabled' }, { status: 403 });
   }
   if (!isGitHubPublishConfigured()) {
-    return Response.json({ error: 'github_token_not_configured' }, { status: 412 });
+    return Response.json({ error: 'github_app_env_missing' }, { status: 412 });
   }
 
   let body: { profileId?: number } = {};
