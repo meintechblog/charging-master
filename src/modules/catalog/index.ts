@@ -19,7 +19,14 @@ export { loadIndex, loadProfile, loadCharger, loadCurvePoints, readPhoto } from 
 export { findMatches, resamplePower } from './match';
 export { importProfile, importChargerOnly } from './import';
 export { buildPublishBundle, rebuildIndex, type PublishBundle, type PublishArtifact, type ValidationIssue } from './publish';
-export { publishToGitHub, isGitHubPublishConfigured, type GitHubPushResult } from './github-publish';
+export {
+  publishToGitHub,
+  isGitHubPublishConfigured,
+  getGitHubPublishStatus,
+  type GitHubPushResult,
+  type GitHubPublishResult,
+  type PublishMeta,
+} from './github-publish';
 export {
   scheduleCatalogSync,
   runSyncOnce,
