@@ -50,6 +50,7 @@ function logSync(entry: {
   reason: string;
   status: 'success' | 'error' | 'skipped';
   commitSha?: string | null;
+  prUrl?: string | null;
   filesCommitted?: number;
   errorMessage?: string | null;
 }): void {
@@ -60,6 +61,7 @@ function logSync(entry: {
       reason: entry.reason,
       status: entry.status,
       commitSha: entry.commitSha ?? null,
+      prUrl: entry.prUrl ?? null,
       filesCommitted: entry.filesCommitted ?? null,
       errorMessage: entry.errorMessage ?? null,
       createdAt: Date.now(),
@@ -134,6 +136,7 @@ export async function runSyncOnce(profileId: number, reason: string): Promise<{
   ok: boolean;
   status: 'success' | 'error' | 'skipped';
   commitSha?: string | null;
+  prUrl?: string | null;
   filesCommitted?: number;
   error?: string;
 }> {
@@ -144,8 +147,8 @@ export async function runSyncOnce(profileId: number, reason: string): Promise<{
     return { ok: false, status: 'skipped', error: 'catalog_disabled' };
   }
   if (!isGitHubPublishConfigured()) {
-    logSync({ profileId, catalogProfileId: null, reason, status: 'skipped', errorMessage: 'github_token_not_configured' });
-    return { ok: false, status: 'skipped', error: 'github_token_not_configured' };
+    logSync({ profileId, catalogProfileId: null, reason, status: 'skipped', errorMessage: 'github_app_env_missing' });
+    return { ok: false, status: 'skipped', error: 'github_app_env_missing' };
   }
 
   try {
@@ -200,7 +203,13 @@ export async function runSyncOnce(profileId: number, reason: string): Promise<{
     const profileLabel = filteredProfiles[0]?.name ?? `profile ${bundle.profileId.slice(0, 8)}`;
     const message = `catalog: auto-sync ${reason} (${profileLabel})`;
 
-    const push = await publishToGitHub([...bundle.artifacts, indexArtifact], message);
+    // Slugify the first profile's name for the submission branch — kebab-case,
+    // lowercase, max 60 chars. github-publish defaults to 'profile' if empty.
+    const profileSlug = filteredProfiles[0]?.name
+      ? filteredProfiles[0].name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+      : `profile-${bundle.profileId.slice(0, 8)}`;
+
+    const push = await publishToGitHub([...bundle.artifacts, indexArtifact], message, { profileSlug });
 
     if (push.ok) {
       logSync({
@@ -209,10 +218,17 @@ export async function runSyncOnce(profileId: number, reason: string): Promise<{
         reason,
         status: 'success',
         commitSha: push.commitSha,
+        prUrl: push.prUrl ?? null,
         filesCommitted: push.filesCommitted.length,
       });
       breakerUntil.delete(profileId);
-      return { ok: true, status: 'success', commitSha: push.commitSha, filesCommitted: push.filesCommitted.length };
+      return {
+        ok: true,
+        status: 'success',
+        commitSha: push.commitSha,
+        prUrl: push.prUrl ?? null,
+        filesCommitted: push.filesCommitted.length,
+      };
     }
 
     logSync({
@@ -220,6 +236,11 @@ export async function runSyncOnce(profileId: number, reason: string): Promise<{
       catalogProfileId: bundle.profileId,
       reason,
       status: 'error',
+      // commitSha may be set even on failure (e.g. PR-creation failed AFTER the
+      // commit object existed). Preserve it for forensics. Defensive — current
+      // stage order makes this rare.
+      commitSha: push.commitSha ?? null,
+      prUrl: push.prUrl ?? null,
       errorMessage: push.error ?? 'unknown',
     });
     recordFailure(profileId);
