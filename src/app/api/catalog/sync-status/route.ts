@@ -5,9 +5,11 @@ import {
   isCatalogEnabled,
   isAutoSyncEnabled,
   isGitHubPublishConfigured,
+  getGitHubPublishStatus,
   getRecentSyncLog,
   getLastSuccessfulSync,
 } from '@/modules/catalog';
+import { parsePrNumber } from './parse-pr-number';
 
 export const runtime = 'nodejs';
 
@@ -20,6 +22,7 @@ export async function GET() {
   const catalogEnabled = isCatalogEnabled();
   const autoSyncEnabled = isAutoSyncEnabled();
   const tokenConfigured = isGitHubPublishConfigured();
+  const { disabledReason } = getGitHubPublishStatus();
 
   const lastSuccess = getLastSuccessfulSync();
   const recent = getRecentSyncLog(25);
@@ -41,11 +44,22 @@ export async function GET() {
     .limit(5)
     .all();
 
+  // Derive lastPr from the most recent successful sync's pr_url. Branch is
+  // not persisted separately in catalog_sync_log (would need another
+  // migration); the URL + number are enough for the UI to render the link.
+  const lastPrNumber = parsePrNumber(lastSuccess?.prUrl ?? null);
+  const lastPr =
+    lastSuccess?.prUrl && lastPrNumber != null
+      ? { number: lastPrNumber, url: lastSuccess.prUrl, branch: null as string | null }
+      : null;
+
   return Response.json({
     catalogEnabled,
     autoSyncEnabled,
     tokenConfigured,
     canAutoSync: catalogEnabled && autoSyncEnabled && tokenConfigured,
+    disabledReason,
+    lastPr,
     lastSuccess: lastSuccess
       ? {
           ...lastSuccess,
