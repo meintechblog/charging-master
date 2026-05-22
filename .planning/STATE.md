@@ -80,6 +80,10 @@ Progress: [##########] 100% (v1.0 + v1.1 + v1.2 + v1.3 code-complete; v1.3 ready
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 14 added 2026-05-22: Catalog Auto-Sync v2 — GitHub App + PR-Flow. Un-parks the catalog auto-sync work (parked 2026-05-20 in `1556520`) by swapping the planned PAT auth for a GitHub App with JWT-minted short-lived installation tokens + PR-flow on `submissions/*` branches + branch protection on `main` + CI schema validation. Backend infra from `700e6eb` is reused; this phase replaces only the publish auth + flow and re-enables the UI.
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.

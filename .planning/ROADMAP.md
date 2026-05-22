@@ -330,3 +330,30 @@ Schema migration + ~8 touchpoints in code + UI structural change + state-machine
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 14: Catalog Auto-Sync v2 — GitHub App + PR-Flow
+
+**Goal:** Re-enable catalog auto-sync (parked 2026-05-20 in `1556520` after user raised concern about LXC needing long-lived GitHub write rights) with state-of-the-art auth: replace direct-push-with-PAT with a GitHub App that mints short-lived (~1h) installation tokens via JWT, push to `submissions/<profileId>-<ts>` branches, open PRs, and let Branch Protection on `main` enforce review. CI workflow on PRs validates schema + path allowlist + size. UI re-enabled, setup docs added.
+
+**Depends on:** Phase 13 (Update Pipeline Hardening — quarantine + state.json recovery model)
+
+**Success Criteria** (what must be TRUE):
+  1. `src/modules/catalog/github-publish.ts` mints short-lived installation tokens via JWT signed with the GitHub App's RSA private key; tokens are never persisted; each publish cycle starts with a fresh mint; the JWT path uses RS256 with `iat`, `exp` (≤10min), `iss=appId` per the GitHub spec, then exchanges JWT for an installation token at `POST /app/installations/{installationId}/access_tokens`.
+  2. Publish flow creates a new branch `submissions/<profileSlug>-<unix-ts>` from `main`'s tip, commits the changed catalog files to that branch (Data API: create tree → create commit → update ref), and opens a PR titled `catalog: auto-sync <reason> (<profile name>)` with body containing the sync log entry id + trigger reason. PRs are auto-labelled `auto-sync`. Direct pushes to `main` are NEVER attempted — branch protection would reject them anyway, but the code must not even try.
+  3. Five env vars are added and zod-validated in `src/lib/env.ts`: `GITHUB_APP_ID` (string), `GITHUB_APP_PRIVATE_KEY_PATH` (path to PEM file on LXC, **OR** `GITHUB_APP_PRIVATE_KEY` PEM-literal — exactly one required), `GITHUB_APP_INSTALLATION_ID` (string), `CATALOG_REPO_OWNER`, `CATALOG_REPO_NAME`. Missing/invalid → app boots fine but `isAutoSyncEnabled()` returns false with a structured error reason surfaced on `GET /api/catalog/sync-status`.
+  4. New `.github/workflows/validate-catalog-submission.yml` in the **catalog repo** (not this repo) runs on `pull_request` against `submissions/**` branches: parses each changed file as JSON (catalog entries) or accepts only as image/jpeg|png (≤2 MB), enforces path allowlist (`catalog/profiles/**`, `catalog/INDEX.json`), validates JSON entries against the published catalog zod schema, fails the PR check with a comment listing offenses on violation. Workflow file shipped from this repo as a setup artifact users copy into their catalog repo (since we can't push into the catalog repo via CI from here).
+  5. `isAutoSyncEnabled()` default flipped back to `true` (the gate added in 1556520 is removed). Catalog-settings UI restores the "Letzte Synchronisation" widget + active toggle + active "Jetzt synchronisieren" button — recover the JSX deleted in 1556520 from commit `700e6eb`. `GET /api/catalog/sync-status` now exposes `lastPr` (`{ number, url, branch, state }`) alongside existing fields.
+  6. `docs/CATALOG_AUTOSYNC.md` exists with: (a) GitHub App registration walk-through (permissions: Contents R/W, Pull Requests R/W; scope: one specific repo), (b) private key generation + LXC placement under `/opt/charging-master/secrets/github-app.pem` (chmod 600), (c) installation ID retrieval, (d) Branch Protection setup on `main` (require PR + 1 review + no force-push), (e) env-var wiring, (f) end-to-end smoke test via Bosch PowerTube 625 photo upload, (g) rollback recipe (disable sync via env-var removal).
+  7. Smoke test passes manually: upload a fresh product photo on the Bosch PowerTube 625 profile (per parked-memory notes — current catalog/INDEX.json shows `hasPhoto=false` for that profile, so it's the natural test target). Within 15s a PR appears on the catalog repo with branch `submissions/bosch-powertube-625-<ts>` containing the new `.photo.jpg`, the CI workflow passes, manual merge promotes it to `main`, and public consumers see the photo on next snapshot fetch.
+  8. Backward-compat: existing `catalog_sync_log` table (migration `0013_demonic_charles_xavier`) continues to work; rows gain a new `pr_url` text column (migration `0014_*` adds it). All trigger sites already wired in `700e6eb` keep working (no changes to call sites).
+
+**Out of scope** (parked or excluded):
+- Submission-Broker variant (central-instance-only model) — fallback option if GitHub App proves operationally annoying.
+- Webhook listener for merged-PR events — we only publish, never consume GitHub events back.
+- Multi-catalog-repo support — single catalog repo only.
+- PAT fallback path — explicitly **NOT** shipped, even as a feature flag. Anti-goal: ensure no long-lived secret remains a tempting shortcut.
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 14 to break down)
