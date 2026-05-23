@@ -68,6 +68,11 @@ const ACTIVE_STATES = new Set<ChargeStateEvent['state']>([
   'matched',
   'charging',
   'countdown',
+  // 'learning' is included so the plug-detail page shows the live curve
+  // while a reference-curve learn-in is in flight. There is no reference
+  // overlay during learn (the profile has no curve yet — that's why we're
+  // recording one), so the chart renders the live trace alone.
+  'learning',
 ]);
 const TERMINAL_STATES = new Set<ChargeStateEvent['state']>([
   'complete',
