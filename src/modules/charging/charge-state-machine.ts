@@ -356,7 +356,16 @@ export class ChargeStateMachine {
 
     if (apower < IDLE_THRESHOLD) {
       this.idleCount++;
-      if (this.idleCount >= LEARN_IDLE_READINGS) {
+      // Require that the session observed real charging power before honouring
+      // idle. Without this guard a slow-start charger (DJI Mini 2 charger took
+      // ~90s to draw current — Session 28 on 3.x, 2026-05-23) trips
+      // learn_complete after the 60s idle window before any reading is
+      // recorded, producing a 0-Wh garbage session. Mirrors the
+      // PLATEAU_MIN_PEAK_W guard a few lines below.
+      if (
+        this.idleCount >= LEARN_IDLE_READINGS &&
+        this.learnSessionMaxPower >= PLATEAU_MIN_PEAK_W
+      ) {
         this.transition('learn_complete');
         return this.state;
       }

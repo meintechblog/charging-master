@@ -281,6 +281,35 @@ describe('ChargeStateMachine', () => {
     expect(machine.state).toBe('learning');
   });
 
+  it('idle path does NOT trigger learn_complete when peak never crossed PLATEAU_MIN_PEAK_W', () => {
+    // Regression: slow-start charger that takes longer than LEARN_IDLE_READINGS
+    // (60s) to draw current. Pre-fix the idle counter fired learn_complete
+    // before any reading was recorded, producing a 0-Wh garbage curve (DJI
+    // Mini 2 Session 28, 2026-05-23).
+    const machine = createMachine();
+    machine.startLearning(99);
+
+    const state = feedReadings(machine, 0, LEARN_IDLE_READINGS * 3);
+    expect(state).toBe('learning');
+  });
+
+  it('idle path still triggers after peak has been observed', () => {
+    // Companion test to the regression above: once real charging power has
+    // been seen, the idle fast-path is still honoured for clean charger
+    // shutoff (functional inverse of the slow-start guard).
+    const machine = createMachine();
+    machine.startLearning(99);
+
+    // Brief CC at PLATEAU_MIN_PEAK_W + headroom, then drop to idle.
+    let t = 0;
+    for (let i = 0; i < 5; i++) {
+      machine.feedReading(PLATEAU_MIN_PEAK_W + 10, t);
+      t += 5000;
+    }
+    const state = feedReadings(machine, IDLE_THRESHOLD - 0.5, LEARN_IDLE_READINGS, t);
+    expect(state).toBe('learn_complete');
+  });
+
   it('plateau does NOT trigger before window has filled (< PLATEAU_MIN_SPAN_MS)', () => {
     const machine = createMachine();
     machine.startLearning(99);
