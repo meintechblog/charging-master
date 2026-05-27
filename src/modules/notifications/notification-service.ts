@@ -7,7 +7,9 @@
  * - error/aborted: Charge failure
  * - learn_complete: Learning mode finished
  *
- * Deduplicates per plug (same state not re-notified within 60s cooldown).
+ * Deduplicates per plug — same state never re-notifies; dedup is cleared on
+ * terminal states (complete/error/aborted) so a fresh cycle on the same plug
+ * notifies again.
  * Skips sending if Pushover credentials are not configured.
  */
 
@@ -63,8 +65,6 @@ const NOTIFICATION_STATES = new Set(['detecting', 'matched', 'complete', 'error'
 
 const TERMINAL_STATES = new Set(['complete', 'error', 'aborted']);
 
-const COOLDOWN_MS = 60_000;
-
 /**
  * Pure resolver for the instance label used to prefix push titles. Precedence:
  *   1. configLabel (DB override — `config.instance.label`)
@@ -94,7 +94,6 @@ export function resolveInstanceLabel(opts: {
 export class NotificationService {
   private eventBus: EventBus;
   private lastNotifiedState = new Map<string, string>();
-  private lastNotifiedTime = new Map<string, number>();
   private handler: (event: ChargeStateEvent) => void;
   private instanceLabel: string | null = null;
 
@@ -135,10 +134,12 @@ export class NotificationService {
     // session — the start announcement already fired at idle→detecting.
     if (event.state === 'detecting' && event.detectionExhausted) return;
 
-    // Dedup: skip if same state for same plug within cooldown
+    // Dedup: skip if same state for same plug — terminal states clear the map
+    // for the next cycle. No time window: ChargeMonitor re-emits the current
+    // state on every poll while it sits in detecting (and other non-terminal
+    // states), so a time-windowed gate turns into a metronome of pushes.
     const lastState = this.lastNotifiedState.get(event.plugId);
-    const lastTime = this.lastNotifiedTime.get(event.plugId) ?? 0;
-    if (lastState === event.state && Date.now() - lastTime < COOLDOWN_MS) {
+    if (lastState === event.state) {
       return;
     }
 
@@ -159,13 +160,11 @@ export class NotificationService {
 
     if (sent) {
       this.lastNotifiedState.set(event.plugId, event.state);
-      this.lastNotifiedTime.set(event.plugId, Date.now());
     }
 
     // On terminal states, clear dedup so next session triggers fresh
     if (TERMINAL_STATES.has(event.state)) {
       this.lastNotifiedState.delete(event.plugId);
-      this.lastNotifiedTime.delete(event.plugId);
     }
   }
 

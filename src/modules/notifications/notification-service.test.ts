@@ -325,3 +325,73 @@ describe('NotificationService — matched message with SOC band (SOCB-05)', () =
     }
   });
 });
+
+// --- 260527-fmu dedup gate regression -------------------------------------
+//
+// The previous dedup gate `lastState === state && now - lastTime < 60_000`
+// only suppressed re-fires within a 60s window. ChargeMonitor re-emits
+// `detecting` on every poll while the state machine sits there, so a stuck
+// `detecting` session turned into one push per minute (~960 pushes / 16h
+// confirmed in prod on 2026-05-27 on LXC 192.168.2.117).
+
+describe('NotificationService — dedup gate (sustained-state regression)', () => {
+  let bus: EventBus;
+  let svc: NotificationService;
+
+  beforeEach(() => {
+    resetFakeState();
+    seedPushoverCredentials();
+    vi.mocked(sendPushover).mockClear();
+    vi.mocked(sendPushover).mockResolvedValue(true);
+    bus = new EventBus();
+    svc = new NotificationService(bus);
+    svc.start();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    svc.stop();
+  });
+
+  it('sustained detecting fires exactly once across many emits + wall-clock advance', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-27T09:00:00Z'));
+
+    for (let i = 0; i < 10; i++) {
+      bus.emitChargeState(baseEvent('detecting'));
+      // Drain microtasks so handleEvent runs to completion.
+      await vi.advanceTimersByTimeAsync(0);
+      // Advance well past the old 60s cooldown — with a time-windowed gate
+      // this loop would produce ~5 pushes. With the fix it produces exactly 1.
+      vi.setSystemTime(new Date(Date.now() + 65_000));
+    }
+
+    expect(vi.mocked(sendPushover).mock.calls.length).toBe(1);
+  });
+
+  it('terminal-state cleanup re-enables same-state notification on the next cycle', async () => {
+    bus.emitChargeState(baseEvent('detecting'));
+    await new Promise((r) => setImmediate(r));
+
+    bus.emitChargeState(baseEvent('complete', { socMin: undefined, socMax: undefined }));
+    await new Promise((r) => setImmediate(r));
+
+    // Second cycle on the same plug — terminal cleanup cleared the map,
+    // so detecting fires again.
+    bus.emitChargeState(baseEvent('detecting'));
+    await new Promise((r) => setImmediate(r));
+
+    expect(vi.mocked(sendPushover).mock.calls.length).toBe(3);
+  });
+
+  it('different non-terminal states on same plug each fire once', async () => {
+    bus.emitChargeState(baseEvent('detecting'));
+    await new Promise((r) => setImmediate(r));
+    bus.emitChargeState(baseEvent('matched'));
+    await new Promise((r) => setImmediate(r));
+    bus.emitChargeState(baseEvent('complete', { socMin: undefined, socMax: undefined }));
+    await new Promise((r) => setImmediate(r));
+
+    expect(vi.mocked(sendPushover).mock.calls.length).toBe(3);
+  });
+});
