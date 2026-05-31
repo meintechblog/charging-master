@@ -244,6 +244,10 @@ export class ChargeStateMachine {
     if (apower > CHARGE_THRESHOLD) {
       this.sustainedCount++;
       if (this.sustainedCount >= SUSTAINED_READINGS) {
+        // Fresh detection cycle — clear the idle-collapse counter so a stale
+        // value from a prior cycle can't prematurely recycle this one to idle
+        // (see handleDetecting power-loss guard).
+        this.idleCount = 0;
         this.transition('detecting');
         this.sustainedCount = 0;
       }
@@ -253,9 +257,24 @@ export class ChargeStateMachine {
     return this.state;
   }
 
-  private handleDetecting(_apower: number, _timestamp: number): ChargeState {
-    // Detection logic (DTW matching) is handled externally by ChargeMonitor.
-    // The state machine just waits for setMatch() or timeout.
+  private handleDetecting(apower: number, _timestamp: number): ChargeState {
+    // DTW matching is driven externally by ChargeMonitor, which calls setMatch()
+    // once a candidate commits. But if power collapses to ~idle before any match
+    // commits — the device was unplugged, or finished charging while still
+    // detecting — nothing here would ever leave 'detecting', so the session row
+    // lingers forever as an orphaned 'detecting' zombie (no user feedback, and a
+    // re-emit source that can drive the Pushover metronome). Recycle to 'idle'
+    // after a sustained idle stretch; ChargeMonitor.handleTransition('idle')
+    // then persists the row as aborted/detection_failed and cleans up.
+    if (apower < IDLE_THRESHOLD) {
+      this.idleCount++;
+      if (this.idleCount >= SUSTAINED_READINGS) {
+        this.transition('idle');
+        this.idleCount = 0;
+      }
+    } else {
+      this.idleCount = 0;
+    }
     return this.state;
   }
 
