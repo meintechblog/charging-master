@@ -564,4 +564,43 @@ describe('ChargeStateMachine', () => {
     expect(machine.state).toBe('aborted');
     expect(transitionSpy).toHaveBeenCalledWith('charging', 'aborted', { reason: 'timeout' });
   });
+
+  // --- Detection power-loss recovery (stuck-detecting / missing-feedback bug) ---
+  // A device that briefly drew power (-> detecting) then dropped to ~0 W before
+  // any match committed used to sit in 'detecting' forever. handleDetecting now
+  // recycles to 'idle' after a sustained idle stretch.
+
+  it('recycles to idle when power collapses during detection (no match)', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    expect(machine.state).toBe('detecting');
+
+    // Power disappears (unplugged / finished before any setMatch commit).
+    const state = feedReadings(machine, 0, SUSTAINED_READINGS, 100000);
+    expect(state).toBe('idle');
+    expect(machine.state).toBe('idle');
+  });
+
+  it('stays in detecting while charging power persists without a match', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    expect(machine.state).toBe('detecting');
+
+    // Power continues with no match committed — detection must hold (exhaustion
+    // / ambiguity handling is ChargeMonitor's concern, not a collapse).
+    const state = feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS * 3, 100000);
+    expect(state).toBe('detecting');
+  });
+
+  it('does not recycle on a brief power dip shorter than the idle window', () => {
+    const machine = createMachine();
+    feedReadings(machine, CHARGE_THRESHOLD + 10, SUSTAINED_READINGS);
+    expect(machine.state).toBe('detecting');
+
+    // A dip one reading short of the window, then recovery, must NOT recycle.
+    feedReadings(machine, IDLE_THRESHOLD - 1, SUSTAINED_READINGS - 1, 100000);
+    expect(machine.state).toBe('detecting');
+    const state = feedReadings(machine, CHARGE_THRESHOLD + 10, 1, 200000);
+    expect(state).toBe('detecting');
+  });
 });
