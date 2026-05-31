@@ -15,3 +15,6 @@ data/
 /.claude/
 /.planning/
 /.tmp-research/
+
+# TypeScript incremental build cache (perpetually-dirty artifact)
+*.tsbuildinfo
