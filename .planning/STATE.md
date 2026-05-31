@@ -4,8 +4,8 @@ milestone: v1.3
 milestone_name: SOC Intelligence
 status: verifying
 stopped_at: Phase 11 SOC Confidence Band code-complete; milestone v1.3 ready for LXC deployment + on-device Pushover lock-screen verify.
-last_updated: "2026-05-15T00:09:47.887Z"
-last_activity: 2026-05-15 -- v1.4 SHIPPED: Phase 12 + Phase 13 deployed to both LXCs (15e8cc2). 270/270 tests, two VERIFICATION PASS. PIPE-04 live-smoked: localhost reset OK + host-guard 403 on external. recovery_reset audit rows on both. Awaiting v1.4 milestone close.
+last_updated: "2026-05-27T09:20:00.000Z"
+last_activity: 2026-05-27 -- Quick 260527-fmu: fix Pushover dedup metronome (~960 pushes / 16 h from one stuck `detecting` session on LXC 192.168.2.117). aab9eee deployed both LXCs.
 progress:
   total_phases: 8
   completed_phases: 5
@@ -140,6 +140,7 @@ None.
 | 260421-669 | Multi-channel Shelly support (planned as 999.1 backlog, pulled into this session). Discovery enumerates every switch:N; schema `plugs.channel` added (ALTER TABLE on live DB); composite id `${deviceId}:${channel}` for channel > 0; all `?id=0` hardcoding removed from polling + relay + learn paths. | 2026-04-21 | ec20a40, 3bc75c9 | [260421-669](./quick/260421-669-multi-switch-discovery/) |
 | 260421-6f6 | Replace ASCII `ue / ae / oe` digraphs with proper umlauts in 9 user-facing strings across 5 files. No behavior change. | 2026-04-21 | f72ef68 | [260421-6f6](./quick/260421-6f6-umlaut-fixes/) |
 | 260515-2e4 | **v1.3.1** — `DEFAULT_BAND_THRESHOLD_PCT` 0.05 → 0.20 after real-iPad-Session-14 calibration sweep revealed 0.05 collapses band to Δ=0 in flat region after 10 min (false confidence). New real fixture `ipad-session-14-readings.json` (830 readings). Calibration test rewritten to dual-criterion (taper Δ≤5 AND flat Δ≥10). New diagnostic CLI `scripts/calibration/sweep-real.ts`. v1.4 deferral noted: `socBest` still anchors to ~31% in flat region regardless of threshold — needs stale-power-watchdog. Deployed both LXCs after one preflight-clean retry (185 stuck on `installing` state due to untracked diagnostic file from earlier exploration). | 2026-05-15 | d4242b3 | [260515-2e4](./quick/260515-2e4-band-threshold-20-real-calib/) |
+| 260527-fmu | Fix Pushover dedup metronome — sustained `detecting` state re-fired "Ladevorgang gestartet" every 60 s (~960 pushes / 16 h observed on LXC 192.168.2.117 from a stuck session that never matched a profile). Removed the time-window clause from the dedup gate; same state never re-notifies until it actually changes. Terminal states still clear the dedup map. Also manually aborted the stuck session 8 on 117 + restarted the service to stop the live spam before the code fix landed. Deferred follow-up: state machine has no `detecting → idle` recycle on power drop (FPD-01 only runs in charging/countdown). | 2026-05-27 | aab9eee | [260527-fmu](./quick/260527-fmu-fix-notification-service-dedup-bug-for-s/) |
 
 ## Session Continuity
 
